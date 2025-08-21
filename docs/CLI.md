@@ -33,6 +33,7 @@ prompd execute <file> --provider <provider> --model <model> [options]
 - `-f, --param-file FILE` - Load parameters from JSON file (can use multiple)
 - `--api-key KEY` - Override API key for provider
 - `-o, --output FILE` - Save response to file
+- `--version VERSION` - Execute a specific version (e.g., '1.2.3', 'HEAD', commit hash)
 - `-v, --verbose` - Show detailed execution information
 
 #### Examples
@@ -57,6 +58,14 @@ prompd execute prompt.prompd --provider openai --model gpt-4 \
 # Override API key
 prompd execute prompt.prompd --provider openai --model gpt-4 \
   --api-key sk-...
+
+# Execute a specific version
+prompd execute prompt.prompd --provider openai --model gpt-4 \
+  --version 1.2.3 -p name=Alice
+
+# Execute last committed version
+prompd execute prompt.prompd --provider openai --model gpt-4 \
+  --version HEAD
 ```
 
 ### `prompd validate`
@@ -99,6 +108,123 @@ prompd validate prompt.prompd --version-only
 - Parameter definitions
 - Variable references
 - Type consistency
+
+### `prompd git`
+
+Git operations for .prompd files.
+
+#### Subcommands
+
+##### `prompd git add`
+
+Add .prompd files to git staging area.
+
+```bash
+prompd git add <files...> [options]
+```
+
+Options:
+- `-v, --verbose` - Show git output
+
+Examples:
+```bash
+# Add single file
+prompd git add prompts/my-prompt.prompd
+
+# Add multiple files
+prompd git add prompts/*.prompd
+```
+
+##### `prompd git remove`
+
+Remove .prompd files from git tracking.
+
+```bash
+prompd git remove <files...> [options]
+```
+
+Options:
+- `--cached` - Only remove from index, keep in working directory
+- `-v, --verbose` - Show git output
+
+Examples:
+```bash
+# Remove file completely
+prompd git remove old-prompt.prompd
+
+# Remove from tracking but keep file
+prompd git remove old-prompt.prompd --cached
+```
+
+##### `prompd git status`
+
+Show git status for .prompd files.
+
+```bash
+prompd git status [options]
+```
+
+Options:
+- `-p, --path PATH` - Check status for specific path
+
+Example:
+```bash
+prompd git status
+```
+
+##### `prompd git commit`
+
+Commit staged .prompd files.
+
+```bash
+prompd git commit -m <message> [options]
+```
+
+Options:
+- `-m, --message TEXT` - Commit message (required)
+- `-a, --all` - Automatically stage all modified .prompd files
+
+Examples:
+```bash
+# Commit staged files
+prompd git commit -m "Update prompt parameters"
+
+# Stage and commit all modified .prompd files
+prompd git commit -m "Fix validation rules" --all
+```
+
+##### `prompd git checkout`
+
+Checkout a specific version of a .prompd file.
+
+```bash
+prompd git checkout <file> <version> [options]
+```
+
+Arguments:
+- `file` - Path to .prompd file
+- `version` - Version to checkout (semantic version, tag, commit hash, HEAD, HEAD~1, etc.)
+
+Options:
+- `-o, --output FILE` - Output to different file instead of overwriting
+
+Examples:
+```bash
+# Checkout version 1.2.3 (overwrites current file)
+prompd git checkout prompts/my-prompt.prompd 1.2.3
+
+# Checkout to a different file
+prompd git checkout prompts/my-prompt.prompd 1.2.3 -o prompts/my-prompt-v1.2.3.prompd
+
+# Checkout last committed version
+prompd git checkout prompts/my-prompt.prompd HEAD
+
+# Checkout previous commit
+prompd git checkout prompts/my-prompt.prompd HEAD~1
+
+# Checkout specific commit
+prompd git checkout prompts/my-prompt.prompd abc1234
+```
 
 ### `prompd version`
 
@@ -247,6 +373,165 @@ prompd show <file>
 - Content structure
 - Required fields
 
+### `prompd provider`
+
+Manage LLM providers including custom/local providers.
+
+#### Subcommands
+
+##### `prompd provider list`
+
+List all available providers (built-in and custom).
+
+```bash
+prompd provider list
+```
+
+Shows:
+- Provider name and type (Built-in/Custom)
+- Available models
+- Connection status
+
+Example output:
+```
+┌─ Provider ─────────────────────────────┐
+│ openai (Built-in)                      │
+│ Models: gpt-4, gpt-4-turbo, gpt-4o ... │
+└────────────────────────────────────────┘
+┌─ Provider ─────────────────────────────┐
+│ local-ollama (Custom)                  │
+│ Models: llama3.2, qwen2.5             │
+└────────────────────────────────────────┘
+```
+
+##### `prompd provider add`
+
+Add a custom LLM provider with OpenAI-compatible API.
+
+```bash
+prompd provider add <name> <base_url> <models...> [options]
+```
+
+**Arguments:**
+- `name` - Provider name (e.g., 'local-ollama', 'groq-api')
+- `base_url` - API endpoint URL (e.g., 'http://localhost:11434/v1')
+- `models` - Space-separated list of model names
+
+**Options:**
+- `--api-key KEY` - API key for the provider (optional)
+- `--type TYPE` - Provider type (default: openai-compatible)
+
+**Examples:**
+
+```bash
+# Add local Ollama instance
+prompd provider add local-ollama http://localhost:11434/v1 \
+  llama3.2 qwen2.5 mixtral
+
+# Add Groq with API key
+prompd provider add groq https://api.groq.com/openai/v1 \
+  llama-3.1-8b-instant mixtral-8x7b-32768 \
+  --api-key gsk_...
+
+# Add local LM Studio
+prompd provider add lmstudio http://localhost:1234/v1 \
+  local-model
+
+# Add Together AI
+prompd provider add together https://api.together.xyz/v1 \
+  mistralai/Mixtral-8x7B-Instruct-v0.1 \
+  --api-key your-api-key
+```
+
+##### `prompd provider show`
+
+Show detailed information about a specific provider.
+
+```bash
+prompd provider show <name>
+```
+
+**Example:**
+```bash
+prompd provider show local-ollama
+```
+
+Output includes:
+- Provider type (Built-in/Custom)
+- Base URL (for custom providers)
+- API key status
+- Available models
+- Configuration details
+
+##### `prompd provider remove`
+
+Remove a custom provider.
+
+```bash
+prompd provider remove <name> [options]
+```
+
+**Options:**
+- `-y, --yes` - Skip confirmation prompt
+
+**Examples:**
+```bash
+# Remove with confirmation
+prompd provider remove local-ollama
+
+# Remove without confirmation
+prompd provider remove groq-api --yes
+```
+
+#### Custom Provider Configuration
+
+Custom providers are stored in `~/.prompd/config.yaml`:
+
+```yaml
+custom_providers:
+  local-ollama:
+    base_url: http://localhost:11434/v1
+    models:
+      - llama3.2
+      - qwen2.5
+    api_key: null
+    type: openai-compatible
+    enabled: true
+```
+
+#### Supported Provider Types
+
+Currently supported provider types:
+- `openai-compatible` - OpenAI Chat Completions API format
+
+#### OpenAI-Compatible APIs
+
+Many LLM providers support OpenAI's chat completions API format:
+
+| Provider | Base URL | Example Models |
+|----------|----------|----------------|
+| Ollama | `http://localhost:11434/v1` | llama3.2, qwen2.5 |
+| LM Studio | `http://localhost:1234/v1` | local-model |
+| Groq | `https://api.groq.com/openai/v1` | llama-3.1-8b-instant |
+| Together AI | `https://api.together.xyz/v1` | mistralai/Mixtral-8x7B |
+| Perplexity | `https://api.perplexity.ai` | llama-3.1-sonar-small |
+| Fireworks | `https://api.fireworks.ai/inference/v1` | accounts/fireworks/models/llama-v3p1-8b-instruct |
+
+#### Using Custom Providers
+
+Once added, custom providers work exactly like built-in providers:
+
+```bash
+# Execute with custom provider
+prompd execute prompt.prompd \
+  --provider local-ollama \
+  --model llama3.2 \
+  -p topic="machine learning"
+
+# Use with any prompd command
+prompd validate prompt.prompd  # Works with any provider
+```
+
 #### Example
 
 ```bash
@@ -344,6 +629,98 @@ Parameters are resolved in this order (highest to lowest priority):
 - `3` - Provider error
 - `4` - Configuration error
 - `5` - File not found
+
+## Working with Versions
+
+### Using Specific Versions
+
+There are multiple ways to work with specific versions of `.prompd` files:
+
+#### 1. Execute a Specific Version Directly
+Run a specific version without modifying your working directory:
+
+```bash
+# Execute semantic version 1.2.3
+prompd execute my-prompt.prompd --provider openai --model gpt-4 \
+  --version 1.2.3 -p name=Alice
+
+# Execute the last committed version
+prompd execute my-prompt.prompd --provider openai --model gpt-4 \
+  --version HEAD
+
+# Execute a specific commit
+prompd execute my-prompt.prompd --provider openai --model gpt-4 \
+  --version abc1234
+
+# Execute previous commit
+prompd execute my-prompt.prompd --provider openai --model gpt-4 \
+  --version HEAD~1
+```
+
+#### 2. Checkout a Version to Working Directory
+Retrieve a specific version and save it to disk:
+
+```bash
+# Checkout and overwrite current file
+prompd git checkout prompts/my-prompt.prompd 1.2.3
+
+# Checkout to a different file (preserve current)
+prompd git checkout prompts/my-prompt.prompd 1.2.3 \
+  -o prompts/my-prompt-v1.2.3.prompd
+
+# Revert to last committed version
+prompd git checkout prompts/my-prompt.prompd HEAD
+```
+
+#### 3. Compare Versions
+See what changed between versions:
+
+```bash
+# Compare two specific versions
+prompd version diff prompts/my-prompt.prompd 1.0.0 2.0.0
+
+# Compare version with current working copy
+prompd version diff prompts/my-prompt.prompd 1.0.0
+```
+
+#### 4. View Version History
+See all available versions:
+
+```bash
+# Show version history with tags
+prompd version history prompts/my-prompt.prompd
+
+# Show last 5 versions
+prompd version history prompts/my-prompt.prompd -n 5
+```
+
+### Version Workflow Example
+
+```bash
+# 1. Check current version
+prompd show my-prompt.prompd  # Shows version: 1.0.0
+
+# 2. Make changes to the file
+edit my-prompt.prompd
+
+# 3. Test changes
+prompd execute my-prompt.prompd --provider openai --model gpt-4 \
+  -p test=value
+
+# 4. Compare with previous version
+prompd version diff my-prompt.prompd 1.0.0
+
+# 5. If changes are good, bump version
+prompd version bump my-prompt.prompd minor -m "Add new parameters"
+# Creates version 1.1.0 and git tag
+
+# 6. If changes are bad, revert to previous
+prompd git checkout my-prompt.prompd 1.0.0
+
+# 7. Or test old version without changing files
+prompd execute my-prompt.prompd --provider openai --model gpt-4 \
+  --version 1.0.0 -p test=value
+```
 
 ## Examples
 

@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+recursive-include docs *.md
+recursive-include examples *.prompd *.json *.md
+exclude tests/*
+exclude vscode-extension/*
+exclude .git/*
+exclude .github/*
+exclude *.pyc
+exclude __pycache__

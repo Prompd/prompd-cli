@@ -19,6 +19,12 @@ Welcome to the Prompd documentation! Prompd is a CLI tool and file format for ma
    - Usage examples
    - Troubleshooting guide
 
+3. **[Provider Management](PROVIDERS.md)**
+   - Built-in providers (OpenAI, Anthropic, Ollama)
+   - Custom provider setup
+   - OpenAI-compatible APIs
+   - Local LLM integration
+
 ### Quick Links
 
 - [Main README](../README.md) - Project overview and quick start
@@ -65,9 +71,10 @@ prompd execute my-assistant.prompd \
 ## 📖 Learning Path
 
 1. **Start Here**: Read the [Format Specification](FORMAT.md) to understand .prompd files
-2. **Learn Commands**: Review the [CLI Reference](CLI.md) for all available commands
-3. **Try Examples**: Explore the [examples](../examples/) directory
-4. **Set Up IDE**: Install the [VS Code Extension](../vscode-extension/)
+2. **Learn Commands**: Review the [CLI Reference](CLI.md) for all available commands  
+3. **Set Up Providers**: Configure LLM providers with the [Provider Management](PROVIDERS.md) guide
+4. **Try Examples**: Explore the [examples](../examples/) directory
+5. **Set Up IDE**: Install the [VS Code Extension](../vscode-extension/)
 
 ## 🔑 Key Concepts
 
@@ -85,10 +92,9 @@ prompd execute my-assistant.prompd \
 
 ### Provider Abstraction
 Write once, run anywhere:
-- OpenAI (GPT-3.5, GPT-4)
-- Anthropic (Claude)
-- Ollama (Local models)
-- More coming soon!
+- **Built-in Providers**: OpenAI (GPT-3.5, GPT-4), Anthropic (Claude), Ollama (Local models)
+- **Custom Providers**: Add any OpenAI-compatible API (Groq, Together AI, LM Studio, etc.)
+- **Local Models**: Full support for self-hosted LLMs via Ollama or custom endpoints
 
 ## 💡 Best Practices
 
@@ -128,15 +134,50 @@ export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-Or config file (`~/.prompd/config.json`):
-```json
-{
-  "providers": {
-    "openai": {
-      "api_key": "sk-..."
-    }
-  }
-}
+Or config file (`~/.prompd/config.yaml`):
+```yaml
+api_keys:
+  openai: "sk-..."
+  anthropic: "sk-ant-..."
+```
+
+### Custom Providers
+
+Add custom LLM providers with OpenAI-compatible APIs:
+
+```bash
+# Add local Ollama
+prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+
+# Add Groq
+prompd provider add groq https://api.groq.com/openai/v1 \
+  llama-3.1-8b-instant --api-key gsk_...
+
+# List all providers
+prompd provider list
+
+# Remove provider
+prompd provider remove local-ollama
+```
+
+### Configuration File
+
+Full config at `~/.prompd/config.yaml`:
+```yaml
+default_provider: openai
+default_model: gpt-4
+timeout: 30
+max_retries: 3
+
+api_keys:
+  openai: "sk-..."
+  
+custom_providers:
+  local-ollama:
+    base_url: http://localhost:11434/v1
+    models: [llama3.2, qwen2.5]
+    type: openai-compatible
+    enabled: true
 ```
 
 ## 🤝 Getting Help
@@ -151,7 +192,7 @@ Or config file (`~/.prompd/config.json`):
 - **Package Registry**: npm-like registry for sharing prompts
 - **Web UI**: Browser-based prompt management
 - **Team Features**: Collaboration and sharing
-- **More Providers**: Google, Cohere, local models
+- **More Provider Types**: Native support for Google, Cohere, and other APIs
 
 ---
 

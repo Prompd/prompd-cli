@@ -14,13 +14,14 @@ from rich.panel import Panel
 from prompd.parser import PrompdParser
 from prompd.validator import PrompDValidator
 from prompd.executor import PrompDExecutor
+from prompd.config import PrompDConfig
 from prompd.exceptions import PrompDError, ValidationError, ParseError, ProviderError, ConfigurationError
 
 console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="prompd")
+@click.version_option(version="0.2.0", prog_name="prompd")
 def cli():
     """Prompd - CLI for structured prompt definitions."""
     pass
@@ -35,13 +36,52 @@ def cli():
               multiple=True, help="JSON parameter file")
 @click.option("--api-key", help="API key override")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
+@click.option("--version", help="Execute a specific version (e.g., '1.2.3', 'HEAD', commit hash)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 def execute(file: Path, provider: str, model: str, param: tuple, param_file: tuple, 
-           api_key: Optional[str], output: Optional[str], verbose: bool):
+           api_key: Optional[str], output: Optional[str], version: Optional[str], verbose: bool):
     """Execute a .prompd file with an LLM provider."""
     import asyncio
+    import tempfile
     
     try:
+        # Handle version checkout if specified
+        actual_file = file
+        temp_file = None
+        
+        if version:
+            # Create a temporary file with the specified version
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.prompd', delete=False, encoding='utf-8') as tmp:
+                temp_file = Path(tmp.name)
+                
+                # Get the file content at that version
+                if _is_valid_semver(version):
+                    tag_name = f"{file.stem}-v{version}"
+                    # Check if tag exists
+                    tag_check = subprocess.run(
+                        ["git", "tag", "-l", tag_name],
+                        capture_output=True,
+                        text=True
+                    )
+                    version_ref = tag_name if tag_check.stdout.strip() else version
+                else:
+                    version_ref = version
+                
+                # Convert Windows paths to forward slashes for git
+                git_path = str(file).replace('\\', '/')
+                result = subprocess.run(
+                    ["git", "show", f"{version_ref}:{git_path}"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                
+                tmp.write(result.stdout)
+                actual_file = temp_file
+                
+                if verbose:
+                    console.print(f"[dim]Using version {version} of {file}[/dim]")
+        
         # Create executor
         executor = PrompDExecutor()
         
@@ -51,13 +91,17 @@ def execute(file: Path, provider: str, model: str, param: tuple, param_file: tup
         
         # Execute
         response = asyncio.run(executor.execute(
-            prompd_file=file,
+            prompd_file=actual_file,
             provider=provider,
             model=model,
             cli_params=cli_params,
             param_files=param_files,
             api_key=api_key
         ))
+        
+        # Clean up temp file if created
+        if temp_file and temp_file.exists():
+            temp_file.unlink()
         
         # Output result
         if output:
@@ -201,10 +245,17 @@ def list_prompts(path: Path, detailed: bool):
         sys.exit(1)
 
 
-@cli.command()
-def providers():
+@cli.group()
+def provider():
+    """Manage LLM providers."""
+    pass
+
+
+@provider.command("list")
+def list_providers():
     """List available LLM providers and their models."""
     try:
+        config = PrompDConfig.load()
         executor = PrompDExecutor()
         available_providers = executor.get_available_providers()
         
@@ -215,17 +266,156 @@ def providers():
         for provider_name in available_providers:
             models = executor.get_provider_models(provider_name)
             
+            # Check if it's a custom provider
+            is_custom = provider_name in config.custom_providers
+            provider_type = "Custom" if is_custom else "Built-in"
+            
             console.print(Panel(
-                f"[bold]{provider_name}[/bold]\n"
+                f"[bold]{provider_name}[/bold] ({provider_type})\n"
                 f"Models: {', '.join(models[:5])}"
                 f"{' ...' if len(models) > 5 else ''}",
                 title="Provider",
-                border_style="blue"
+                border_style="green" if is_custom else "blue"
             ))
             
     except Exception as e:
         console.print(f"[red]Error listing providers:[/red] {e}")
         sys.exit(1)
+
+
+@provider.command("add")
+@click.argument("name")
+@click.argument("base_url")
+@click.argument("models", nargs=-1, required=True)
+@click.option("--api-key", help="API key for the provider")
+@click.option("--type", "provider_type", default="openai-compatible", 
+              type=click.Choice(["openai-compatible"]), help="Provider type")
+def add_provider(name: str, base_url: str, models: tuple, api_key: Optional[str], provider_type: str):
+    """Add a custom LLM provider.
+    
+    NAME: Provider name (e.g., 'local-ollama')
+    BASE_URL: API endpoint URL (e.g., 'http://localhost:11434/v1')
+    MODELS: Space-separated list of model names
+    """
+    try:
+        config = PrompDConfig.load()
+        
+        # Check if provider already exists
+        if name in config.custom_providers:
+            console.print(f"[yellow]Provider '{name}' already exists. Use 'prompd provider remove {name}' first.[/yellow]")
+            return
+        
+        # Add the provider
+        config.add_custom_provider(
+            name=name,
+            base_url=base_url,
+            models=list(models),
+            api_key=api_key,
+            provider_type=provider_type
+        )
+        
+        # Save config
+        config.save()
+        
+        console.print(f"[green]OK[/green] Added custom provider '{name}'")
+        console.print(f"  Base URL: {base_url}")
+        console.print(f"  Models: {', '.join(models)}")
+        if api_key:
+            console.print(f"  API Key: {'*' * (len(api_key) - 4)}{api_key[-4:]}")
+        
+    except Exception as e:
+        console.print(f"[red]Error adding provider:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("remove")
+@click.argument("name")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def remove_provider(name: str, yes: bool):
+    """Remove a custom LLM provider."""
+    try:
+        config = PrompDConfig.load()
+        
+        if name not in config.custom_providers:
+            console.print(f"[red]Provider '{name}' not found[/red]")
+            sys.exit(1)
+        
+        if not yes:
+            provider_info = config.custom_providers[name]
+            console.print(f"About to remove provider: [bold]{name}[/bold]")
+            console.print(f"  Base URL: {provider_info.get('base_url')}")
+            console.print(f"  Models: {', '.join(provider_info.get('models', []))}")
+            
+            if not click.confirm("Are you sure?"):
+                console.print("Cancelled.")
+                return
+        
+        # Remove the provider
+        config.remove_custom_provider(name)
+        config.save()
+        
+        console.print(f"[green]OK[/green] Removed provider '{name}'")
+        
+    except Exception as e:
+        console.print(f"[red]Error removing provider:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("show")
+@click.argument("name")
+def show_provider(name: str):
+    """Show details for a specific provider."""
+    try:
+        config = PrompDConfig.load()
+        executor = PrompDExecutor()
+        
+        # Check if it's a custom provider
+        if name in config.custom_providers:
+            provider_info = config.custom_providers[name]
+            console.print(Panel(
+                f"[bold cyan]{name}[/bold cyan] (Custom Provider)\n\n"
+                f"[bold]Base URL:[/bold] {provider_info['base_url']}\n"
+                f"[bold]Type:[/bold] {provider_info.get('type', 'openai-compatible')}\n"
+                f"[bold]Enabled:[/bold] {provider_info.get('enabled', True)}\n"
+                f"[bold]API Key:[/bold] {'Set' if provider_info.get('api_key') else 'Not set'}\n\n"
+                f"[bold]Models:[/bold]\n" + 
+                '\n'.join(f"  • {model}" for model in provider_info.get('models', [])),
+                border_style="green"
+            ))
+        else:
+            # Check if it's a built-in provider
+            available_providers = executor.get_available_providers()
+            if name not in available_providers:
+                console.print(f"[red]Provider '{name}' not found[/red]")
+                sys.exit(1)
+            
+            models = executor.get_provider_models(name)
+            has_api_key = bool(config.get_api_key(name))
+            
+            console.print(Panel(
+                f"[bold cyan]{name}[/bold cyan] (Built-in Provider)\n\n"
+                f"[bold]API Key:[/bold] {'Set' if has_api_key else 'Not set'}\n\n"
+                f"[bold]Models:[/bold]\n" + 
+                '\n'.join(f"  • {model}" for model in models[:10]) +
+                (f"\n  ... and {len(models) - 10} more" if len(models) > 10 else ""),
+                border_style="blue"
+            ))
+        
+    except Exception as e:
+        console.print(f"[red]Error showing provider:[/red] {e}")
+        sys.exit(1)
+
+
+# Keep the old providers command for backward compatibility
+@cli.command()
+def providers():
+    """List available LLM providers and their models."""
+    console.print("[dim]Note: Use 'prompd provider list' for more detailed view[/dim]\n")
+    
+    # Call the new command
+    from click.testing import CliRunner
+    runner = CliRunner()
+    runner.invoke(list_providers)
 
 
 @cli.command()
@@ -288,6 +478,245 @@ def show(file: Path):
             
     except Exception as e:
         console.print(f"[red]Error reading file:[/red] {e}")
+        sys.exit(1)
+
+
+@cli.group()
+def git():
+    """Git operations for .prompd files."""
+    pass
+
+
+@git.command("add")
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
+@click.option("--verbose", "-v", is_flag=True, help="Show git output")
+def git_add(files: tuple, verbose: bool):
+    """Add .prompd files to git staging area."""
+    try:
+        for file_path in files:
+            file_path = Path(file_path)
+            if not file_path.suffix == ".prompd":
+                console.print(f"[yellow]Skipping non-.prompd file:[/yellow] {file_path}")
+                continue
+            
+            result = subprocess.run(
+                ["git", "add", str(file_path)], 
+                capture_output=True, 
+                text=True, 
+                check=True
+            )
+            
+            console.print(f"[green]OK[/green] Added {file_path}")
+            if verbose and result.stdout:
+                console.print(f"[dim]{result.stdout}[/dim]")
+                
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Error adding files:[/red] {e.stderr}")
+        sys.exit(1)
+
+
+@git.command("remove")
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
+@click.option("--cached", is_flag=True, help="Only remove from index, keep in working directory")
+@click.option("--verbose", "-v", is_flag=True, help="Show git output")
+def git_remove(files: tuple, cached: bool, verbose: bool):
+    """Remove .prompd files from git tracking."""
+    try:
+        for file_path in files:
+            file_path = Path(file_path)
+            if not file_path.suffix == ".prompd":
+                console.print(f"[yellow]Skipping non-.prompd file:[/yellow] {file_path}")
+                continue
+            
+            cmd = ["git", "rm"]
+            if cached:
+                cmd.append("--cached")
+            cmd.append(str(file_path))
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            action = "Removed from index" if cached else "Removed"
+            console.print(f"[green]OK[/green] {action}: {file_path}")
+            if verbose and result.stdout:
+                console.print(f"[dim]{result.stdout}[/dim]")
+                
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Error removing files:[/red] {e.stderr}")
+        sys.exit(1)
+
+
+@git.command("status")
+@click.option("--path", "-p", type=click.Path(exists=True, path_type=Path), 
+              help="Check status for specific path")
+def git_status(path: Optional[Path]):
+    """Show git status for .prompd files."""
+    try:
+        cmd = ["git", "status", "--short"]
+        if path:
+            cmd.append(str(path))
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        if not result.stdout:
+            console.print("[green]No changes to .prompd files[/green]")
+            return
+        
+        # Filter for .prompd files
+        prompd_changes = []
+        for line in result.stdout.strip().split('\n'):
+            if '.prompd' in line:
+                prompd_changes.append(line)
+        
+        if prompd_changes:
+            console.print("[bold]Git status for .prompd files:[/bold]")
+            for change in prompd_changes:
+                status_code = change[:2]
+                file_path = change[3:]
+                
+                # Color code based on status
+                if 'M' in status_code:
+                    status_color = "yellow"
+                    status_text = "Modified"
+                elif 'A' in status_code:
+                    status_color = "green"
+                    status_text = "Added"
+                elif 'D' in status_code:
+                    status_color = "red"
+                    status_text = "Deleted"
+                elif '?' in status_code:
+                    status_color = "blue"
+                    status_text = "Untracked"
+                else:
+                    status_color = "white"
+                    status_text = status_code
+                
+                console.print(f"  [{status_color}]{status_text:10}[/{status_color}] {file_path}")
+        else:
+            console.print("[dim]No .prompd file changes[/dim]")
+            
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Error checking status:[/red] {e.stderr}")
+        sys.exit(1)
+
+
+@git.command("commit")
+@click.option("--message", "-m", required=True, help="Commit message")
+@click.option("--all", "-a", is_flag=True, help="Automatically stage all modified .prompd files")
+def git_commit(message: str, all: bool):
+    """Commit staged .prompd files."""
+    try:
+        if all:
+            # First add all modified .prompd files
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            for line in result.stdout.strip().split('\n'):
+                if line and '.prompd' in line and line[0] == ' ' and line[1] == 'M':
+                    file_path = line[3:]
+                    subprocess.run(["git", "add", file_path], check=True)
+                    console.print(f"[dim]Auto-staging: {file_path}[/dim]")
+        
+        # Commit
+        result = subprocess.run(
+            ["git", "commit", "-m", message],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        console.print(f"[green]OK[/green] Committed changes")
+        if result.stdout:
+            # Extract commit hash and stats
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if 'file' in line and 'changed' in line:
+                    console.print(f"[dim]{line}[/dim]")
+                    
+    except subprocess.CalledProcessError as e:
+        if "nothing to commit" in e.stdout:
+            console.print("[yellow]Nothing to commit[/yellow]")
+        else:
+            console.print(f"[red]Error committing:[/red] {e.stderr}")
+        sys.exit(1)
+
+
+@git.command("checkout")
+@click.argument("file", type=click.Path(path_type=Path))
+@click.argument("version")
+@click.option("--output", "-o", type=click.Path(), help="Output to different file instead of overwriting")
+def git_checkout(file: Path, version: str, output: Optional[str]):
+    """Checkout a specific version of a .prompd file.
+    
+    VERSION can be:
+    - A semantic version (e.g., '1.2.3')
+    - A git tag name
+    - A commit hash
+    - 'HEAD' for latest committed version
+    - 'HEAD~1' for previous commit, etc.
+    """
+    try:
+        file = Path(file)
+        if not file.suffix == ".prompd":
+            console.print(f"[red]Error:[/red] {file} is not a .prompd file")
+            sys.exit(1)
+        
+        # Try to resolve as semantic version tag first
+        if _is_valid_semver(version):
+            tag_name = f"{file.stem}-v{version}"
+            # Check if tag exists
+            tag_check = subprocess.run(
+                ["git", "tag", "-l", tag_name],
+                capture_output=True,
+                text=True
+            )
+            if tag_check.stdout.strip():
+                version_ref = tag_name
+            else:
+                version_ref = version
+        else:
+            version_ref = version
+        
+        # Get the file content at that version
+        # Convert Windows paths to forward slashes for git
+        git_path = str(file).replace('\\', '/')
+        result = subprocess.run(
+            ["git", "show", f"{version_ref}:{git_path}"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        if output:
+            # Write to specified output file
+            output_path = Path(output)
+            output_path.write_text(result.stdout, encoding='utf-8')
+            console.print(f"[green]OK[/green] Checked out {file} @ {version} to {output_path}")
+        else:
+            # Overwrite current file
+            file.write_text(result.stdout, encoding='utf-8')
+            console.print(f"[green]OK[/green] Checked out {file} @ {version}")
+            console.print("[yellow]Note:[/yellow] Working directory has been modified. Use 'git diff' to see changes.")
+            
+    except subprocess.CalledProcessError as e:
+        if "does not exist" in e.stderr:
+            console.print(f"[red]Error:[/red] Version '{version}' not found for {file}")
+            console.print("[dim]Try 'prompd version history' to see available versions[/dim]")
+        else:
+            console.print(f"[red]Error checking out version:[/red] {e.stderr}")
         sys.exit(1)
 
 

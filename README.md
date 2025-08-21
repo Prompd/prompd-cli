@@ -3,12 +3,23 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-Prompd is a CLI tool and file format for managing structured AI prompts. Write once, run anywhere - execute the same prompt across OpenAI, Anthropic, Ollama, or any LLM provider.
+Prompd is a CLI tool and file format for managing structured AI prompts. Write once, run anywhere - execute the same prompt across OpenAI, Anthropic, Ollama, local models, or any OpenAI-compatible API.
 
 ## Installation
 
+### Install from PyPI (Recommended)
+
 ```bash
-# Install from source
+# Install the latest release
+pip install prompd
+```
+
+### Install from Source
+
+If you have access to the source repository:
+
+```bash
+# Clone and install in development mode
 git clone https://github.com/Logikbug/prompt-markdown.git
 cd prompt-markdown
 pip install -e .
@@ -19,7 +30,7 @@ pip install -e ".[dev]"
 
 ### Requirements
 - Python 3.8+
-- Git (for version management features)
+- Git (required for version management features)
 
 ## Quick Start
 
@@ -69,6 +80,12 @@ prompd execute example.prompd --provider openai --model gpt-4 -p name=Alice -p s
 # Execute with Anthropic
 prompd execute example.prompd --provider anthropic --model claude-3-opus -p name=Bob
 
+# Add custom provider (Ollama, Groq, LM Studio, etc.)
+prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+
+# Execute with custom provider
+prompd execute example.prompd --provider local-ollama --model llama3.2 -p name=Charlie
+
 # Validate the file
 prompd validate example.prompd
 
@@ -85,10 +102,11 @@ Execute a prompt with an LLM provider.
 prompd execute <file> --provider <provider> --model <model> [options]
 
 Options:
-  --provider        LLM provider (openai, anthropic, ollama)
-  --model          Model name (gpt-4, claude-3, etc.)
+  --provider        LLM provider (openai, anthropic, ollama, or custom)
+  --model          Model name (gpt-4, claude-3, llama3.2, etc.)
   -p, --param      Set parameter (key=value)
   -f, --param-file Load parameters from JSON
+  --version        Execute specific version (1.2.3, HEAD, commit hash)
   --api-key        Override API key
   -o, --output     Save response to file
 ```
@@ -105,6 +123,17 @@ Options:
   --version-only  Only validate version
 ```
 
+### `prompd git`
+Git operations for .prompd files.
+
+```bash
+prompd git add <files...>                        # Add to staging
+prompd git remove <files...> [--cached]         # Remove from tracking
+prompd git status                               # Show git status
+prompd git commit -m "message" [--all]          # Commit changes
+prompd git checkout <file> <version> [-o FILE]  # Checkout specific version
+```
+
 ### `prompd version`
 Manage semantic versions with git integration.
 
@@ -115,12 +144,25 @@ prompd version diff <file> <v1> [v2]            # Compare versions
 prompd version suggest <file>                    # Get bump suggestions
 ```
 
+### `prompd provider`
+Manage LLM providers including custom ones.
+
+```bash
+prompd provider list                             # List all providers
+prompd provider add <name> <url> <models...>    # Add custom provider
+prompd provider show <name>                      # Show provider details
+prompd provider remove <name>                    # Remove custom provider
+
+# Examples
+prompd provider add groq https://api.groq.com/openai/v1 llama-3.1-8b --api-key gsk_...
+prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+```
+
 ### Other Commands
 
 ```bash
 prompd list [--path DIR]        # List .prompd files
 prompd show <file>              # Display file structure
-prompd providers                # List available providers
 ```
 
 ## Prompd File Format
@@ -192,6 +234,24 @@ parameters:
     default: 10
 ```
 
+## Working with Versions
+
+Execute or checkout specific versions of your prompts:
+
+```bash
+# Execute version 1.2.3 without modifying files
+prompd execute prompt.prompd --provider openai --model gpt-4 --version 1.2.3
+
+# Execute last committed version
+prompd execute prompt.prompd --provider openai --model gpt-4 --version HEAD
+
+# Checkout version to working directory
+prompd git checkout prompt.prompd 1.2.3
+
+# Checkout to different file (preserve current)
+prompd git checkout prompt.prompd 1.2.3 -o prompt-v1.2.3.prompd
+```
+
 ## Features
 
 - **Universal Execution**: Run prompts on any LLM (OpenAI, Anthropic, Ollama)
@@ -227,12 +287,15 @@ Or create `~/.prompd/config.json`:
 
 ## Documentation
 
-- [**Format Specification**](docs/FORMAT.md) - Complete .prompd file format
-- [**CLI Reference**](docs/CLI.md) - All commands and options
-- [**Parameter System**](docs/PARAMETERS.md) - Variables and substitution
-- [**VS Code Extension**](vscode-extension/README.md) - IDE integration
-- [**Examples**](examples/README.md) - Sample .prompd files
-- [**Registry Roadmap**](docs/roadmap/REGISTRY_ROADMAP.md) - Future package registry
+Full documentation and examples are available in the GitHub repository:
+
+- [**GitHub Repository**](https://github.com/Logikbug/prompt-markdown) - Source code and full documentation
+- [**Format Specification**](https://github.com/Logikbug/prompt-markdown/blob/main/docs/FORMAT.md) - Complete .prompd file format
+- [**CLI Reference**](https://github.com/Logikbug/prompt-markdown/blob/main/docs/CLI.md) - All commands and options
+- [**Examples**](https://github.com/Logikbug/prompt-markdown/tree/main/examples) - Sample .prompd files
+- [**VS Code Extension**](https://github.com/Logikbug/prompt-markdown/tree/main/vscode-extension) - IDE integration
+
+> **Note**: If the repository is private, please request access or refer to the documentation included with your installation.
 
 ## Development
 
