@@ -1,0 +1,108 @@
+---
+name: yaml-only-prompt
+description: Entire prompt defined in YAML frontmatter
+version: 1.0.0
+
+parameters:
+  - name: function_name
+    type: string
+    required: true
+    description: Name of the function to review
+  - name: code
+    type: string
+    required: true
+    description: The code to review
+
+# All content in YAML - no markdown body needed
+system: |
+  You are a **senior code reviewer** with expertise in:
+  
+  * Static analysis
+  * Security best practices  
+  * Performance optimization
+  * Clean code principles
+  
+  Provide actionable feedback with `specific examples`.
+
+context: |
+  Reviewing function: **`{function_name}`**
+  
+  Focus areas:
+  1. **Correctness** - Does it work as intended?
+  2. **Security** - Any vulnerabilities?
+  3. **Performance** - Can it be optimized?
+  4. **Readability** - Is it maintainable?
+
+user: |
+  Please review this function:
+  
+  ```python
+  {code}
+  ```
+  
+  Provide:
+  - **Issues found** (if any)
+  - *Suggestions* for improvement
+  - Security considerations
+  - Performance notes
+
+response: |
+  ## Code Review: `{function_name}`
+  
+  ### Summary
+  Brief overview here
+  
+  ### Issues Found
+  1. **Issue name**: Description
+     ```python
+     # Current code
+     ```
+     ```python  
+     # Suggested fix
+     ```
+  
+  ### Recommendations
+  - Use bullet points
+  - Be specific and actionable
+  
+  ### Security Analysis
+  ⚠️ Any security concerns
+  
+  ### Performance Notes
+  📊 Performance considerations
+
+# You can also mix approaches
+alternate_format:
+  short_system: "You are a helpful **code reviewer**."
+  
+  detailed_system: |
+    You are an expert code reviewer with deep knowledge of:
+    
+    ## Languages
+    - Python
+    - JavaScript
+    - TypeScript
+    - Go
+    
+    ## Expertise Areas
+    - Security (OWASP Top 10)
+    - Performance optimization
+    - Clean architecture
+    - Test coverage
+    
+    Always provide **constructive** feedback with examples.
+
+# Metadata for execution
+execution:
+  preferred_provider: openai
+  preferred_model: gpt-4
+  temperature: 0.3  # Lower for more consistent code reviews
+  max_tokens: 2000
+---
+
+# Optional: Can still have markdown sections that reference the YAML
+
+The content above is defined in YAML as:
+- `system`: {system}
+- `context`: {context}
+- `user`: {user}

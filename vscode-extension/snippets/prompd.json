@@ -1,0 +1,128 @@
+{
+  "Basic Prompd File": {
+    "prefix": "prompd",
+    "body": [
+      "---",
+      "name: ${1:my-prompt}",
+      "description: ${2:Description of the prompt}",
+      "version: ${3:1.0.0}",
+      "parameters:",
+      "  - name: ${4:param_name}",
+      "    type: ${5|string,integer,boolean,array,object|}",
+      "    required: ${6|true,false|}",
+      "    description: ${7:Parameter description}",
+      "---",
+      "",
+      "# ${8|System,Context,User,Response|}",
+      "",
+      "${9:Your prompt content here with {${4:param_name}}}"
+    ],
+    "description": "Create a new Prompd file"
+  },
+  "Add Parameter": {
+    "prefix": "param",
+    "body": [
+      "  - name: ${1:param_name}",
+      "    type: ${2|string,integer,boolean,array,object|}",
+      "    required: ${3|true,false|}",
+      "    default: ${4:default_value}",
+      "    description: ${5:Parameter description}"
+    ],
+    "description": "Add a parameter definition"
+  },
+  "System Section": {
+    "prefix": "system",
+    "body": [
+      "# System",
+      "",
+      "${1:You are a helpful AI assistant.}"
+    ],
+    "description": "Add a System section"
+  },
+  "Context Section": {
+    "prefix": "context",
+    "body": [
+      "# Context",
+      "",
+      "${1:The user is working on: {context}}"
+    ],
+    "description": "Add a Context section"
+  },
+  "User Section": {
+    "prefix": "user",
+    "body": [
+      "# User",
+      "",
+      "${1:{question}}"
+    ],
+    "description": "Add a User section"
+  },
+  "Response Section": {
+    "prefix": "response",
+    "body": [
+      "# Response",
+      "",
+      "${1:Please provide your response in {format} format.}"
+    ],
+    "description": "Add a Response section"
+  },
+  "Variable Reference": {
+    "prefix": "var",
+    "body": "{${1:variable_name}}",
+    "description": "Insert a variable reference"
+  },
+  "Jinja If Statement": {
+    "prefix": "if",
+    "body": [
+      "{%- if ${1:condition} %}",
+      "${2:content}",
+      "{%- endif %}"
+    ],
+    "description": "Add a Jinja2 if statement"
+  },
+  "Jinja For Loop": {
+    "prefix": "for",
+    "body": [
+      "{%- for ${1:item} in ${2:items} %}",
+      "${3:content}",
+      "{%- endfor %}"
+    ],
+    "description": "Add a Jinja2 for loop"
+  },
+  "Integer Parameter": {
+    "prefix": "param-int",
+    "body": [
+      "  - name: ${1:count}",
+      "    type: integer",
+      "    required: ${2|true,false|}",
+      "    default: ${3:10}",
+      "    min_value: ${4:1}",
+      "    max_value: ${5:100}",
+      "    description: ${6:Number of items}"
+    ],
+    "description": "Add an integer parameter with validation"
+  },
+  "String Parameter with Pattern": {
+    "prefix": "param-pattern",
+    "body": [
+      "  - name: ${1:email}",
+      "    type: string",
+      "    required: ${2|true,false|}",
+      "    pattern: \"${3:^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}$}\"",
+      "    error_message: \"${4:Invalid format}\"",
+      "    description: ${5:Email address}"
+    ],
+    "description": "Add a string parameter with regex pattern"
+  },
+  "Array Parameter": {
+    "prefix": "param-array",
+    "body": [
+      "  - name: ${1:tags}",
+      "    type: array",
+      "    required: ${2|true,false|}",
+      "    default: [${3:}]",
+      "    description: ${4:List of tags}"
+    ],
+    "description": "Add an array parameter"
+  }
+}

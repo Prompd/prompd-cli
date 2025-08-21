@@ -1,0 +1,32 @@
+---
+name: fetch-ai-literacy-articles
+description: Pull N recent AI literacy articles after DATE, output Markdown files (full article or excerpt + technologist summary), dedupe via registry.json, optional featuring.
+variables:
+  - name: DATE
+    example: "2025-08-15"
+    default: "2025-08-15"
+  - name: N
+    example: "12"
+    default: "10"
+  - name: feature_mode
+    example: "manual"     # "manual" | "auto" | "none"
+    default: "none"
+  - name: feature_limit
+    example: "3"
+    default: "3"
+  - name: feature_list
+    example: ["https://example.com/article"]
+    default: []
+  - name: feature_topics
+    example: ["ai-literacy","prompt-engineering","education-policy"]
+    default: ["ai-literacy"]
+  - name: feature_window_days
+    example: "7"
+    default: "7"
+  - name: seen_registry_json
+    example: ""           # paste contents of your last registry.json here on future runs (entire JSON file content)
+    default: ""
+output: "ZIP of /YYYY/MM/{slug}.md files + updated registry.json + run-note.txt"
+---
+
+[ ... same long instructions as previous PMD ... ]

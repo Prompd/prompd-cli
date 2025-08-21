@@ -1,0 +1,99 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Prompd",
+  "patterns": [
+    {
+      "include": "#frontmatter"
+    },
+    {
+      "include": "#markdown"
+    }
+  ],
+  "repository": {
+    "frontmatter": {
+      "begin": "^(---)\\s*$",
+      "end": "^(---)\\s*$",
+      "name": "meta.frontmatter.prompd",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.frontmatter.begin.prompd"
+        }
+      },
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.frontmatter.end.prompd"
+        }
+      },
+      "patterns": [
+        {
+          "include": "source.yaml"
+        }
+      ]
+    },
+    "markdown": {
+      "patterns": [
+        {
+          "include": "#heading"
+        },
+        {
+          "include": "#variable"
+        },
+        {
+          "include": "#jinja"
+        },
+        {
+          "include": "text.html.markdown"
+        }
+      ]
+    },
+    "heading": {
+      "match": "^(#{1,6})\\s+(System|Context|User|Response|Assistant)\\s*$",
+      "name": "markup.heading.prompd",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.heading.prompd"
+        },
+        "2": {
+          "name": "entity.name.section.prompd"
+        }
+      }
+    },
+    "variable": {
+      "patterns": [
+        {
+          "match": "\\{([a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)\\}",
+          "name": "variable.other.prompd",
+          "captures": {
+            "0": {
+              "name": "punctuation.definition.variable.prompd"
+            },
+            "1": {
+              "name": "variable.name.prompd"
+            }
+          }
+        }
+      ]
+    },
+    "jinja": {
+      "patterns": [
+        {
+          "begin": "\\{%",
+          "end": "%\\}",
+          "name": "meta.embedded.jinja.prompd",
+          "patterns": [
+            {
+              "match": "\\b(if|elif|else|endif|for|endfor|set|include)\\b",
+              "name": "keyword.control.jinja.prompd"
+            }
+          ]
+        },
+        {
+          "begin": "\\{#",
+          "end": "#\\}",
+          "name": "comment.block.jinja.prompd"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.prompd"
+}

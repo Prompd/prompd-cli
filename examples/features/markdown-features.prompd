@@ -1,0 +1,100 @@
+---
+name: markdown-demo
+description: Demonstrating full Markdown support in prompd files
+version: 1.0.0
+parameters:
+  - name: language
+    type: string
+    default: Python
+  - name: topic
+    type: string
+    required: true
+---
+
+# System
+
+You are an **expert programmer** with deep knowledge of software development best practices.
+
+## Your Expertise Includes:
+- Clean code principles
+- Design patterns
+- Testing strategies
+- Performance optimization
+
+# Context
+
+The user is working with `{language}` and needs help with *{topic}*.
+
+### Important Guidelines:
+1. Provide **clear**, **concise** explanations
+2. Include `code examples` when relevant
+3. Follow industry best practices
+
+# User
+
+Please help me understand {topic} in {language}.
+
+Specifically, I need:
+- **Conceptual explanation**
+- *Practical examples*
+- `Code snippets`
+- Best practices
+
+Here's a code block example:
+```python
+def example_function():
+    return "This is formatted as code"
+```
+
+And inline code like `variable_name` works too.
+
+> Note: This is a blockquote
+> Multiple lines are supported
+
+You can also use:
+* Bullet points
+* With multiple items
+  * And nested lists
+    * As deep as needed
+
+Or numbered lists:
+1. First item
+2. Second item
+   1. Nested item
+   2. Another nested item
+
+Tables are supported too:
+
+| Feature | Support | Notes |
+|---------|---------|-------|
+| Bold | ✓ | Use **text** |
+| Italic | ✓ | Use *text* |
+| Code | ✓ | Use `code` |
+| Links | ✓ | [text](url) |
+
+Even horizontal rules:
+
+---
+
+And [links](https://example.com) work fine.
+
+# Response
+
+Please provide your response using:
+
+## Structured Sections
+With proper Markdown formatting including:
+- **Bold** for emphasis
+- *Italic* for subtle emphasis
+- `code blocks` for examples
+
+```{language}
+// Your code examples here
+```
+
+Include any relevant:
+1. Step-by-step instructions
+2. Code examples
+3. Best practice tips
+
+![Images are supported too](image-url.png)

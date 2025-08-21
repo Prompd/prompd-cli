@@ -1,0 +1,68 @@
+---
+name: data-extractor
+description: Extract structured data from text with confidence scoring
+version: "1.0.0"
+parameters:
+  - name: input_text
+    type: string
+    required: true
+    description: Text to extract data from
+  - name: format
+    type: string
+    default: "json"
+    description: Output format (json, yaml, table)
+---
+
+system: #behavior-guidelines
+context: #extraction-examples  
+user: #main-task
+response: #output-schema
+
+# Behavior Guidelines
+You are a precise data extraction assistant. Always provide confidence scores for extracted information.
+
+# Extraction Examples
+Example 1: "John Smith, 34 years old, works at Acme Corp"
+- name: "John Smith"  
+- age: 34
+- company: "Acme Corp"
+- confidence: 0.95
+
+Example 2: "Sarah might be around 25, not sure about her last name"
+- name: "Sarah"
+- age: 25 (estimated)
+- company: null
+- confidence: 0.6
+
+# Main Task
+Extract structured data from the following text: {input_text}
+
+Return the data in {format} format with confidence scores for each field.
+
+# Output Schema
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Person's full name"
+    },
+    "age": {
+      "type": "integer", 
+      "description": "Person's age in years"
+    },
+    "company": {
+      "type": "string",
+      "description": "Company or organization"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Overall confidence score"
+    }
+  },
+  "required": ["name", "confidence"]
+}
+```

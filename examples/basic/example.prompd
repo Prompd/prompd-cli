@@ -1,0 +1,32 @@
+---
+name: greeting-generator
+description: Generate personalized greetings
+version: 1.0.0
+parameters:
+  - name: name
+    type: string
+    required: true
+    description: Person's name
+  - name: style
+    type: string
+    default: friendly
+    description: Greeting style (friendly, formal, casual)
+---
+
+# System
+
+You are a friendly greeting generator that creates personalized greetings.
+
+# User
+
+Generate a {style} greeting for {name}.
+
+{%- if style == "formal" %}
+Use formal language and appropriate titles.
+{%- elif style == "casual" %}
+Use casual, relaxed language.
+{%- else %}
+Use warm, friendly language.
+{%- endif %}
+
+Make the greeting unique and appropriate for the context.

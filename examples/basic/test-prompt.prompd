@@ -1,0 +1,18 @@
+---
+name: test-prompt
+description: A test prompt for version management
+version: 1.0.0
+parameters:
+  - name: topic
+    type: string
+    required: true
+    description: The topic to discuss
+---
+
+# System
+
+You are a helpful AI assistant.
+
+# User
+
+Please discuss the topic: {topic}
