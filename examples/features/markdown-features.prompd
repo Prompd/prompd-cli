@@ -9,6 +9,9 @@ parameters:
   - name: topic
     type: string
     required: true
+  - name: user
+    type: string
+    default: Test User
 ---
 
 # System

@@ -2,7 +2,7 @@
   "name": "prompd",
   "displayName": "Prompd",
   "description": "Language support for Prompd (.prompd) files - structured prompt definitions for LLMs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "logikbug",
   "icon": "icons/prompd-icon.png",
   "galleryBanner": {
@@ -32,7 +32,15 @@
     "onLanguage:prompd",
     "workspaceContains:**/*.prompd",
     "onCommand:prompd.execute",
-    "onCommand:prompd.validate"
+    "onCommand:prompd.validate",
+    "onCommand:prompd.gitAdd",
+    "onCommand:prompd.gitCommit",
+    "onCommand:prompd.gitCheckout",
+    "onCommand:prompd.versionHistory",
+    "onCommand:prompd.executeVersion",
+    "onCommand:prompd.executeWithResponseCapture",
+    "onCommand:prompd.showParameterTable",
+    "onCommand:prompd.toggleParameterTable"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -79,6 +87,54 @@
         "title": "Preview Rendered Prompt",
         "category": "Prompd",
         "icon": "$(eye)"
+      },
+      {
+        "command": "prompd.gitAdd",
+        "title": "Git Add",
+        "category": "Prompd",
+        "icon": "$(add)"
+      },
+      {
+        "command": "prompd.gitCommit",
+        "title": "Git Commit",
+        "category": "Prompd",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "prompd.gitCheckout",
+        "title": "Checkout Version",
+        "category": "Prompd",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "prompd.versionHistory",
+        "title": "Show Version History",
+        "category": "Prompd",
+        "icon": "$(history)"
+      },
+      {
+        "command": "prompd.executeVersion",
+        "title": "Execute Specific Version",
+        "category": "Prompd",
+        "icon": "$(run)"
+      },
+      {
+        "command": "prompd.executeWithResponseCapture",
+        "title": "Execute with Response Capture",
+        "category": "Prompd",
+        "icon": "$(play-circle)"
+      },
+      {
+        "command": "prompd.showParameterTable",
+        "title": "Show Parameter Table",
+        "category": "Prompd",
+        "icon": "$(table)"
+      },
+      {
+        "command": "prompd.toggleParameterTable",
+        "title": "Toggle Parameter Table",
+        "category": "Prompd",
+        "icon": "$(table)"
       }
     ],
     "menus": {
@@ -104,6 +160,45 @@
           "when": "resourceExtname == .prompd",
           "command": "prompd.validate",
           "group": "prompd@2"
+        },
+        {
+          "when": "resourceExtname == .prompd",
+          "command": "prompd.executeVersion",
+          "group": "prompd@3"
+        },
+        {
+          "when": "resourceExtname == .prompd",
+          "command": "prompd.versionHistory",
+          "group": "prompd@4"
+        },
+        {
+          "when": "resourceExtname == .prompd",
+          "command": "prompd.gitAdd",
+          "group": "prompd_git@1"
+        },
+        {
+          "when": "resourceExtname == .prompd",
+          "command": "prompd.gitCommit",
+          "group": "prompd_git@2"
+        }
+      ]
+    },
+    "views": {
+      "prompd": [
+        {
+          "id": "prompdParameters",
+          "name": "Parameters & Execution",
+          "when": "resourceExtname == .prompd || prompd:hasPrompdFiles",
+          "type": "webview"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prompd",
+          "title": "Prompd",
+          "icon": "./icons/prompd-icon.svg"
         }
       ]
     },

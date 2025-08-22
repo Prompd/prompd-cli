@@ -29,10 +29,21 @@ Official VS Code extension for Prompd (.prompd) files - structured prompt defini
 - Output in VS Code terminal
 
 ### Commands
+
+#### Execution
 - **Prompd: Execute** - Run the current .prompd file
+- **Prompd: Execute Specific Version** - Execute a specific version (1.2.3, HEAD, commit hash)
+- **Prompd: Preview** - Preview rendered prompt
+
+#### Validation & Versioning  
 - **Prompd: Validate** - Validate the current file
 - **Prompd: Bump Version** - Increment semantic version
-- **Prompd: Preview** - Preview rendered prompt
+- **Prompd: Show Version History** - Display version history
+
+#### Git Integration
+- **Prompd: Git Add** - Add file to git staging area
+- **Prompd: Git Commit** - Commit file with message
+- **Prompd: Checkout Version** - Checkout specific version to current or new file
 
 ## Requirements
 
@@ -68,6 +79,27 @@ code --install-extension logikbug.prompd
 5. Select LLM provider and model
 6. View results in the output panel
 
+### Version Management
+
+#### Execute a Specific Version
+1. Right-click on a .prompd file
+2. Select "Prompd: Execute Specific Version"
+3. Enter version (e.g., 1.2.3, HEAD, commit hash)
+4. Configure parameters and provider
+5. View results from that version
+
+#### Checkout a Version
+1. Open a .prompd file
+2. Run "Prompd: Checkout Version"
+3. Enter version to checkout
+4. Choose to overwrite current file or save to new file
+
+#### Git Operations
+1. Make changes to your .prompd file
+2. Run "Prompd: Git Add" to stage
+3. Run "Prompd: Git Commit" and enter message
+4. Use "Prompd: Show Version History" to see all versions
+
 ### Snippets
 
 | Prefix | Description |
@@ -96,6 +128,14 @@ This extension contributes the following settings:
 - First release, please report issues on GitHub
 
 ## Release Notes
+
+### 0.2.0
+
+New features:
+- Git integration commands (add, commit, checkout)
+- Execute specific versions of prompts
+- Version history viewer
+- Enhanced context menu options
 
 ### 0.1.0
 

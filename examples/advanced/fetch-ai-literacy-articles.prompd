@@ -1,7 +1,7 @@
 ---
 name: fetch-ai-literacy-articles
 description: Pull N recent AI literacy articles after DATE, output Markdown files (full article or excerpt + technologist summary), dedupe via registry.json, optional featuring.
-variables:
+parameters:
   - name: DATE
     example: "2025-08-15"
     default: "2025-08-15"
