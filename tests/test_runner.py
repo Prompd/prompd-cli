@@ -1,13 +1,13 @@
-"""Tests for PMD runner."""
+"""Tests for PMD executor."""
 
 import pytest
-from pmd.runner import PMDRunner
-from pmd.exceptions import PMDError
+from prompd.executor import PrompDExecutor
+from prompd.exceptions import PrompDError
 
 
 def test_run_simple_substitution():
     """Test simple variable substitution."""
-    runner = PMDRunner()
+    executor = PrompDExecutor()
     
     metadata = {
         "name": "test",
@@ -20,23 +20,23 @@ def test_run_simple_substitution():
     content = "Hello {name}, you have {count} messages."
     
     # Test with all parameters provided
-    result = runner._substitute_variables(
+    result = executor._substitute_variables(
         content,
-        runner._prepare_context(metadata, {"name": "Alice", "count": 10})
+        executor._prepare_context(metadata, {"name": "Alice", "count": 10})
     )
     assert result == "Hello Alice, you have 10 messages."
     
     # Test with default value
-    result = runner._substitute_variables(
+    result = executor._substitute_variables(
         content,
-        runner._prepare_context(metadata, {"name": "Bob", "count": 5})
+        executor._prepare_context(metadata, {"name": "Bob", "count": 5})
     )
     assert result == "Hello Bob, you have 5 messages."
 
 
 def test_run_conditional_logic():
     """Test conditional logic in templates."""
-    runner = PMDRunner()
+    executor = PrompDExecutor()
     
     metadata = {"name": "test"}
     content = """
@@ -48,14 +48,14 @@ Manual mode enabled
 """
     
     # Test auto mode
-    result = runner._substitute_variables(
+    result = executor._substitute_variables(
         content.strip(),
         {"mode": "auto"}
     )
     assert "Automatic mode enabled" in result
     
     # Test manual mode
-    result = runner._substitute_variables(
+    result = executor._substitute_variables(
         content.strip(),
         {"mode": "manual"}
     )
@@ -64,7 +64,7 @@ Manual mode enabled
 
 def test_merge_parameters():
     """Test merging user parameters with defaults."""
-    runner = PMDRunner()
+    executor = PrompDExecutor()
     
     metadata = {
         "name": "test",
@@ -81,7 +81,7 @@ def test_merge_parameters():
         "extra": "extra_value"
     }
     
-    merged = runner._merge_parameters(metadata, user_params)
+    merged = executor._merge_parameters(metadata, user_params)
     
     assert merged["with_default"] == "default_value"
     assert merged["without_default"] == "user_value"
@@ -91,30 +91,30 @@ def test_merge_parameters():
 
 def test_process_parameter_types():
     """Test processing different parameter types."""
-    runner = PMDRunner()
+    executor = PrompDExecutor()
     
     # Integer
-    assert runner._process_parameter_value("42", {"type": "integer"}) == 42
+    assert executor._process_parameter_value("42", {"type": "integer"}) == 42
     
     # Float
-    assert runner._process_parameter_value("3.14", {"type": "float"}) == 3.14
+    assert executor._process_parameter_value("3.14", {"type": "float"}) == 3.14
     
     # Boolean
-    assert runner._process_parameter_value("true", {"type": "boolean"}) is True
-    assert runner._process_parameter_value("false", {"type": "boolean"}) is False
+    assert executor._process_parameter_value("true", {"type": "boolean"}) is True
+    assert executor._process_parameter_value("false", {"type": "boolean"}) is False
     
     # Array from string
-    result = runner._process_parameter_value("a, b, c", {"type": "array"})
+    result = executor._process_parameter_value("a, b, c", {"type": "array"})
     assert result == ["a", "b", "c"]
     
     # Array from list
-    result = runner._process_parameter_value(["x", "y"], {"type": "array"})
+    result = executor._process_parameter_value(["x", "y"], {"type": "array"})
     assert result == ["x", "y"]
 
 
 def test_prepare_context():
     """Test context preparation for substitution."""
-    runner = PMDRunner()
+    executor = PrompDExecutor()
     
     metadata = {
         "name": "test-prompt",
@@ -130,7 +130,7 @@ def test_prepare_context():
         "count": 5
     }
     
-    context = runner._prepare_context(metadata, parameters)
+    context = executor._prepare_context(metadata, parameters)
     
     assert context["user"] == "Alice"
     assert context["count"] == 5
