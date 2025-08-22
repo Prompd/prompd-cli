@@ -10,6 +10,7 @@ from prompd.models import ExecutionContext, PrompdFile, LLMRequest, LLMResponse
 from prompd.parser import PrompdParser
 from prompd.config import PrompDConfig, ParameterManager
 from prompd.providers import registry, ProviderConfig
+from prompd.providers.custom import CustomProvider
 from prompd.exceptions import PrompDError, ProviderError, ConfigurationError, SubstitutionError
 
 
@@ -21,6 +22,9 @@ class PrompDExecutor:
         self.parser = PrompdParser()
         self.param_manager = ParameterManager(self.config)
         
+        # Load custom providers
+        self._load_custom_providers()
+        
         # Jinja2 environment for variable substitution
         self.jinja_env = Environment(
             variable_start_string='{',
@@ -30,6 +34,26 @@ class PrompDExecutor:
             comment_start_string='{#',
             comment_end_string='#}',
         )
+        
+    def _load_custom_providers(self):
+        """Load custom providers from config into the registry."""
+        for provider_name, provider_config in self.config.custom_providers.items():
+            if not provider_config.get('enabled', True):
+                continue
+                
+            # Create a custom provider class for this specific provider
+            class DynamicCustomProvider(CustomProvider):
+                def __init__(self, config: ProviderConfig):
+                    super().__init__(
+                        config=config,
+                        name=provider_name,
+                        models=provider_config['models'],
+                        base_url=provider_config['base_url']
+                    )
+            
+            # Register the custom provider if not already registered
+            if not registry.is_registered(provider_name):
+                registry.register(DynamicCustomProvider)
     
     async def execute(
         self,
@@ -211,8 +235,16 @@ class PrompDExecutor:
             raise ProviderError(f"Provider '{context.provider}' not available: {e}")
         
         # Create provider config
+        # For custom providers, check if there's a custom API key in the config
+        api_key = context.api_key
+        if not api_key and context.provider in self.config.custom_providers:
+            custom_config = self.config.custom_providers[context.provider]
+            api_key = custom_config.get('api_key') or self.config.get_api_key(context.provider)
+        elif not api_key:
+            api_key = self.config.get_api_key(context.provider)
+            
         provider_config = ProviderConfig(
-            api_key=context.api_key,
+            api_key=api_key,
             timeout=self.config.timeout,
             max_retries=self.config.max_retries,
             **self.config.provider_configs.get(context.provider, {})
@@ -249,6 +281,11 @@ class PrompDExecutor:
     def get_provider_models(self, provider: str) -> List[str]:
         """Get available models for a provider."""
         try:
+            # Check if it's a custom provider first
+            if provider in self.config.custom_providers:
+                return self.config.custom_providers[provider].get('models', [])
+                
+            # Otherwise get from registry
             provider_class = registry.get_provider_class(provider)
             temp_provider = provider_class(ProviderConfig())
             return temp_provider.supported_models

@@ -100,9 +100,5 @@ execution:
   max_tokens: 2000
 ---
 
-# Optional: Can still have markdown sections that reference the YAML
-
-The content above is defined in YAML as:
-- `system`: {system}
-- `context`: {context}
-- `user`: {user}
+# This file demonstrates a prompt defined entirely in YAML frontmatter
+# No markdown sections needed - everything is in the YAML above

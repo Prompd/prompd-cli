@@ -87,18 +87,5 @@ inputs:
   system_message: "{system}"
 ---
 
-# System
-
-{system}
-
-# Context
-
-{context}
-
-# User  
-
-{user}
-
-# Response
-
-{response}
+# This file demonstrates content defined entirely in YAML frontmatter
+# The system, context, user, and response sections are all defined above

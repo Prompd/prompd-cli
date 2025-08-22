@@ -29,6 +29,9 @@ class PrompDConfig:
     api_keys: Dict[str, str] = field(default_factory=dict)
     provider_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     
+    # Custom providers
+    custom_providers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    
     # Execution settings
     timeout: int = 30
     max_retries: int = 3
@@ -66,6 +69,8 @@ class PrompDConfig:
                     config.api_keys.update(data['api_keys'])
                 if 'provider_configs' in data:
                     config.provider_configs.update(data['provider_configs'])
+                if 'custom_providers' in data:
+                    config.custom_providers.update(data['custom_providers'])
                     
             except Exception as e:
                 raise ConfigurationError(f"Failed to load config file: {e}")
@@ -98,23 +103,48 @@ class PrompDConfig:
         env_var = f"{provider.upper()}_API_KEY"
         return os.getenv(env_var)
     
+    def add_custom_provider(self, name: str, base_url: str, models: List[str], 
+                          api_key: Optional[str] = None, provider_type: str = "openai-compatible"):
+        """Add a custom LLM provider."""
+        self.custom_providers[name] = {
+            "base_url": base_url,
+            "models": models,
+            "api_key": api_key,
+            "type": provider_type,
+            "enabled": True
+        }
+        if api_key:
+            self.api_keys[name] = api_key
+    
+    def remove_custom_provider(self, name: str):
+        """Remove a custom LLM provider."""
+        if name in self.custom_providers:
+            del self.custom_providers[name]
+        if name in self.api_keys:
+            del self.api_keys[name]
+    
+    def list_custom_providers(self) -> Dict[str, Dict[str, Any]]:
+        """List all custom providers."""
+        return self.custom_providers.copy()
+    
     def save(self):
         """Save configuration to file."""
-        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.config_dir.mkdir(exist_ok=True)
         
-        data = {
-            'default_provider': self.default_provider,
-            'default_model': self.default_model,
-            'timeout': self.timeout,
-            'max_retries': self.max_retries,
-            'verbose': self.verbose,
-            'api_keys': self.api_keys,
-            'provider_configs': self.provider_configs,
+        config_data = {
+            "default_provider": self.default_provider,
+            "default_model": self.default_model,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
+            "verbose": self.verbose,
+            "api_keys": self.api_keys,
+            "provider_configs": self.provider_configs,
+            "custom_providers": self.custom_providers
         }
         
         try:
             with open(self.config_file, 'w') as f:
-                yaml.dump(data, f, default_flow_style=False)
+                yaml.dump(config_data, f, default_flow_style=False)
         except Exception as e:
             raise ConfigurationError(f"Failed to save config: {e}")
 
