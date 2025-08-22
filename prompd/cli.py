@@ -190,7 +190,7 @@ def validate(file: Path, verbose: bool, git: bool, version_only: bool):
 
 @cli.command("list")
 @click.option("--path", "-p", type=click.Path(exists=True, path_type=Path), 
-              default=Path("prompts"), help="Directory to search for .prompd files")
+              default=Path("."), help="Directory to search for .prompd files")
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed information")
 def list_prompts(path: Path, detailed: bool):
     """List available .prompd files."""
