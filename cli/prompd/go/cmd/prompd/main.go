@@ -5,6 +5,8 @@ import (
 	"os"
 )
 
+var version = "0.2.2"
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -28,6 +30,9 @@ func main() {
 		handleGit()
 	case "version":
 		handleVersion()
+	case "--version", "-v":
+		fmt.Printf("prompd v%s\n", version)
+		return
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -164,7 +169,7 @@ func handleGit() {
 
 func handleVersion() {
 	if len(os.Args) < 3 {
-		fmt.Println("prompd v1.0.0")
+		fmt.Printf("prompd v%s\n", version)
 		return
 	}
 	
