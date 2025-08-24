@@ -165,3 +165,26 @@ Documentation is in `docs/` directory:
 - `docs/FORMAT.md`: Complete format specification
 - `docs/CLI.md`: CLI command reference
 - Maintain consistent formatting and update examples
+
+### Version Management & Release Strategy
+
+**Important:** PyPI does not allow overwriting existing versions. Once a version is published, it's permanent.
+
+**Best Practices:**
+- Use smaller increments for minor fixes (0.2.1 → 0.2.2 rather than 0.2.1 → 0.3.0)
+- Test thoroughly before publishing to PyPI
+- Consider using pre-release versions for testing (e.g., 0.2.2rc1)
+
+**Version Update Locations:**
+When bumping versions, update these files:
+- `cli/prompd/python/pyproject.toml` - Package version
+- `cli/prompd/python/prompd/__init__.py` - Module version  
+- `cli/prompd/python/prompd/cli.py` - CLI version display
+- `vscode-extension/package.json` - Extension version
+
+**Release Process:**
+1. Update all version numbers
+2. Build Python package: `python -m build`
+3. Build Go binaries: `./build.sh`
+4. Upload to PyPI: `python -m twine upload dist/prompd-X.Y.Z*`
+5. Create GitHub release with Go binaries
