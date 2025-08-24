@@ -16,6 +16,12 @@ GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ../../../dist/prompd-darwi
 echo "Building for macOS (arm64)..."
 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o ../../../dist/prompd-darwin-arm64 ./cmd/prompd
 
+echo "Building for Linux (arm64)..."
+GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o ../../../dist/prompd-linux-arm64 ./cmd/prompd
+
+echo "Building for Windows (arm64)..."
+GOOS=windows GOARCH=arm64 go build -ldflags "-s -w" -o ../../../dist/prompd-windows-arm64.exe ./cmd/prompd
+
 cd ../../..
 
 echo ""

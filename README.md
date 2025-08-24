@@ -289,11 +289,11 @@ Or create `~/.prompd/config.json`:
 
 Full documentation and examples are available in the GitHub repository:
 
-- [**GitHub Repository**](https://github.com/Logikbug/prompt-markdown) - Source code and full documentation
-- [**Format Specification**](https://github.com/Logikbug/prompt-markdown/blob/main/docs/FORMAT.md) - Complete .prompd file format
-- [**CLI Reference**](https://github.com/Logikbug/prompt-markdown/blob/main/docs/CLI.md) - All commands and options
-- [**Examples**](https://github.com/Logikbug/prompt-markdown/tree/main/examples) - Sample .prompd files
-- [**VS Code Extension**](https://github.com/Logikbug/prompt-markdown/tree/main/vscode-extension) - IDE integration
+- [**GitHub Repository**](https://github.com/Logikbug/prompd-cli) - Source code and full documentation
+- [**Format Specification**](https://github.com/Logikbug/prompd-cli/blob/main/docs/FORMAT.md) - Complete .prompd file format
+- [**CLI Reference**](https://github.com/Logikbug/prompd-cli/blob/main/docs/CLI.md) - All commands and options
+- [**Examples**](https://github.com/Logikbug/prompd-cli/tree/main/examples) - Sample .prompd files
+- [**VS Code Extension**](https://github.com/Logikbug/prompd-cli/tree/main/vscode-extension) - IDE integration
 
 > **Note**: If the repository is private, please request access or refer to the documentation included with your installation.
 

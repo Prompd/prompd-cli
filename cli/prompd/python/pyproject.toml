@@ -46,10 +46,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Logikbug/prompt-markdown"
-Repository = "https://github.com/Logikbug/prompt-markdown"
-Documentation = "https://github.com/Logikbug/prompt-markdown/tree/main/docs"
-Issues = "https://github.com/Logikbug/prompt-markdown/issues"
+Homepage = "https://github.com/Logikbug/prompd-cli"
+Repository = "https://github.com/Logikbug/prompd-cli"
+Documentation = "https://github.com/Logikbug/prompd-cli/tree/main/docs"
+Issues = "https://github.com/Logikbug/prompd-cli/issues"
 
 [project.optional-dependencies]
 dev = [

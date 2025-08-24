@@ -1,4 +1,4 @@
-module github.com/Logikbug/prompt-markdown
+module github.com/Logikbug/prompd-cli
 
 go 1.20
 
