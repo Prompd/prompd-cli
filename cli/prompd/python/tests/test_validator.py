@@ -17,7 +17,7 @@ class TestPrompDValidator:
     def test_validate_version_format(self):
         """Test semantic version validation."""
         # Valid versions
-        assert len(self.validator._validate_version("1.0.0")) == 1  # info about 0.x.x
+        assert len(self.validator._validate_version("1.0.0")) == 0
         assert len(self.validator._validate_version("2.1.3")) == 0
         
         # Invalid versions
@@ -43,7 +43,7 @@ class TestPrompDValidator:
 
 def test_validate_parameter_types():
     """Test validation of parameter types."""
-    validator = PMDValidator()
+    validator = PrompDValidator()
     
     metadata = {
         "name": "test",
@@ -70,7 +70,7 @@ def test_validate_parameter_types():
 
 def test_validate_parameter_range():
     """Test validation of numeric ranges."""
-    validator = PMDValidator()
+    validator = PrompDValidator()
     
     metadata = {
         "name": "test",
@@ -93,7 +93,7 @@ def test_validate_parameter_range():
 
 def test_validate_parameter_pattern():
     """Test validation of string patterns."""
-    validator = PMDValidator()
+    validator = PrompDValidator()
     
     metadata = {
         "name": "test",
@@ -112,7 +112,7 @@ def test_validate_parameter_pattern():
 
 def test_validate_metadata():
     """Test validation of PMD metadata."""
-    validator = PMDValidator()
+    validator = PrompDValidator()
     
     # Valid metadata
     valid_metadata = {

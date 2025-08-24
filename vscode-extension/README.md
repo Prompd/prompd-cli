@@ -129,6 +129,14 @@ This extension contributes the following settings:
 
 ## Release Notes
 
+### 0.2.1
+
+Improvements:
+- Better IntelliSense support for both `parameters` and `variables` fields
+- Updated for compatibility with dual CLI implementation (Python + Go)
+- Enhanced validation and error reporting
+- Bug fixes and performance improvements
+
 ### 0.2.0
 
 New features:

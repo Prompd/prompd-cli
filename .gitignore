@@ -74,6 +74,10 @@ outputs/
 temp/
 tmp/
 
+# CLI build outputs (keep dist/ for binaries)
+/dist/
+*.exe
+
 # Config files with secrets
 config.json
 .prompd/config.json

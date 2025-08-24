@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2024-08-24
+
+### Added
+- Go CLI implementation for lightweight, zero-dependency operations
+- Cross-platform binary builds (Windows, Linux, macOS Intel/ARM)
+- Backward compatibility for both `parameters` and `variables` field names in YAML
+- Enhanced validation with better error messages
+- Improved VS Code extension with better IntelliSense
+
+### Fixed
+- Go CLI parser now correctly handles both parameter field formats
+- Python CLI version display now shows correct version
+- Test suite improvements and fixes
+- Import cleanup in Go codebase
+
+### Changed
+- Updated all components to version 0.2.1
+- Improved CLAUDE.md documentation for development workflow
+- Enhanced build process for multiple CLI implementations
+
+## [0.2.0] - 2024-08-21
+
 ### Added
 - Initial release of Prompd CLI
 - Support for OpenAI, Anthropic, and Ollama providers

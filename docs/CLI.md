@@ -1,10 +1,32 @@
 # Prompd CLI Reference
 
-## Installation
+Prompd provides two CLI implementations:
 
+## Installation Options
+
+### Python CLI (Full Featured)
 ```bash
-pip install -e .
+# Install from PyPI
+pip install prompd
+
+# Or install from source
+pip install -e cli/prompd/python/
 ```
+
+### Go CLI (Lightweight, Zero Dependencies)
+```bash
+# Use pre-built binaries from dist/
+./dist/prompd-windows-amd64.exe    # Windows
+./dist/prompd-linux-amd64          # Linux  
+./dist/prompd-darwin-amd64         # macOS Intel
+./dist/prompd-darwin-arm64         # macOS Apple Silicon
+
+# Or build from source
+cd cli/prompd/go
+go build -o prompd ./cmd/prompd
+```
+
+Both CLIs provide the same core functionality with identical command syntax.
 
 ## Global Options
 

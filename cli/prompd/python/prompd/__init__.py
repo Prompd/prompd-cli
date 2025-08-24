@@ -1,3 +1,3 @@
 """Prompd CLI - A tool for working with structured prompt definitions (.prompd files)."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.1"

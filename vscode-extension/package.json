@@ -2,7 +2,7 @@
   "name": "prompd",
   "displayName": "Prompd",
   "description": "Language support for Prompd (.prompd) files - structured prompt definitions for LLMs",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "logikbug",
   "icon": "icons/prompd-icon.png",
   "galleryBanner": {

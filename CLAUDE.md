@@ -8,13 +8,19 @@ This is the Prompd format specification and implementation repository. Prompd (`
 
 ## Architecture & Structure
 
+The repository contains multiple implementations and tools for the Prompd format:
+
 ### Core Components
 
-1. **Prompd Format Specification** (`PMD_Format_Documentation.md`): The complete specification and documentation for the Prompd format, including schema, best practices, and comparison with other formats.
+1. **CLI Implementations** (`cli/prompd/`): 
+   - **Python CLI** (`cli/prompd/python/`): Full-featured CLI with LLM provider support, version control, and git integration
+   - **Go CLI** (`cli/prompd/go/`): Lightweight, zero-dependency CLI for core operations
 
-2. **Prompt Templates** (`prompts/` directory): Contains `.prompd` files that define reusable prompt templates with parameters and validation.
+2. **Documentation** (`docs/`): Complete format specification, CLI reference, and architectural guides
 
-3. **Registry System** (`registry.json`): Tracks processed items to enable deduplication across multiple runs.
+3. **Examples** (`examples/`): Sample `.prompd` files organized by complexity (basic, advanced, features)
+
+4. **VS Code Extension** (`vscode-extension/`): Language support with syntax highlighting and IntelliSense
 
 ### Prompd File Structure
 
@@ -31,55 +37,54 @@ Key features:
 
 ## Development Commands
 
-### Prompd CLI
+### Python CLI Development
 
-The repository includes a Python CLI tool for working with .prompd files:
+The Python CLI is the primary implementation with full LLM integration:
 
 ```bash
-# Install the CLI
+# Install from source (development mode)
+cd cli/prompd/python
 pip install -e .
 
-# Validate a .prompd file
-prompd validate prompts/fetch-ai-literacy-articles.prompd
-
-# List available .prompd files
-prompd list
-
-# Show .prompd file structure and parameters
-prompd show prompts/fetch-ai-literacy-articles.prompd
-
-# Execute a .prompd file with LLM provider
-prompd execute example.prompd --provider openai --model gpt-4 -p name=Alice
-
-# Execute with output to file
-prompd execute example.prompd --provider anthropic --model claude-3-sonnet -p name=Bob -o output.txt
-```
-
-### Testing
-
-```bash
-# Install dev dependencies
+# Install with development dependencies
 pip install -e ".[dev]"
 
 # Run tests
-pytest
+python run_tests.py
 
-# Run tests with coverage
-pytest --cov=pmd
+# Run full test suite
+pytest tests/
+
+# Lint and format code
+black prompd/
+ruff check prompd/
 ```
 
-### Git Operations
+### Go CLI Development
 
-Standard git workflow applies:
+The Go CLI provides a lightweight, zero-dependency alternative:
+
 ```bash
-# Check status
-git status
+# Build for current platform
+cd cli/prompd/go
+go mod tidy
+go build -o prompd ./cmd/prompd
 
-# Stage changes
-git add <file>
+# Build for all platforms (from repository root)
+./build.sh          # Linux/macOS
+build.bat           # Windows
 
-# Commit changes
-git commit -m "message"
+# Test the build
+./prompd validate examples/basic/example.prompd
+./prompd list examples/
+```
+
+### VS Code Extension Development
+
+```bash
+cd vscode-extension
+npm install
+npm run compile
 ```
 
 ## Key Implementation Notes
@@ -104,13 +109,35 @@ When implementing PMD parsers or runners:
 - Use environment variables for sensitive configuration
 
 ### File Naming Conventions
-- PMD files: `kebab-case.pmd` (e.g., `fetch-ai-articles.pmd`)
+- Prompd files: `kebab-case.prompd` (e.g., `fetch-ai-articles.prompd`)
 - Variables: `snake_case` (e.g., `max_word_count`)
 - Prompt names: `kebab-case` matching the filename
 
 ## Testing Approach
 
-When modifying PMD files or creating new ones:
+### Python CLI Testing
+```bash
+# Quick validation test
+python cli/prompd/python/run_tests.py
+
+# Full test suite
+cd cli/prompd/python && pytest tests/
+
+# Test with coverage
+pytest --cov=prompd tests/
+```
+
+### Go CLI Testing
+```bash
+# Build and test basic functionality
+cd cli/prompd/go
+go build -o prompd ./cmd/prompd
+./prompd validate ../../examples/basic/example.prompd
+./prompd list ../../examples/
+```
+
+### Prompd File Testing
+When modifying `.prompd` files:
 1. Validate YAML frontmatter syntax
 2. Ensure all referenced variables are defined
 3. Test with default parameter values
@@ -118,25 +145,23 @@ When modifying PMD files or creating new ones:
 5. Verify parameter substitution works correctly
 6. Check conditional logic branches
 
-## Common Tasks
+## Common Development Tasks
 
-### Creating a New PMD File
+### Creating New Prompd Files
 1. Start with YAML frontmatter between `---` markers
-2. Define required metadata: `name`, `description`
-3. Add `variables` array with parameter definitions
+2. Define required metadata: `name`, `description`, `version`
+3. Add `parameters` array with parameter definitions
 4. Write markdown content with `{variable}` placeholders
 5. Add validation rules and defaults
 6. Test parameter substitution
 
-### Updating Documentation
-The main documentation is in `PMD_Format_Documentation.md`. When updating:
-- Maintain consistent formatting
-- Update the feature comparison matrix if adding capabilities
-- Include examples for new features
-- Update version history if making breaking changes
+### Adding CLI Features
+- **Python CLI**: Modify modules in `cli/prompd/python/prompd/`
+- **Go CLI**: Edit source files in `cli/prompd/go/cmd/prompd/`
+- Both CLIs should maintain feature parity for core operations
 
-### Working with Registry
-The `registry.json` file tracks processed items:
-- Start with empty `{}` for first run
-- Save the updated registry after each run
-- Pass previous registry content as `seen_registry_json` parameter for deduplication
+### Documentation Updates
+Documentation is in `docs/` directory:
+- `docs/FORMAT.md`: Complete format specification
+- `docs/CLI.md`: CLI command reference
+- Maintain consistent formatting and update examples

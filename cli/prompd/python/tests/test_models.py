@@ -36,8 +36,8 @@ class TestParameterDefinition:
             type=ParameterType.INTEGER,
             required=True,
             default=10,
-            min_value=1,
-            max_value=100
+            min=1,
+            max=100
         )
         
         assert param.name == "count"

@@ -52,7 +52,7 @@ def test_parse_missing_frontmatter():
     """Test parsing fails without frontmatter."""
     content = "Just some markdown content"
     
-    parser = PMDParser()
+    parser = PrompdParser()
     with pytest.raises(ParseError, match="must start with YAML frontmatter"):
         parser.parse_content(content)
 
@@ -65,14 +65,14 @@ description: Missing name
 Content here
 """
     
-    parser = PMDParser()
+    parser = PrompdParser()
     with pytest.raises(ParseError, match="Missing required field 'name'"):
         parser.parse_content(content)
 
 
 def test_extract_variables():
     """Test extracting variable references from content."""
-    parser = PMDParser()
+    parser = PrompdParser()
     
     content = """
     Simple variable: {name}
@@ -92,7 +92,7 @@ def test_extract_variables():
 
 def test_process_variables():
     """Test variable processing and normalization."""
-    parser = PMDParser()
+    parser = PrompdParser()
     
     variables = [
         {"name": "test"},
