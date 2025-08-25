@@ -12,9 +12,9 @@ The repository contains multiple implementations and tools for the Prompd format
 
 ### Core Components
 
-1. **CLI Implementations** (`cli/prompd/`): 
-   - **Python CLI** (`cli/prompd/python/`): Full-featured CLI with LLM provider support, version control, and git integration
-   - **Go CLI** (`cli/prompd/go/`): Lightweight, zero-dependency CLI for core operations
+1. **CLI Implementations** (`cli/`): 
+   - **Python CLI** (`cli/python/`): Full-featured CLI with LLM provider support, version control, and git integration
+   - **Go CLI** (`cli/go/`): Lightweight, zero-dependency CLI for core operations
 
 2. **Documentation** (`docs/`): Complete format specification, CLI reference, and architectural guides
 
@@ -43,7 +43,7 @@ The Python CLI is the primary implementation with full LLM integration:
 
 ```bash
 # Install from source (development mode)
-cd cli/prompd/python
+cd cli/python
 pip install -e .
 
 # Install with development dependencies
@@ -66,7 +66,7 @@ The Go CLI provides a lightweight, zero-dependency alternative:
 
 ```bash
 # Build for current platform
-cd cli/prompd/go
+cd cli/go
 go mod tidy
 go build -o prompd ./cmd/prompd
 
@@ -75,8 +75,8 @@ go build -o prompd ./cmd/prompd
 build.bat           # Windows
 
 # Test the build
-./prompd validate examples/basic/example.prompd
-./prompd list examples/
+./prompd validate ../../examples/basic/example.prompd
+./prompd list ../../examples/
 ```
 
 ### VS Code Extension Development
@@ -118,10 +118,10 @@ When implementing PMD parsers or runners:
 ### Python CLI Testing
 ```bash
 # Quick validation test
-python cli/prompd/python/run_tests.py
+python cli/python/run_tests.py
 
 # Full test suite
-cd cli/prompd/python && pytest tests/
+cd cli/python && pytest tests/
 
 # Test with coverage
 pytest --cov=prompd tests/
@@ -130,7 +130,7 @@ pytest --cov=prompd tests/
 ### Go CLI Testing
 ```bash
 # Build and test basic functionality
-cd cli/prompd/go
+cd cli/go
 go build -o prompd ./cmd/prompd
 ./prompd validate ../../examples/basic/example.prompd
 ./prompd list ../../examples/
@@ -156,8 +156,8 @@ When modifying `.prompd` files:
 6. Test parameter substitution
 
 ### Adding CLI Features
-- **Python CLI**: Modify modules in `cli/prompd/python/prompd/`
-- **Go CLI**: Edit source files in `cli/prompd/go/cmd/prompd/`
+- **Python CLI**: Modify modules in `cli/python/prompd/`
+- **Go CLI**: Edit source files in `cli/go/cmd/prompd/`
 - Both CLIs should maintain feature parity for core operations
 
 ### Documentation Updates
@@ -177,9 +177,10 @@ Documentation is in `docs/` directory:
 
 **Version Update Locations:**
 When bumping versions, update these files:
-- `cli/prompd/python/pyproject.toml` - Package version
-- `cli/prompd/python/prompd/__init__.py` - Module version  
-- `cli/prompd/python/prompd/cli.py` - CLI version display
+- `cli/python/pyproject.toml` - Package version
+- `cli/python/prompd/__init__.py` - Module version  
+- `cli/python/prompd/cli.py` - CLI version display
+- `cli/go/cmd/prompd/main.go` - Go CLI version display
 - `vscode-extension/package.json` - Extension version
 
 **Release Process:**

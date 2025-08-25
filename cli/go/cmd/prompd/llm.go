@@ -45,13 +45,25 @@ func executeFileEnhanced(filename string, args []string) error {
 		return err
 	}
 
+	// Load config
+	config, err := LoadConfig()
+	if err != nil {
+		// Continue without config if loading fails
+		config = &Config{
+			APIKeys:         make(map[string]string),
+			CustomProviders: make(map[string]CustomProvider),
+		}
+	}
+
 	// Parse command line arguments
 	provider := ""
 	model := ""
 	apiKey := ""
 	output := ""
 	verbose := false
-	params := make(map[string]string)
+	paramsFile := ""
+	format := ""
+	params := make(map[string]interface{})
 	
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -75,6 +87,16 @@ func executeFileEnhanced(filename string, args []string) error {
 				output = args[i+1]
 				i++
 			}
+		case "--params":
+			if i+1 < len(args) {
+				paramsFile = args[i+1]
+				i++
+			}
+		case "--format":
+			if i+1 < len(args) {
+				format = args[i+1]
+				i++
+			}
 		case "--verbose", "-v":
 			verbose = true
 		case "-p":
@@ -88,17 +110,43 @@ func executeFileEnhanced(filename string, args []string) error {
 		}
 	}
 	
-	if provider == "" || model == "" {
-		return fmt.Errorf("--provider and --model are required")
+	// Load parameters from file if specified
+	if paramsFile != "" {
+		fileParams, err := loadParametersFromFile(paramsFile)
+		if err != nil {
+			return fmt.Errorf("failed to load parameters file: %w", err)
+		}
+		
+		// Merge file parameters with command line parameters (CLI takes precedence)
+		for k, v := range fileParams {
+			if _, exists := params[k]; !exists {
+				params[k] = v
+			}
+		}
 	}
 	
-	// Get API key from environment if not provided
-	if apiKey == "" {
-		apiKey = getAPIKey(provider)
+	// Use config defaults if not specified
+	if provider == "" {
+		provider = config.GetDefaultProvider()
 	}
+	if model == "" {
+		model = config.GetDefaultModel(provider)
+	}
+	
+	if provider == "" || model == "" {
+		return fmt.Errorf("--provider and --model are required (or set defaults in config)")
+	}
+	
+	// Get API key from config if not provided via command line
+	if apiKey == "" {
+		apiKey = config.GetAPIKey(provider)
+	}
+	
+	// Merge all parameter definitions (parameters and variables for backward compatibility)
+	allParams := append(prompd.Metadata.Parameters, prompd.Metadata.Variables...)
 	
 	// Validate required parameters
-	for _, param := range prompd.Metadata.Variables {
+	for _, param := range allParams {
 		if param.Required {
 			if _, ok := params[param.Name]; !ok {
 				return fmt.Errorf("required parameter missing: %s", param.Name)
@@ -110,7 +158,14 @@ func executeFileEnhanced(filename string, args []string) error {
 	content := prompd.Content
 	for key, value := range params {
 		placeholder := fmt.Sprintf("{%s}", key)
-		content = strings.ReplaceAll(content, placeholder, value)
+		// Convert value to string for substitution
+		var valueStr string
+		if v, ok := value.(string); ok {
+			valueStr = v
+		} else {
+			valueStr = fmt.Sprintf("%v", value)
+		}
+		content = strings.ReplaceAll(content, placeholder, valueStr)
 	}
 	
 	if verbose {
@@ -125,17 +180,40 @@ func executeFileEnhanced(filename string, args []string) error {
 		return fmt.Errorf("LLM call failed: %w", err)
 	}
 	
-	// Output result
-	if output != "" {
-		if err := os.WriteFile(output, []byte(response.Content), 0644); err != nil {
-			return fmt.Errorf("failed to write output file: %w", err)
+	// Output result based on format
+	if format == "json" {
+		// JSON output for programmatic use
+		result := map[string]interface{}{
+			"response": response.Content,
+			"provider": provider,
+			"model":    model,
 		}
-		fmt.Printf("✓ Response written to %s\n", output)
+		if response.Usage != nil {
+			result["usage"] = response.Usage
+		}
+		
+		resultBytes, _ := json.Marshal(result)
+		if output != "" {
+			if err := os.WriteFile(output, resultBytes, 0644); err != nil {
+				return fmt.Errorf("failed to write output file: %w", err)
+			}
+			fmt.Printf("✓ JSON response written to %s\n", output)
+		} else {
+			fmt.Println(string(resultBytes))
+		}
 	} else {
-		fmt.Println("Response:")
-		fmt.Println(strings.Repeat("-", 50))
-		fmt.Println(response.Content)
-		fmt.Println(strings.Repeat("-", 50))
+		// Human-readable output
+		if output != "" {
+			if err := os.WriteFile(output, []byte(response.Content), 0644); err != nil {
+				return fmt.Errorf("failed to write output file: %w", err)
+			}
+			fmt.Printf("✓ Response written to %s\n", output)
+		} else {
+			fmt.Println("Response:")
+			fmt.Println(strings.Repeat("-", 50))
+			fmt.Println(response.Content)
+			fmt.Println(strings.Repeat("-", 50))
+		}
 	}
 	
 	if verbose && response.Usage != nil {
@@ -327,14 +405,27 @@ func makeHTTPRequest(url string, req LLMRequest, apiKey, authType string) (*LLMR
 }
 
 func getAPIKey(provider string) string {
-	switch provider {
-	case "openai":
-		return os.Getenv("OPENAI_API_KEY")
-	case "anthropic":
-		return os.Getenv("ANTHROPIC_API_KEY")
-	case "groq":
-		return os.Getenv("GROQ_API_KEY")
-	default:
-		return ""
+	// Load config and get API key
+	config, err := LoadConfig()
+	if err != nil {
+		// Fallback to environment variables if config loading fails
+		return getAPIKeyFromEnv(provider)
 	}
+	
+	return config.GetAPIKey(provider)
+}
+
+// loadParametersFromFile loads parameters from a JSON file
+func loadParametersFromFile(filename string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	
+	var params map[string]interface{}
+	if err := json.Unmarshal(data, &params); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON parameters: %w", err)
+	}
+	
+	return params, nil
 }
