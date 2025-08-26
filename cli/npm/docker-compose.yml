@@ -1,0 +1,197 @@
+version: '3.8'
+
+services:
+  prompd-engine:
+    build: .
+    image: prompd/workflow-engine:0.2.3
+    container_name: prompd-workflow-engine
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - LOG_LEVEL=info
+      - WORKFLOW_TIMEOUT=300000
+      - MAX_CONCURRENT_WORKFLOWS=10
+      - RATE_LIMIT_REQUESTS=100
+      - RATE_LIMIT_WINDOW=60000
+      
+      # Authentication Configuration
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_EXPIRES_IN=24h
+      - SESSION_MAX_AGE=86400000
+      - BCRYPT_ROUNDS=12
+      
+      # OAuth Configuration
+      - OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID:-}
+      - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET:-}
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-http://localhost:3000/auth/callback}
+      - OAUTH_AUTH_URL=${OAUTH_AUTH_URL:-}
+      - OAUTH_TOKEN_URL=${OAUTH_TOKEN_URL:-}
+      - OAUTH_SCOPES=${OAUTH_SCOPES:-openid profile email}
+      
+      # Database Configuration (if using external DB)
+      - DATABASE_URL=${DATABASE_URL:-}
+      
+      # LLM Provider Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      
+      # Security Configuration
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - ENABLE_HTTPS=${ENABLE_HTTPS:-false}
+      - SSL_CERT_PATH=${SSL_CERT_PATH:-}
+      - SSL_KEY_PATH=${SSL_KEY_PATH:-}
+      
+    volumes:
+      - workflows:/app/workflows:ro
+      - temp:/app/temp
+      - logs:/app/logs
+      - ./config:/app/config:ro
+    networks:
+      - prompd-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100m
+      - /app/temp:rw,noexec,nosuid,size=500m
+
+  # Optional: Redis for session storage and caching
+  redis:
+    image: redis:7-alpine
+    container_name: prompd-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-defaultpassword}
+    volumes:
+      - redis-data:/data
+    networks:
+      - prompd-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+  # Optional: PostgreSQL for persistent data
+  postgres:
+    image: postgres:15-alpine
+    container_name: prompd-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-prompd}
+      - POSTGRES_USER=${POSTGRES_USER:-prompd}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - prompd-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prompd}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # Optional: Ollama for local LLM execution
+  ollama:
+    image: ollama/ollama:latest
+    container_name: prompd-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - prompd-network
+    environment:
+      - OLLAMA_ORIGINS=${OLLAMA_ORIGINS:-http://localhost:3000}
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+    profiles:
+      - ollama  # Only start with --profile ollama
+
+  # Optional: Nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: prompd-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/ssl/certs:ro
+      - logs:/var/log/nginx
+    networks:
+      - prompd-network
+    depends_on:
+      - prompd-engine
+    profiles:
+      - production  # Only start with --profile production
+
+volumes:
+  workflows:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${WORKFLOWS_DIR:-./workflows}
+      o: bind
+  temp:
+    driver: local
+  logs:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  ollama-data:
+    driver: local
+
+networks:
+  prompd-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: prompd0
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16

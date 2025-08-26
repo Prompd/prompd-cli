@@ -17,11 +17,16 @@ from prompd.executor import PrompDExecutor
 from prompd.config import PrompDConfig
 from prompd.exceptions import PrompDError, ValidationError, ParseError, ProviderError, ConfigurationError
 
-console = Console()
+# Configure console with proper encoding handling for Windows
+try:
+    console = Console(file=sys.stdout, force_terminal=True, width=120)
+except:
+    # Fallback to basic console if Rich fails
+    console = Console(file=sys.stdout, legacy_windows=True, width=120)
 
 
 @click.group()
-@click.version_option(version="0.2.3", prog_name="prompd")
+@click.version_option(version="0.3.0", prog_name="prompd")
 def cli():
     """Prompd - CLI for structured prompt definitions."""
     pass
@@ -36,10 +41,12 @@ def cli():
               multiple=True, help="JSON parameter file")
 @click.option("--api-key", help="API key override")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
+@click.option("--format", type=click.Choice(["text", "json"]), default="text", help="Output format")
 @click.option("--version", help="Execute a specific version (e.g., '1.2.3', 'HEAD', commit hash)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+@click.option("--show-usage", is_flag=True, help="Show token usage statistics")
 def execute(file: Path, provider: str, model: str, param: tuple, param_file: tuple, 
-           api_key: Optional[str], output: Optional[str], version: Optional[str], verbose: bool):
+           api_key: Optional[str], output: Optional[str], format: str, version: Optional[str], verbose: bool, show_usage: bool):
     """Execute a .prompd file with an LLM provider."""
     import asyncio
     import tempfile
@@ -103,35 +110,86 @@ def execute(file: Path, provider: str, model: str, param: tuple, param_file: tup
         if temp_file and temp_file.exists():
             temp_file.unlink()
         
-        # Output result
-        if output:
-            with open(output, "w") as f:
-                f.write(response.content)
-            console.print(f"[green]OK[/green] Response written to {output}")
-        else:
-            console.print(Panel(
-                response.content, 
-                title=f"Response from {provider}/{model}",
-                border_style="green"
-            ))
+        # Output result based on format
+        if format == "json":
+            import json
+            result = {
+                "response": response.content,
+                "provider": provider,
+                "model": model,
+                "file": str(file)
+            }
+            if response.usage:
+                result["usage"] = response.usage
             
-            if verbose and response.usage:
-                console.print(f"\n[dim]Usage: {response.usage}[/dim]")
+            json_output = json.dumps(result, indent=2, ensure_ascii=False)
+            
+            if output:
+                with open(output, "w", encoding="utf-8") as f:
+                    f.write(json_output)
+                try:
+                    console.print(f"[green]OK[/green] JSON response written to {output}")
+                except UnicodeEncodeError:
+                    print(f"OK - JSON response written to {output}")
+            else:
+                print(json_output)
+        else:
+            # Text format (default)
+            if output:
+                with open(output, "w", encoding="utf-8") as f:
+                    f.write(response.content)
+                try:
+                    console.print(f"[green]OK[/green] Response written to {output}")
+                except UnicodeEncodeError:
+                    print(f"OK - Response written to {output}")
+            else:
+                try:
+                    console.print(Panel(
+                        response.content, 
+                        title=f"Response from {provider}/{model}",
+                        border_style="green"
+                    ))
+                except UnicodeEncodeError:
+                    # Fallback for Windows console encoding issues
+                    print(f"\n--- Response from {provider}/{model} ---")
+                    print(response.content)
+                    print("-" * 50)
+                
+                if (verbose or show_usage) and response.usage:
+                    try:
+                        console.print(f"\n[dim]Usage: {response.usage}[/dim]")
+                    except UnicodeEncodeError:
+                        print(f"\nUsage: {response.usage}")
             
     except ConfigurationError as e:
-        console.print(f"[red]Configuration Error:[/red] {e}")
+        try:
+            console.print(f"[red]Configuration Error:[/red] {e}")
+        except UnicodeEncodeError:
+            print(f"Configuration Error: {e}")
         sys.exit(1)
     except ProviderError as e:
-        console.print(f"[red]Provider Error:[/red] {e}")
+        try:
+            console.print(f"[red]Provider Error:[/red] {e}")
+        except UnicodeEncodeError:
+            print(f"Provider Error: {e}")
         sys.exit(1)
     except PrompDError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        try:
+            console.print(f"[red]Error:[/red] {e}")
+        except UnicodeEncodeError:
+            print(f"Error: {e}")
         sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {e}")
-        if verbose:
-            import traceback
-            console.print(traceback.format_exc())
+        try:
+            console.print(f"[red]Unexpected error:[/red] {e}")
+            if verbose:
+                import traceback
+                console.print(traceback.format_exc())
+        except UnicodeEncodeError:
+            print(f"Unexpected error: {e}")
+            if verbose:
+                import traceback
+                print(traceback.format_exc())
         sys.exit(1)
 
 
@@ -403,6 +461,47 @@ def show_provider(name: str):
         
     except Exception as e:
         console.print(f"[red]Error showing provider:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("setkey")
+@click.argument("provider_name")
+@click.argument("api_key")
+def set_api_key(provider_name: str, api_key: str):
+    """Set API key for a provider."""
+    try:
+        config = PrompDConfig.load()
+        
+        # Set the API key
+        if not hasattr(config, 'api_keys') or config.api_keys is None:
+            config.api_keys = {}
+        
+        config.api_keys[provider_name] = api_key
+        config.save()
+        
+        console.print(f"[green]✓[/green] API key set for {provider_name}")
+        
+    except Exception as e:
+        console.print(f"[red]Error setting API key:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("removekey")
+@click.argument("provider_name")
+def remove_api_key(provider_name: str):
+    """Remove API key for a provider."""
+    try:
+        config = PrompDConfig.load()
+        
+        if hasattr(config, 'api_keys') and config.api_keys and provider_name in config.api_keys:
+            del config.api_keys[provider_name]
+            config.save()
+            console.print(f"[green]✓[/green] API key removed for {provider_name}")
+        else:
+            console.print(f"[yellow]No API key configured for {provider_name}[/yellow]")
+        
+    except Exception as e:
+        console.print(f"[red]Error removing API key:[/red] {e}")
         sys.exit(1)
 
 

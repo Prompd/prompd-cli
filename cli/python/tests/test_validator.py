@@ -115,20 +115,21 @@ def test_validate_metadata():
     validator = PrompDValidator()
     
     # Valid metadata
-    valid_metadata = {
-        "name": "test-prompt",
-        "description": "A test prompt",
-        "version": "1.0.0"
-    }
+    from prompd.models import PrompdMetadata
+    valid_metadata = PrompdMetadata(
+        name="test-prompt",
+        description="A test prompt",
+        version="1.0.0"
+    )
     issues = validator._validate_metadata(valid_metadata)
     assert len(issues) == 0
     
     # Invalid name format
-    invalid_name = {"name": "Test_Prompt"}
-    issues = validator._validate_metadata(invalid_name)
+    invalid_metadata = PrompdMetadata(name="Test_Prompt")
+    issues = validator._validate_metadata(invalid_metadata)
     assert any("kebab-case" in issue["message"] for issue in issues)
     
     # Invalid version format
-    invalid_version = {"name": "test", "version": "1.0"}
-    issues = validator._validate_metadata(invalid_version)
+    invalid_version_metadata = PrompdMetadata(name="test", version="1.0")
+    issues = validator._validate_metadata(invalid_version_metadata)
     assert any("semantic versioning" in issue["message"] for issue in issues)

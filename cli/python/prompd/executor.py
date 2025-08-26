@@ -297,7 +297,7 @@ class PrompDExecutor:
 async def execute_prompd(
     file_path: str,
     provider: str = "openai", 
-    model: str = "gpt-4",
+    model: str = "gpt-4o-mini",
     **kwargs
 ) -> LLMResponse:
     """

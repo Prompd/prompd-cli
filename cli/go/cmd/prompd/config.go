@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,7 +187,7 @@ func (c *Config) GetDefaultModel(provider string) string {
 	case "openai":
 		return "gpt-4o-mini"
 	case "anthropic":
-		return "claude-3-haiku-20240307"
+		return "claude-3-5-haiku-20241022"
 	case "groq":
 		return "llama3-8b-8192"
 	default:
@@ -224,4 +225,36 @@ func (c *Config) ListConfiguredProviders() []string {
 	}
 	
 	return providers
+}
+
+// SaveConfig saves the config to the user config file
+func SaveConfig(config *Config) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("error getting home directory: %w", err)
+	}
+	
+	configDir := filepath.Join(homeDir, ".prompd")
+	configPath := filepath.Join(configDir, "config.yaml")
+	
+	// Ensure config directory exists
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("error creating config directory: %w", err)
+	}
+	
+	// Marshal config to YAML
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("error marshaling config: %w", err)
+	}
+	
+	// Write to file
+	if err := ioutil.WriteFile(configPath, data, 0600); err != nil {
+		return fmt.Errorf("error writing config file: %w", err)
+	}
+	
+	// Update global config
+	globalConfig = config
+	
+	return nil
 }

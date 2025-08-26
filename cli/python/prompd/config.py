@@ -85,6 +85,7 @@ class PrompDConfig:
         env_keys = {
             'openai': 'OPENAI_API_KEY',
             'anthropic': 'ANTHROPIC_API_KEY',
+            'groq': 'GROQ_API_KEY',
             'ollama': 'OLLAMA_API_KEY',
         }
         
@@ -95,11 +96,17 @@ class PrompDConfig:
     
     def get_api_key(self, provider: str) -> Optional[str]:
         """Get API key for a provider."""
-        # Check explicit key first
+        # 1. Check explicit config api_keys first
         if provider in self.api_keys:
             return self.api_keys[provider]
         
-        # Check environment variables
+        # 2. Check custom provider api_key
+        if provider in self.custom_providers:
+            custom_api_key = self.custom_providers[provider].get('api_key')
+            if custom_api_key:
+                return custom_api_key
+        
+        # 3. Fallback to environment variables
         env_var = f"{provider.upper()}_API_KEY"
         return os.getenv(env_var)
     

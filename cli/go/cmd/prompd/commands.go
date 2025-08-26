@@ -22,11 +22,15 @@ Subcommands:
   add <name> <url> <models> Add a custom LLM provider
   remove <name>           Remove a custom LLM provider  
   show <name>             Show provider details
+  setkey <provider> <key>  Set API key for provider
+  removekey <provider>     Remove API key for provider
 
 Examples:
   prompd provider list
   prompd provider add local-llm http://localhost:8080/v1 llama2 codellama
-  prompd provider show openai`)
+  prompd provider show openai
+  prompd provider setkey openai sk-...
+  prompd provider removekey openai`)
 }
 
 func handleProviderList() {
@@ -44,10 +48,10 @@ func handleProviderList() {
 	fmt.Println("🔧 Built-in Providers:")
 	
 	builtinProviders := map[string][]string{
-		"openai":    {"gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"},
-		"anthropic": {"claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"},
+		"openai":    {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"},
+		"anthropic": {"claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"},
 		"groq":      {"llama3-8b-8192", "mixtral-8x7b-32768"},
-		"ollama":    {"llama2", "codellama", "(dynamic - depends on local install)"},
+		"ollama":    {"llama3.2", "qwen2.5", "codellama", "(dynamic - depends on local install)"},
 	}
 	
 	for provider, models := range builtinProviders {
@@ -219,11 +223,11 @@ func handleProviderShow() {
 	// Built-in providers
 	builtinProviders := map[string]map[string]interface{}{
 		"openai": {
-			"models": []string{"gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "gpt-4-turbo"},
+			"models": []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"},
 			"env":    "OPENAI_API_KEY",
 		},
 		"anthropic": {
-			"models": []string{"claude-3-5-sonnet-20241022", "claude-3-haiku-20240307", "claude-3-opus-20240229"},
+			"models": []string{"claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"},
 			"env":    "ANTHROPIC_API_KEY",
 		},
 		"groq": {
@@ -264,6 +268,65 @@ func handleProviderShow() {
 		fmt.Printf("Provider '%s' not found\n", name)
 		os.Exit(1)
 	}
+}
+
+func handleProviderSetKey() {
+	if len(os.Args) < 5 {
+		fmt.Println("Error: provider setkey requires provider and API key")
+		fmt.Println("Usage: prompd provider setkey <provider> <api_key>")
+		os.Exit(1)
+	}
+
+	provider := os.Args[3]
+	apiKey := os.Args[4]
+
+	config, err := LoadConfig()
+	if err != nil {
+		config = &Config{
+			APIKeys:         make(map[string]string),
+			CustomProviders: make(map[string]CustomProvider),
+		}
+	}
+
+	if config.APIKeys == nil {
+		config.APIKeys = make(map[string]string)
+	}
+
+	config.APIKeys[provider] = apiKey
+
+	if err := SaveConfig(config); err != nil {
+		fmt.Printf("Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ API key set for %s\n", provider)
+}
+
+func handleProviderRemoveKey() {
+	if len(os.Args) < 4 {
+		fmt.Println("Error: provider removekey requires provider")
+		fmt.Println("Usage: prompd provider removekey <provider>")
+		os.Exit(1)
+	}
+
+	provider := os.Args[3]
+
+	config, err := LoadConfig()
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if config.APIKeys != nil {
+		delete(config.APIKeys, provider)
+	}
+
+	if err := SaveConfig(config); err != nil {
+		fmt.Printf("Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ API key removed for %s\n", provider)
 }
 
 // Git operations
@@ -332,6 +395,7 @@ func handleGitCommit() {
 	
 	fmt.Printf("✓ Committed with message: %s\n", message)
 }
+
 
 func handleGitStatus() {
 	cmd := exec.Command("git", "status", "--porcelain")
@@ -423,11 +487,13 @@ Subcommands:
   history <file>          Show version history
   diff <file> <v1> <v2>   Show differences between versions
   validate <file>         Validate version consistency
+  suggest <file>          Suggest appropriate version bump
 
 Examples:
   prompd version bump example.prompd minor
   prompd version history example.prompd
-  prompd version diff example.prompd v1.0.0 v1.1.0`)
+  prompd version diff example.prompd v1.0.0 v1.1.0
+  prompd version suggest example.prompd`)
 }
 
 func handleVersionBump() {
@@ -560,6 +626,70 @@ func handleVersionValidate() {
 	}
 	
 	fmt.Printf("✓ Version %s is valid\n", version)
+}
+
+func handleVersionSuggest() {
+	if len(os.Args) < 4 {
+		fmt.Println("Error: version suggest requires a file path")
+		os.Exit(1)
+	}
+	
+	file := os.Args[3]
+	
+	prompd, err := parsePrompdFile(file)
+	if err != nil {
+		fmt.Printf("Error parsing file: %v\n", err)
+		os.Exit(1)
+	}
+	
+	currentVersion := prompd.Metadata.Version
+	if currentVersion == "" {
+		currentVersion = "0.0.0"
+	}
+	
+	// Check git diff to analyze changes
+	cmd := exec.Command("git", "diff", file)
+	output, _ := cmd.Output()
+	
+	// Simple heuristic for suggesting version bump
+	var suggestedBump string
+	var reason string
+	
+	if len(output) == 0 {
+		fmt.Println("No changes detected in file")
+		return
+	}
+	
+	diffStr := string(output)
+	
+	// Check for breaking changes (removed parameters, changed types)
+	if strings.Contains(diffStr, "-  - name:") || strings.Contains(diffStr, "type:") {
+		suggestedBump = "major"
+		reason = "Breaking changes detected (removed parameters or changed types)"
+	} else if strings.Contains(diffStr, "+  - name:") || strings.Contains(diffStr, "+parameters:") {
+		suggestedBump = "minor"
+		reason = "New features detected (added parameters)"
+	} else {
+		suggestedBump = "patch"
+		reason = "Bug fixes or minor changes detected"
+	}
+	
+	// Calculate new versions for all bump types
+	patchVersion := bumpVersion(currentVersion, "patch")
+	minorVersion := bumpVersion(currentVersion, "minor")
+	majorVersion := bumpVersion(currentVersion, "major")
+	
+	fmt.Println("Version Bump Suggestions")
+	fmt.Println()
+	fmt.Printf("Current Version: %s\n", currentVersion)
+	fmt.Printf("Suggested Bump: %s → %s\n", suggestedBump, bumpVersion(currentVersion, suggestedBump))
+	fmt.Println()
+	fmt.Println("All Options:")
+	fmt.Printf("  - Patch: %s (bug fixes)\n", patchVersion)
+	fmt.Printf("  - Minor: %s (new features)\n", minorVersion)
+	fmt.Printf("  - Major: %s (breaking changes)\n", majorVersion)
+	fmt.Println()
+	fmt.Printf("Reason: %s\n", reason)
 }
 
 func bumpVersion(version, bumpType string) string {

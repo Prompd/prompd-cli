@@ -15,6 +15,7 @@ The repository contains multiple implementations and tools for the Prompd format
 1. **CLI Implementations** (`cli/`): 
    - **Python CLI** (`cli/python/`): Full-featured CLI with LLM provider support, version control, and git integration
    - **Go CLI** (`cli/go/`): Lightweight, zero-dependency CLI for core operations
+   - **Node.js CLI** (`cli/npm/`): TypeScript-based CLI with MCP integration and server capabilities
 
 2. **Documentation** (`docs/`): Complete format specification, CLI reference, and architectural guides
 
@@ -49,7 +50,7 @@ pip install -e .
 # Install with development dependencies
 pip install -e ".[dev]"
 
-# Run tests
+# Run quick tests
 python run_tests.py
 
 # Run full test suite
@@ -70,13 +71,35 @@ cd cli/go
 go mod tidy
 go build -o prompd ./cmd/prompd
 
+# Run tests
+go test ./...
+
 # Build for all platforms (from repository root)
 ./build.sh          # Linux/macOS
 build.bat           # Windows
 
 # Test the build
-./prompd validate ../../examples/basic/example.prompd
-./prompd list ../../examples/
+./prompd validate examples/basic/example.prompd
+./prompd list examples/
+```
+
+### Node.js CLI Development
+
+```bash
+cd cli/npm
+npm install
+
+# Build TypeScript
+npm run build
+
+# Run tests
+npm test
+
+# Watch mode for development
+npm run test:watch
+
+# Development server
+npm run dev
 ```
 
 ### VS Code Extension Development
@@ -85,6 +108,9 @@ build.bat           # Windows
 cd vscode-extension
 npm install
 npm run compile
+
+# Watch for changes
+npm run watch
 ```
 
 ## Key Implementation Notes
@@ -95,7 +121,7 @@ npm run compile
 - Conditional logic uses `{%- if ... %}` template syntax
 
 ### Validation Requirements
-When implementing PMD parsers or runners:
+When implementing Prompd parsers or runners:
 1. Validate all required parameters are provided
 2. Check parameter types match specification
 3. Apply pattern validation for strings with regex
@@ -103,7 +129,7 @@ When implementing PMD parsers or runners:
 5. Provide clear error messages for validation failures
 
 ### Security Considerations
-- Never include API keys or secrets directly in PMD files
+- Never include API keys or secrets directly in Prompd files
 - Sanitize all parameter inputs to prevent injection
 - Validate file paths to prevent directory traversal
 - Use environment variables for sensitive configuration
@@ -134,6 +160,14 @@ cd cli/go
 go build -o prompd ./cmd/prompd
 ./prompd validate ../../examples/basic/example.prompd
 ./prompd list ../../examples/
+go test ./...
+```
+
+### Node.js CLI Testing
+```bash
+cd cli/npm
+npm test
+npm run test:watch  # Watch mode
 ```
 
 ### Prompd File Testing
@@ -158,7 +192,8 @@ When modifying `.prompd` files:
 ### Adding CLI Features
 - **Python CLI**: Modify modules in `cli/python/prompd/`
 - **Go CLI**: Edit source files in `cli/go/cmd/prompd/`
-- Both CLIs should maintain feature parity for core operations
+- **Node.js CLI**: Edit TypeScript files in `cli/npm/src/`
+- All CLIs should maintain feature parity for core operations
 
 ### Documentation Updates
 Documentation is in `docs/` directory:
@@ -180,12 +215,22 @@ When bumping versions, update these files:
 - `cli/python/pyproject.toml` - Package version
 - `cli/python/prompd/__init__.py` - Module version  
 - `cli/python/prompd/cli.py` - CLI version display
-- `cli/go/cmd/prompd/main.go` - Go CLI version display
+- `cli/go/cmd/prompd/main.go` - Go CLI version display (line 8)
+- `cli/npm/package.json` - Node.js CLI version
 - `vscode-extension/package.json` - Extension version
 
 **Release Process:**
 1. Update all version numbers
 2. Build Python package: `python -m build`
-3. Build Go binaries: `./build.sh`
-4. Upload to PyPI: `python -m twine upload dist/prompd-X.Y.Z*`
-5. Create GitHub release with Go binaries
+3. Build Go binaries: `./build.sh` or `build.bat`
+4. Build Node.js CLI: `cd cli/npm && npm run build`
+5. Upload to PyPI: `python -m twine upload dist/prompd-X.Y.Z*`
+6. Create GitHub release with Go binaries
+
+## Build System Architecture
+
+- **Cross-platform builds**: Use `build.sh` (Unix) or `build.bat` (Windows) for Go CLI
+- **Multi-target support**: Go CLI builds for Windows, Linux, macOS (both Intel and ARM)
+- **Zero dependencies**: Go binaries are standalone with no runtime requirements
+- **TypeScript compilation**: Node.js CLI uses `tsc` for compilation to JavaScript
+- **Package management**: Python uses `setuptools`, Node.js uses `npm`, Go uses modules

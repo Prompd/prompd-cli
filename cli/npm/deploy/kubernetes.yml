@@ -1,0 +1,316 @@
+# Kubernetes deployment configuration for Prompd Workflow Engine
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prompd
+  labels:
+    name: prompd
+    security: enterprise
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompd-config
+  namespace: prompd
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  PORT: "3000"
+  WORKFLOW_TIMEOUT: "300000"
+  MAX_CONCURRENT_WORKFLOWS: "10"
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_WINDOW: "60000"
+  JWT_EXPIRES_IN: "24h"
+  SESSION_MAX_AGE: "86400000"
+  BCRYPT_ROUNDS: "12"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prompd-secrets
+  namespace: prompd
+type: Opaque
+data:
+  jwt-secret: # base64 encoded JWT secret
+  oauth-client-id: # base64 encoded OAuth client ID
+  oauth-client-secret: # base64 encoded OAuth client secret
+  database-url: # base64 encoded database connection string
+  openai-api-key: # base64 encoded OpenAI API key
+  anthropic-api-key: # base64 encoded Anthropic API key
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prompd-workflow-engine
+  namespace: prompd
+  labels:
+    app: prompd-workflow-engine
+    version: "0.2.3"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: prompd-workflow-engine
+  template:
+    metadata:
+      labels:
+        app: prompd-workflow-engine
+        version: "0.2.3"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: prompd-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: workflow-engine
+        image: prompd/workflow-engine:0.2.3
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+          protocol: TCP
+        env:
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: prompd-secrets
+              key: jwt-secret
+        - name: OAUTH_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: prompd-secrets
+              key: oauth-client-id
+        - name: OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: prompd-secrets
+              key: oauth-client-secret
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: prompd-secrets
+              key: database-url
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: prompd-secrets
+              key: openai-api-key
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: prompd-secrets
+              key: anthropic-api-key
+        envFrom:
+        - configMapRef:
+            name: prompd-config
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: workflows
+          mountPath: /app/workflows
+          readOnly: true
+        - name: temp
+          mountPath: /app/temp
+        - name: logs
+          mountPath: /app/logs
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+      volumes:
+      - name: workflows
+        configMap:
+          name: prompd-workflows
+      - name: temp
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: logs
+        emptyDir:
+          sizeLimit: 500Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - prompd-workflow-engine
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prompd-workflow-engine-service
+  namespace: prompd
+  labels:
+    app: prompd-workflow-engine
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: prompd-workflow-engine
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prompd-ingress
+  namespace: prompd
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  tls:
+  - hosts:
+    - api.prompd.com
+    secretName: prompd-tls
+  rules:
+  - host: api.prompd.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prompd-workflow-engine-service
+            port:
+              number: 80
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prompd-service-account
+  namespace: prompd
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: prompd
+  name: prompd-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prompd-role-binding
+  namespace: prompd
+subjects:
+- kind: ServiceAccount
+  name: prompd-service-account
+  namespace: prompd
+roleRef:
+  kind: Role
+  name: prompd-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: prompd-pdb
+  namespace: prompd
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: prompd-workflow-engine
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: prompd-hpa
+  namespace: prompd
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: prompd-workflow-engine
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15

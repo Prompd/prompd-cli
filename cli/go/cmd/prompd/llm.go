@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -61,6 +63,7 @@ func executeFileEnhanced(filename string, args []string) error {
 	apiKey := ""
 	output := ""
 	verbose := false
+	showUsage := false
 	paramsFile := ""
 	format := ""
 	params := make(map[string]interface{})
@@ -99,6 +102,8 @@ func executeFileEnhanced(filename string, args []string) error {
 			}
 		case "--verbose", "-v":
 			verbose = true
+		case "--show-usage":
+			showUsage = true
 		case "-p":
 			if i+1 < len(args) {
 				parts := strings.SplitN(args[i+1], "=", 2)
@@ -145,28 +150,34 @@ func executeFileEnhanced(filename string, args []string) error {
 	// Merge all parameter definitions (parameters and variables for backward compatibility)
 	allParams := append(prompd.Metadata.Parameters, prompd.Metadata.Variables...)
 	
-	// Validate required parameters
+	// Validate parameters
 	for _, param := range allParams {
-		if param.Required {
-			if _, ok := params[param.Name]; !ok {
-				return fmt.Errorf("required parameter missing: %s", param.Name)
-			}
+		value, exists := params[param.Name]
+		
+		// Check required parameters
+		if param.Required && !exists {
+			return fmt.Errorf("required parameter missing: %s", param.Name)
+		}
+		
+		// Apply default value if parameter not provided
+		if !exists && param.Default != nil {
+			params[param.Name] = param.Default
+			value = param.Default
+		}
+		
+		// Skip validation if parameter not provided and not required
+		if !exists {
+			continue
+		}
+		
+		// Validate parameter value
+		if err := validateParameterValue(param, value); err != nil {
+			return fmt.Errorf("parameter '%s' validation failed: %w", param.Name, err)
 		}
 	}
 	
-	// Substitute variables in content
-	content := prompd.Content
-	for key, value := range params {
-		placeholder := fmt.Sprintf("{%s}", key)
-		// Convert value to string for substitution
-		var valueStr string
-		if v, ok := value.(string); ok {
-			valueStr = v
-		} else {
-			valueStr = fmt.Sprintf("%v", value)
-		}
-		content = strings.ReplaceAll(content, placeholder, valueStr)
-	}
+	// Apply template processing (variable substitution + basic conditionals)
+	content := processTemplate(prompd.Content, params)
 	
 	if verbose {
 		fmt.Printf("Executing %s with %s/%s\n", filename, provider, model)
@@ -216,7 +227,7 @@ func executeFileEnhanced(filename string, args []string) error {
 		}
 	}
 	
-	if verbose && response.Usage != nil {
+	if (verbose || showUsage) && response.Usage != nil {
 		fmt.Printf("\nUsage: %d prompt + %d completion = %d total tokens\n", 
 			response.Usage.PromptTokens, 
 			response.Usage.CompletionTokens, 
@@ -229,6 +240,213 @@ func executeFileEnhanced(filename string, args []string) error {
 type LLMResult struct {
 	Content string
 	Usage   *Usage
+}
+
+func validateParameterValue(param Parameter, value interface{}) error {
+	// Type validation
+	switch param.Type {
+	case "string":
+		strValue, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("expected string, got %T", value)
+		}
+		
+		// Pattern validation
+		if param.Pattern != "" {
+			matched, err := regexp.MatchString(param.Pattern, strValue)
+			if err != nil {
+				return fmt.Errorf("invalid pattern: %w", err)
+			}
+			if !matched {
+				return fmt.Errorf("value '%s' does not match pattern '%s'", strValue, param.Pattern)
+			}
+		}
+		
+	case "integer":
+		var intValue int64
+		switch v := value.(type) {
+		case int:
+			intValue = int64(v)
+		case int32:
+			intValue = int64(v)
+		case int64:
+			intValue = v
+		case float64:
+			if v != float64(int64(v)) {
+				return fmt.Errorf("expected integer, got float with decimal")
+			}
+			intValue = int64(v)
+		case string:
+			parsed, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				return fmt.Errorf("cannot parse '%s' as integer", v)
+			}
+			intValue = parsed
+		default:
+			return fmt.Errorf("expected integer, got %T", value)
+		}
+		
+		// Range validation
+		if param.Min != nil && float64(intValue) < *param.Min {
+			return fmt.Errorf("value %d is less than minimum %v", intValue, *param.Min)
+		}
+		if param.Max != nil && float64(intValue) > *param.Max {
+			return fmt.Errorf("value %d is greater than maximum %v", intValue, *param.Max)
+		}
+		
+	case "float":
+		var floatValue float64
+		switch v := value.(type) {
+		case float32:
+			floatValue = float64(v)
+		case float64:
+			floatValue = v
+		case int:
+			floatValue = float64(v)
+		case int32:
+			floatValue = float64(v)
+		case int64:
+			floatValue = float64(v)
+		case string:
+			parsed, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return fmt.Errorf("cannot parse '%s' as float", v)
+			}
+			floatValue = parsed
+		default:
+			return fmt.Errorf("expected float, got %T", value)
+		}
+		
+		// Range validation
+		if param.Min != nil && floatValue < *param.Min {
+			return fmt.Errorf("value %v is less than minimum %v", floatValue, *param.Min)
+		}
+		if param.Max != nil && floatValue > *param.Max {
+			return fmt.Errorf("value %v is greater than maximum %v", floatValue, *param.Max)
+		}
+		
+	case "boolean":
+		switch v := value.(type) {
+		case bool:
+			// Valid boolean
+		case string:
+			if v != "true" && v != "false" {
+				return fmt.Errorf("cannot parse '%s' as boolean", v)
+			}
+		default:
+			return fmt.Errorf("expected boolean, got %T", value)
+		}
+		
+	case "array":
+		switch value.(type) {
+		case []interface{}, []string, []int, []float64:
+			// Valid array types
+		default:
+			return fmt.Errorf("expected array, got %T", value)
+		}
+		
+	case "object":
+		switch value.(type) {
+		case map[string]interface{}:
+			// Valid object type
+		default:
+			return fmt.Errorf("expected object, got %T", value)
+		}
+	}
+	
+	return nil
+}
+
+func processTemplate(content string, params map[string]interface{}) string {
+	// First, handle simple variable substitution
+	for key, value := range params {
+		placeholder := fmt.Sprintf("{%s}", key)
+		var valueStr string
+		if v, ok := value.(string); ok {
+			valueStr = v
+		} else {
+			valueStr = fmt.Sprintf("%v", value)
+		}
+		content = strings.ReplaceAll(content, placeholder, valueStr)
+	}
+	
+	// Handle basic conditionals: {%- if condition %}...{%- endif %}
+	conditionalRegex := regexp.MustCompile(`\{%- if ([^}]+) %\}(.*?)\{%- endif %\}`)
+	content = conditionalRegex.ReplaceAllStringFunc(content, func(match string) string {
+		matches := conditionalRegex.FindStringSubmatch(match)
+		if len(matches) != 3 {
+			return match // Return original if parsing fails
+		}
+		
+		condition := strings.TrimSpace(matches[1])
+		contentBlock := matches[2]
+		
+		if evaluateCondition(condition, params) {
+			return contentBlock
+		}
+		return ""
+	})
+	
+	// Handle if-else conditionals: {%- if condition %}...{%- else %}...{%- endif %}
+	ifElseRegex := regexp.MustCompile(`\{%- if ([^}]+) %\}(.*?)\{%- else %\}(.*?)\{%- endif %\}`)
+	content = ifElseRegex.ReplaceAllStringFunc(content, func(match string) string {
+		matches := ifElseRegex.FindStringSubmatch(match)
+		if len(matches) != 4 {
+			return match // Return original if parsing fails
+		}
+		
+		condition := strings.TrimSpace(matches[1])
+		trueBlock := matches[2]
+		falseBlock := matches[3]
+		
+		if evaluateCondition(condition, params) {
+			return trueBlock
+		}
+		return falseBlock
+	})
+	
+	return content
+}
+
+func evaluateCondition(condition string, params map[string]interface{}) bool {
+	condition = strings.TrimSpace(condition)
+	
+	// Handle equality comparisons: variable == "value"
+	if strings.Contains(condition, "==") {
+		parts := strings.Split(condition, "==")
+		if len(parts) == 2 {
+			left := strings.TrimSpace(parts[0])
+			right := strings.TrimSpace(parts[1])
+			
+			// Remove quotes from right side if present
+			right = strings.Trim(right, `"'`)
+			
+			// Get value from params
+			if value, exists := params[left]; exists {
+				valueStr := fmt.Sprintf("%v", value)
+				return valueStr == right
+			}
+			return false
+		}
+	}
+	
+	// Handle simple boolean evaluation: if variable (truthy check)
+	if value, exists := params[condition]; exists {
+		switch v := value.(type) {
+		case bool:
+			return v
+		case string:
+			return v != ""
+		case int, int32, int64:
+			return v != 0
+		case float32, float64:
+			return v != 0
+		default:
+			return value != nil
+		}
+	}
+	
+	return false
 }
 
 func callLLM(provider, model, content, apiKey string) (*LLMResult, error) {

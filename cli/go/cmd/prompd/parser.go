@@ -98,10 +98,53 @@ func validateFile(filename string) error {
 	
 	// Check both parameters and variables fields for backward compatibility
 	allParams := append(prompd.Metadata.Parameters, prompd.Metadata.Variables...)
+	validTypes := map[string]bool{
+		"string":  true,
+		"integer": true,
+		"float":   true,
+		"boolean": true,
+		"array":   true,
+		"object":  true,
+	}
+	
 	for _, param := range allParams {
 		if param.Name == "" {
 			return fmt.Errorf("parameter name cannot be empty")
 		}
+		
+		// Validate parameter type
+		if param.Type != "" && !validTypes[param.Type] {
+			return fmt.Errorf("invalid parameter type '%s' for parameter '%s'. Must be one of: string, integer, float, boolean, array, object", param.Type, param.Name)
+		}
+		
+		// Validate pattern if present (for string types)
+		if param.Pattern != "" {
+			if param.Type != "" && param.Type != "string" {
+				return fmt.Errorf("pattern validation is only valid for string type parameters, but '%s' has type '%s'", param.Name, param.Type)
+			}
+			// Test if pattern is valid regex
+			if _, err := regexp.Compile(param.Pattern); err != nil {
+				return fmt.Errorf("invalid regex pattern for parameter '%s': %v", param.Name, err)
+			}
+		}
+		
+		// Validate min/max constraints (for numeric types)
+		if param.Min != nil || param.Max != nil {
+			if param.Type != "" && param.Type != "integer" && param.Type != "float" {
+				return fmt.Errorf("min/max constraints are only valid for numeric types, but '%s' has type '%s'", param.Name, param.Type)
+			}
+			if param.Min != nil && param.Max != nil && *param.Min > *param.Max {
+				return fmt.Errorf("min value (%v) cannot be greater than max value (%v) for parameter '%s'", *param.Min, *param.Max, param.Name)
+			}
+		}
+		
+		// Validate default value type matches parameter type
+		if param.Default != nil && param.Type != "" {
+			if err := validateDefaultType(param.Name, param.Type, param.Default); err != nil {
+				return err
+			}
+		}
+		
 		variables[param.Name] = true
 	}
 
@@ -116,6 +159,50 @@ func validateFile(filename string) error {
 		}
 	}
 
+	return nil
+}
+
+func validateDefaultType(paramName, paramType string, defaultValue interface{}) error {
+	switch paramType {
+	case "string":
+		if _, ok := defaultValue.(string); !ok {
+			return fmt.Errorf("default value for parameter '%s' must be a string", paramName)
+		}
+	case "integer":
+		switch v := defaultValue.(type) {
+		case int, int32, int64:
+			// Valid integer types
+		case float64:
+			// Check if it's a whole number
+			if v != float64(int(v)) {
+				return fmt.Errorf("default value for parameter '%s' must be an integer", paramName)
+			}
+		default:
+			return fmt.Errorf("default value for parameter '%s' must be an integer", paramName)
+		}
+	case "float":
+		switch defaultValue.(type) {
+		case float32, float64, int, int32, int64:
+			// Valid numeric types
+		default:
+			return fmt.Errorf("default value for parameter '%s' must be a float", paramName)
+		}
+	case "boolean":
+		if _, ok := defaultValue.(bool); !ok {
+			return fmt.Errorf("default value for parameter '%s' must be a boolean", paramName)
+		}
+	case "array":
+		switch defaultValue.(type) {
+		case []interface{}, []string, []int, []float64:
+			// Valid array types
+		default:
+			return fmt.Errorf("default value for parameter '%s' must be an array", paramName)
+		}
+	case "object":
+		if _, ok := defaultValue.(map[string]interface{}); !ok {
+			return fmt.Errorf("default value for parameter '%s' must be an object", paramName)
+		}
+	}
 	return nil
 }
 

@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "0.2.3"
+var version = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -53,7 +53,7 @@ Commands:
   list [path]              List .prompd files in directory  
   show <file>              Show file structure and parameters
   execute <file> [options] Execute a .prompd file with LLM
-  provider <subcommand>    Manage LLM providers
+  provider <subcommand>    Manage LLM providers and API keys
   providers                List available LLM providers
   git <subcommand>         Git operations for .prompd files
   version <subcommand>     Version management commands
@@ -63,7 +63,7 @@ Examples:
   prompd validate prompt.prompd
   prompd list prompts/
   prompd show example.prompd
-  prompd execute example.prompd --provider openai --model gpt-4`)
+  prompd execute example.prompd --provider openai --model gpt-4 --show-usage`)
 }
 
 func handleValidate() {
@@ -134,6 +134,10 @@ func handleProvider() {
 		handleProviderRemove()
 	case "show":
 		handleProviderShow()
+	case "setkey":
+		handleProviderSetKey()
+	case "removekey":
+		handleProviderRemoveKey()
 	default:
 		fmt.Printf("Unknown provider subcommand: %s\n", os.Args[2])
 		printProviderUsage()
@@ -182,6 +186,8 @@ func handleVersion() {
 		handleVersionDiff()
 	case "validate":
 		handleVersionValidate()
+	case "suggest":
+		handleVersionSuggest()
 	default:
 		fmt.Printf("Unknown version subcommand: %s\n", os.Args[2])
 		printVersionUsage()

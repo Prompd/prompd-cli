@@ -1,6 +1,7 @@
 """Tests for prompd.parser module."""
 
 import pytest
+import re
 from pathlib import Path
 import tempfile
 from prompd.parser import PrompdParser
@@ -34,18 +35,20 @@ Please discuss: {topic}
         with tempfile.NamedTemporaryFile(mode='w', suffix='.prompd', delete=False) as f:
             f.write(content)
             f.flush()
+            temp_file_path = Path(f.name)
             
-            prompd = self.parser.parse_file(Path(f.name))
-            
-            assert prompd.metadata.name == "test-prompt"
-            assert prompd.metadata.description == "A test prompt"
-            assert prompd.metadata.version == "1.0.0"
-            assert len(prompd.metadata.parameters) == 1
-            assert prompd.metadata.parameters[0].name == "topic"
-            assert "user" in prompd.sections
-            
-            # Clean up
-            Path(f.name).unlink()
+        # Parse after closing the file
+        prompd = self.parser.parse_file(temp_file_path)
+        
+        assert prompd.metadata.name == "test-prompt"
+        assert prompd.metadata.description == "A test prompt"
+        assert prompd.metadata.version == "1.0.0"
+        assert len(prompd.metadata.parameters) == 1
+        assert prompd.metadata.parameters[0].name == "topic"
+        assert "user" in prompd.sections
+        
+        # Clean up
+        temp_file_path.unlink()
 
 
 def test_parse_missing_frontmatter():
@@ -66,7 +69,7 @@ Content here
 """
     
     parser = PrompdParser()
-    with pytest.raises(ParseError, match="Missing required field 'name'"):
+    with pytest.raises(ParseError, match=r"(?s)Invalid metadata.*name.*Field required"):
         parser.parse_content(content)
 
 
@@ -90,20 +93,27 @@ def test_extract_variables():
     assert "topic" in variables
 
 
-def test_process_variables():
-    """Test variable processing and normalization."""
-    parser = PrompdParser()
+def test_parameter_defaults():
+    """Test parameter defaults through Pydantic models."""
+    from prompd.models import ParameterDefinition
     
-    variables = [
-        {"name": "test"},
-        {"name": "with_type", "type": "integer"},
-        {"name": "with_all", "type": "string", "required": True, "default": "value", "pattern": ".*"}
-    ]
+    # Test default values
+    param = ParameterDefinition(name="test")
+    assert param.type == "string"  # Default type
+    assert param.required is False  # Default required
     
-    processed = parser._process_variables(variables)
+    # Test explicit values
+    param_with_type = ParameterDefinition(name="with_type", type="integer")
+    assert param_with_type.type == "integer"
     
-    assert processed[0]["type"] == "string"  # Default type
-    assert processed[0]["required"] is False  # Default required
-    assert processed[1]["type"] == "integer"
-    assert processed[2]["required"] is True
-    assert processed[2]["pattern"] == ".*"
+    # Test all fields
+    param_full = ParameterDefinition(
+        name="with_all", 
+        type="string", 
+        required=True, 
+        default="value", 
+        pattern=".*"
+    )
+    assert param_full.required is True
+    assert param_full.pattern == ".*"
+    assert param_full.default == "value"
