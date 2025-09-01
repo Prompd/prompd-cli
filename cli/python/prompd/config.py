@@ -32,6 +32,12 @@ class PrompDConfig:
     # Custom providers
     custom_providers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     
+    # Registry settings
+    registry: Dict[str, Any] = field(default_factory=dict)
+    
+    # Package scopes -> registry mapping
+    scopes: Dict[str, str] = field(default_factory=dict)
+    
     # Execution settings
     timeout: int = 30
     max_retries: int = 3
@@ -71,12 +77,22 @@ class PrompDConfig:
                     config.provider_configs.update(data['provider_configs'])
                 if 'custom_providers' in data:
                     config.custom_providers.update(data['custom_providers'])
+                if 'registry' in data:
+                    config.registry.update(data['registry'])
+                if 'scopes' in data:
+                    config.scopes.update(data['scopes'])
                     
             except Exception as e:
                 raise ConfigurationError(f"Failed to load config file: {e}")
         
         # Load API keys from environment
         config._load_api_keys_from_env()
+        
+        # Ensure default registries are available
+        config.ensure_default_registries()
+        
+        # Migrate old config structure if needed
+        config.migrate_legacy_config()
         
         return config
     
@@ -109,6 +125,133 @@ class PrompDConfig:
         # 3. Fallback to environment variables
         env_var = f"{provider.upper()}_API_KEY"
         return os.getenv(env_var)
+    
+    def get_registry_token(self) -> Optional[str]:
+        """Get registry API token."""
+        # 1. Check dedicated registry section first
+        if 'token' in self.registry:
+            return self.registry['token']
+        
+        # 2. Fallback to legacy prompd key in api_keys (for backwards compatibility)
+        if 'prompd' in self.api_keys:
+            return self.api_keys['prompd']
+        
+        # 3. Environment variable fallback
+        return os.getenv('PROMPD_API_TOKEN')
+    
+    def set_registry_token(self, token: str):
+        """Set registry API token."""
+        self.registry['token'] = token
+        # Remove from api_keys if it exists there (cleanup)
+        if 'prompd' in self.api_keys:
+            del self.api_keys['prompd']
+    
+    def get_registry_url(self) -> str:
+        """Get registry URL."""
+        return self.registry.get('url', 'http://localhost:4000')
+    
+    def resolve_registry_for_package(self, package_name: str) -> str:
+        """Resolve which registry to use for a package."""
+        # Extract scope from package name (@scope/package)
+        if package_name.startswith('@') and '/' in package_name:
+            scope = package_name.split('/')[0]  # @company
+            
+            # Check if scope has a configured registry
+            if scope in self.scopes:
+                registry_name = self.scopes[scope]
+                if registry_name in self.registry.get('registries', {}):
+                    return registry_name
+        
+        # Fallback to default registry
+        return self.registry.get('default', 'prompdhub')
+    
+    def add_scope_mapping(self, scope: str, registry_name: str):
+        """Map a package scope to a registry."""
+        if not scope.startswith('@'):
+            scope = f'@{scope}'
+        self.scopes[scope] = registry_name
+    
+    def remove_scope_mapping(self, scope: str):
+        """Remove a scope mapping."""
+        if not scope.startswith('@'):
+            scope = f'@{scope}'
+        if scope in self.scopes:
+            del self.scopes[scope]
+    
+    def ensure_default_registries(self):
+        """Ensure prompdhub registry is always available."""
+        if 'registries' not in self.registry:
+            self.registry['registries'] = {}
+        
+        # Always ensure prompdhub is available (unless explicitly removed)
+        if 'prompdhub' not in self.registry['registries']:
+            self.registry['registries']['prompdhub'] = {
+                'url': 'https://registry.prompdhub.ai',
+                'token': None,
+                'username': None
+            }
+        
+        # Set prompdhub as default if no default is set
+        if not self.registry.get('default'):
+            self.registry['default'] = 'prompdhub'
+    
+    def migrate_legacy_config(self):
+        """Migrate old single-registry config to new multi-registry structure."""
+        needs_save = False
+        
+        # Check for legacy prompd token in api_keys
+        if 'prompd' in self.api_keys:
+            legacy_token = self.api_keys['prompd']
+            
+            # Move to registry structure
+            if 'registries' not in self.registry:
+                self.registry['registries'] = {}
+            
+            # If prompdhub doesn't have a token yet, use the legacy one
+            if 'prompdhub' in self.registry['registries'] and not self.registry['registries']['prompdhub'].get('token'):
+                self.registry['registries']['prompdhub']['token'] = legacy_token
+                needs_save = True
+            
+            # Remove from api_keys
+            del self.api_keys['prompd']
+            needs_save = True
+        
+        # Check for old registry.json file and migrate
+        old_registry_file = self.config_dir / "registry.json"
+        if old_registry_file.exists():
+            try:
+                import json
+                with open(old_registry_file, 'r') as f:
+                    old_data = json.load(f)
+                
+                # Migrate old registry data to new structure
+                if 'registries' not in self.registry:
+                    self.registry['registries'] = {}
+                
+                # Create a registry entry from old data
+                old_url = old_data.get('registry_url', 'http://localhost:4000')
+                if old_url == 'http://localhost:4000':
+                    registry_name = 'local'
+                else:
+                    registry_name = 'prompdhub'
+                
+                if registry_name not in self.registry['registries']:
+                    self.registry['registries'][registry_name] = {
+                        'url': old_url,
+                        'token': old_data.get('api_token'),
+                        'username': old_data.get('username')
+                    }
+                    needs_save = True
+                
+                # Remove old file
+                old_registry_file.unlink()
+                
+            except Exception:
+                # If migration fails, just continue
+                pass
+        
+        if needs_save:
+            self.save()
     
     def add_custom_provider(self, name: str, base_url: str, models: List[str], 
                           api_key: Optional[str] = None, provider_type: str = "openai-compatible"):
@@ -146,7 +289,9 @@ class PrompDConfig:
             "verbose": self.verbose,
             "api_keys": self.api_keys,
             "provider_configs": self.provider_configs,
-            "custom_providers": self.custom_providers
+            "custom_providers": self.custom_providers,
+            "registry": self.registry,
+            "scopes": self.scopes
         }
         
         try:

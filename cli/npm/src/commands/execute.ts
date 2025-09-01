@@ -5,14 +5,14 @@ import * as path from 'path';
 import { PrompdExecutor } from '../lib/executor';
 import { ConfigManager } from '../lib/config';
 
-export function createExecuteCommand(): Command {
-  const command = new Command('execute');
+export function createRunCommand(): Command {
+  const command = new Command('run');
   
   command
-    .description('Execute a .prompd file with an LLM provider')
+    .description('Run a .prompd file with an LLM provider')
     .argument('<file>', 'Path to the .prompd file')
-    .requiredOption('--provider <provider>', 'LLM provider (openai, anthropic, ollama)')
-    .requiredOption('--model <model>', 'Model name')
+    .option('--provider <provider>', 'LLM provider (openai, anthropic, ollama)')
+    .option('--model <model>', 'Model name')
     .option('-p, --param <param>', 'Parameter in format key=value', (value, previous: Record<string, string>) => {
       const params = previous || {};
       const [key, val] = value.split('=', 2);
@@ -26,6 +26,9 @@ export function createExecuteCommand(): Command {
     .option('-o, --output <file>', 'Output file path')
     .option('--format <format>', 'Output format (text, json)', 'text')
     .option('--version <version>', 'Execute a specific version (e.g., "1.2.3", "HEAD", commit hash)')
+    .option('--meta-system <text>', 'Override system section (text or file path like ./file.txt)')
+    .option('--meta-context <text>', 'Override context section (text or file path like ./file.txt)')
+    .option('--meta-user <text>', 'Override user section (text or file path like ./file.txt)')
     .option('-v, --verbose', 'Verbose output')
     .option('--show-usage', 'Show token usage statistics')
     .action(async (file: string, options) => {
@@ -44,6 +47,16 @@ export function createExecuteCommand(): Command {
           process.exit(1);
         }
 
+        // Support meta alias flags with colon syntax: --meta:system|context|user
+        const argv = process.argv;
+        const aliasMeta: Record<string, string | undefined> = {};
+        for (let i = 0; i < argv.length; i++) {
+          const a = argv[i];
+          if (a === '--meta:system' && i + 1 < argv.length) aliasMeta.metaSystem = argv[i + 1];
+          if (a === '--meta:context' && i + 1 < argv.length) aliasMeta.metaContext = argv[i + 1];
+          if (a === '--meta:user' && i + 1 < argv.length) aliasMeta.metaUser = argv[i + 1];
+        }
+
         const executeOptions = {
           provider,
           model,
@@ -53,6 +66,9 @@ export function createExecuteCommand(): Command {
           params: options.param,
           paramFiles: options.paramFile,
           version: options.version,
+          metaSystem: aliasMeta.metaSystem || options['metaSystem'],
+          metaContext: aliasMeta.metaContext || options['metaContext'],
+          metaUser: aliasMeta.metaUser || options['metaUser'],
           verbose: options.verbose
         };
         

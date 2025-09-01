@@ -341,12 +341,14 @@ Subcommands:
   commit -m <message>     Commit staged .prompd files
   status                  Show git status for .prompd files
   checkout <file> <version> Checkout specific version of file
+  remove <files...>       Remove .prompd files from git tracking
 
 Examples:
   prompd git add prompts/*.prompd
   prompd git commit -m "Update prompts"
   prompd git status
-  prompd git checkout example.prompd v1.2.3`)
+  prompd git checkout example.prompd v1.2.3
+  prompd git remove prompts/old.prompd --cached`)
 }
 
 func handleGitAdd() {
@@ -473,6 +475,58 @@ func handleGitCheckout() {
 	}
 	
 	fmt.Printf("✓ Checked out %s @ %s\n", file, version)
+}
+
+func handleGitRemove() {
+	if len(os.Args) < 4 {
+		fmt.Println("Error: git remove requires file paths")
+		fmt.Println("Usage: prompd git remove <files...> [--cached]")
+		fmt.Println("Options:")
+		fmt.Println("  --cached    Remove from index but keep in working directory")
+		os.Exit(1)
+	}
+	
+	// Check for --cached flag
+	cached := false
+	files := []string{}
+	
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--cached" {
+			cached = true
+		} else {
+			files = append(files, os.Args[i])
+		}
+	}
+	
+	if len(files) == 0 {
+		fmt.Println("Error: no files specified")
+		os.Exit(1)
+	}
+	
+	for _, file := range files {
+		if !strings.HasSuffix(file, ".prompd") {
+			fmt.Printf("Warning: Skipping non-.prompd file: %s\n", file)
+			continue
+		}
+		
+		var cmd *exec.Cmd
+		if cached {
+			cmd = exec.Command("git", "rm", "--cached", file)
+		} else {
+			cmd = exec.Command("git", "rm", file)
+		}
+		
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Error removing %s: %v\n", file, err)
+			continue
+		}
+		
+		if cached {
+			fmt.Printf("✓ Removed %s from git index (kept in working directory)\n", file)
+		} else {
+			fmt.Printf("✓ Removed %s from git tracking\n", file)
+		}
+	}
 }
 
 // Version management
@@ -820,4 +874,219 @@ func saveConfig(config *Config) error {
 	}
 	
 	return fmt.Errorf("could not write config to any of the expected paths")
+}
+
+// handleCompile - Multi-stage compilation command
+func handleCompile() {
+	if len(os.Args) < 3 {
+		printCompileUsage()
+		return
+	}
+
+	sourcePath := os.Args[2]
+	
+	// Handle --help
+	if sourcePath == "--help" || sourcePath == "-h" {
+		printCompileUsage()
+		return
+	}
+	outputFormat := "markdown"
+	parameters := make(map[string]interface{})
+	outputFile := ""
+	verbose := false
+
+	// Parse command line options
+	for i := 3; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		
+		switch {
+		case arg == "-p" && i+1 < len(os.Args):
+			// Parse parameter key=value
+			i++
+			parts := strings.SplitN(os.Args[i], "=", 2)
+			if len(parts) == 2 {
+				parameters[parts[0]] = parts[1]
+			}
+		case arg == "-o" && i+1 < len(os.Args):
+			i++
+			outputFile = os.Args[i]
+		case arg == "--to-markdown":
+			outputFormat = "markdown"
+		case arg == "--to-provider-json" && i+1 < len(os.Args):
+			i++
+			outputFormat = os.Args[i]
+		case arg == "-v" || arg == "--verbose":
+			verbose = true
+		}
+	}
+
+	fmt.Printf("Compiling %s to %s format...\n", sourcePath, outputFormat)
+
+	// Set verbose mode for package resolver
+	globalPackageResolver.Verbose = verbose
+
+	compiler := NewPrompDCompiler()
+	result, err := compiler.Compile(sourcePath, outputFormat, parameters, outputFile, verbose)
+	if err != nil {
+		fmt.Printf("ERROR: Compilation failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if outputFile != "" {
+		fmt.Printf("SUCCESS: Compiled output saved to: %s\n", outputFile)
+	} else {
+		fmt.Println(result)
+	}
+	
+	if verbose {
+		fmt.Println("Compilation completed successfully")
+	}
+}
+
+func printCompileUsage() {
+	fmt.Println(`Compile Command - Multi-stage compilation pipeline
+
+Usage:
+  prompd compile <file> [options]
+
+Arguments:
+  <file>                    Path to .prompd file or package reference
+
+Options:
+  -p key=value             Parameter in format key=value
+  -o <output>              Output file path
+  --to-markdown            Compile to human-readable markdown (default)
+  --to-provider-json <fmt> Compile to provider JSON format (openai, anthropic)
+  -v, --verbose            Verbose output
+
+Examples:
+  prompd compile example.prompd
+  prompd compile example.prompd -p name="Alice" -p style="formal"
+  prompd compile example.prompd --to-provider-json openai
+  prompd compile example.prompd -o output.md -v`)
+}
+
+// handleRun - Renamed from handleExecute  
+func handleRun() {
+	fmt.Println("ERROR: The 'run' command requires LLM provider integration.")
+	fmt.Println("This lightweight Go CLI focuses on core operations (validate, list, show, compile, package, registry).")
+	fmt.Println("For LLM execution, use the full-featured Python CLI:")
+	fmt.Println("  pip install prompd")
+	fmt.Println("  prompd run <file> --provider <provider> --model <model>")
+	os.Exit(1)
+}
+
+// handleCache - Package cache management
+func handleCache() {
+	if len(os.Args) < 3 {
+		printCacheUsage()
+		return
+	}
+
+	subcommand := os.Args[2]
+	
+	switch subcommand {
+	case "list":
+		handleCacheList()
+	case "clear":
+		handleCacheClear()
+	case "info":
+		handleCacheInfo()
+	default:
+		fmt.Printf("Unknown cache subcommand: %s\n", subcommand)
+		printCacheUsage()
+		os.Exit(1)
+	}
+}
+
+func handleCacheList() {
+	packages, err := globalPackageResolver.Cache.ListCachedPackages()
+	if err != nil {
+		fmt.Printf("ERROR: Failed to list cached packages: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(packages) == 0 {
+		fmt.Println("No cached packages found.")
+		return
+	}
+
+	fmt.Printf("Cached Packages (%d total):\n\n", len(packages))
+	for i, pkg := range packages {
+		manifest := pkg["manifest"].(map[string]interface{})
+		name := "unknown"
+		version := "unknown"
+		description := ""
+
+		if n, ok := manifest["name"].(string); ok {
+			name = n
+		}
+		if v, ok := manifest["version"].(string); ok {
+			version = v
+		}
+		if d, ok := manifest["description"].(string); ok {
+			description = d
+		}
+
+		fmt.Printf("%d. %s@%s\n", i+1, name, version)
+		if description != "" {
+			fmt.Printf("   %s\n", description)
+		}
+		fmt.Printf("   Path: %s\n\n", pkg["path"])
+	}
+}
+
+func handleCacheClear() {
+	fmt.Println("Clearing package cache...")
+	
+	if err := globalPackageResolver.Cache.Clear(); err != nil {
+		fmt.Printf("ERROR: Failed to clear cache: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Recreate the cache directory
+	os.MkdirAll(globalPackageResolver.Cache.CacheDir, 0755)
+	
+	fmt.Println("SUCCESS: Package cache cleared.")
+}
+
+func handleCacheInfo() {
+	packages, err := globalPackageResolver.Cache.ListCachedPackages()
+	if err != nil {
+		fmt.Printf("ERROR: Failed to get cache info: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Package Cache Information (Go CLI)")
+	fmt.Println("")
+	fmt.Printf("Cache Directory: %s\n", globalPackageResolver.Cache.CacheDir)
+	fmt.Printf("Cached Packages: %d\n", len(packages))
+	fmt.Printf("Registry URLs: %s\n", strings.Join(globalPackageResolver.RegistryURLs, ", "))
+	
+	// Show registry discovery status
+	if len(globalPackageResolver.Registries) == 0 {
+		globalPackageResolver.DiscoverRegistries()
+	}
+	
+	fmt.Printf("Discovered Registries: %d\n", len(globalPackageResolver.Registries))
+	for url, registry := range globalPackageResolver.Registries {
+		fmt.Printf("  - %s (%s)\n", registry.Name, url)
+	}
+}
+
+func printCacheUsage() {
+	fmt.Println(`Cache Management Commands
+
+Usage:
+  prompd cache <subcommand>
+
+Subcommands:
+  list    List cached packages
+  clear   Clear the package cache  
+  info    Show cache information
+
+Examples:
+  prompd cache list
+  prompd cache clear
+  prompd cache info`)
 }

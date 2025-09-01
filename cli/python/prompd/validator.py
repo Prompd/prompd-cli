@@ -82,16 +82,28 @@ class PrompDValidator:
         """Validate .prompd metadata structure."""
         issues = []
         
-        # Check required fields
-        if not metadata.name:
+        # ID field is now required
+        if not getattr(metadata, 'id', None):
             issues.append({
                 "level": "error",
-                "message": "Missing required field 'name'"
+                "message": "Missing required field 'id'"
             })
-        elif not re.match(r'^[a-z0-9-]+$', metadata.name):
+        elif not re.match(r'^[a-z0-9-]+$', metadata.id):
+            issues.append({
+                "level": "error", 
+                "message": f"ID '{metadata.id}' must use kebab-case (lowercase letters, numbers, hyphens only)"
+            })
+        
+        # Name field is optional but recommended for human-readable display
+        if not getattr(metadata, 'name', None):
             issues.append({
                 "level": "warning",
-                "message": f"Name '{metadata.name}' should use kebab-case (lowercase with hyphens)"
+                "message": "Missing recommended field 'name' - provide a human-readable display name"
+            })
+        elif metadata.name and not re.match(r'^[a-zA-Z0-9\s\-_.,()]+$', metadata.name):
+            issues.append({
+                "level": "warning", 
+                "message": f"Name '{metadata.name}' contains potentially problematic characters"
             })
         
         if not metadata.description:

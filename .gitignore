@@ -82,8 +82,10 @@ tmp/
 config.json
 .prompd/config.json
 
+**/node_modules/
+**/.prompd
+
 # VS Code Extension
-vscode-extension/node_modules/
 vscode-extension/out/
 vscode-extension/*.vsix
 vscode-extension/.vscode-test/

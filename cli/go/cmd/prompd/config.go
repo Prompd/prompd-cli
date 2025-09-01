@@ -10,15 +10,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// RegistryConfig represents a single registry configuration
+type RegistryInfo struct {
+	URL      string `yaml:"url"`
+	Token    string `yaml:"token,omitempty"`
+	Username string `yaml:"username,omitempty"`
+}
+
 // Config represents the prompd configuration
 type Config struct {
-	APIKeys         map[string]string         `yaml:"api_keys"`
-	DefaultProvider string                    `yaml:"default_provider"`
-	DefaultModel    string                    `yaml:"default_model"`
-	CustomProviders map[string]CustomProvider `yaml:"custom_providers"`
-	MaxRetries      int                       `yaml:"max_retries"`
-	Timeout         int                       `yaml:"timeout"`
-	Verbose         bool                      `yaml:"verbose"`
+	APIKeys         map[string]string                `yaml:"api_keys"`
+	DefaultProvider string                           `yaml:"default_provider"`
+	DefaultModel    string                           `yaml:"default_model"`
+	CustomProviders map[string]CustomProvider        `yaml:"custom_providers"`
+	Registry        map[string]interface{}           `yaml:"registry"`
+	Scopes          map[string]string                `yaml:"scopes"`
+	MaxRetries      int                              `yaml:"max_retries"`
+	Timeout         int                              `yaml:"timeout"`
+	Verbose         bool                             `yaml:"verbose"`
 }
 
 // CustomProvider represents a custom LLM provider configuration
@@ -41,6 +50,8 @@ func LoadConfig() (*Config, error) {
 	config := &Config{
 		APIKeys:         make(map[string]string),
 		CustomProviders: make(map[string]CustomProvider),
+		Registry:        make(map[string]interface{}),
+		Scopes:          make(map[string]string),
 		MaxRetries:      3,
 		Timeout:         30,
 		Verbose:         false,
@@ -62,6 +73,10 @@ func LoadConfig() (*Config, error) {
 
 	// Override with environment variables
 	loadEnvironmentVariables(config)
+
+	// Ensure default registries and migrate legacy config
+	ensureDefaultRegistries(config)
+	migrateLegacyConfig(config)
 
 	globalConfig = config
 	return config, nil
@@ -257,4 +272,220 @@ func SaveConfig(config *Config) error {
 	globalConfig = config
 	
 	return nil
+}
+
+// Multi-Registry Functions
+
+// ensureDefaultRegistries ensures prompdhub registry is always available
+func ensureDefaultRegistries(config *Config) {
+	// Initialize registry structure if not exists
+	if config.Registry == nil {
+		config.Registry = make(map[string]interface{})
+	}
+	
+	// Get registries map or initialize it
+	var registries map[string]interface{}
+	if reg, exists := config.Registry["registries"]; exists {
+		if regMap, ok := reg.(map[string]interface{}); ok {
+			registries = regMap
+		} else {
+			registries = make(map[string]interface{})
+		}
+	} else {
+		registries = make(map[string]interface{})
+	}
+	
+	// Ensure prompdhub is available (unless explicitly removed)
+	if _, exists := registries["prompdhub"]; !exists {
+		registries["prompdhub"] = map[string]interface{}{
+			"url":      "https://registry.prompdhub.ai",
+			"token":    nil,
+			"username": nil,
+		}
+	}
+	
+	config.Registry["registries"] = registries
+	
+	// Set prompdhub as default if no default is set
+	if _, exists := config.Registry["default"]; !exists {
+		config.Registry["default"] = "prompdhub"
+	}
+}
+
+// migrateLegacyConfig migrates old single-registry config to multi-registry
+func migrateLegacyConfig(config *Config) {
+	// Check for legacy prompd token in api_keys
+	if token, exists := config.APIKeys["prompd"]; exists {
+		// Move to registry structure
+		registries := getRegistriesMap(config)
+		
+		// If prompdhub doesn't have a token, use the legacy one
+		if prompdhub, exists := registries["prompdhub"]; exists {
+			if prompdhubMap, ok := prompdhub.(map[string]interface{}); ok {
+				if _, hasToken := prompdhubMap["token"]; !hasToken {
+					prompdhubMap["token"] = token
+				}
+			}
+		}
+		
+		// Remove from api_keys
+		delete(config.APIKeys, "prompd")
+	}
+}
+
+// Helper function to get registries map
+func getRegistriesMap(config *Config) map[string]interface{} {
+	if reg, exists := config.Registry["registries"]; exists {
+		if regMap, ok := reg.(map[string]interface{}); ok {
+			return regMap
+		}
+	}
+	return make(map[string]interface{})
+}
+
+// resolveRegistryForPackage resolves which registry to use for a package
+func resolveRegistryForPackage(config *Config, packageName string) string {
+	// Extract scope from package name (@scope/package)
+	if strings.HasPrefix(packageName, "@") && strings.Contains(packageName, "/") {
+		scope := strings.Split(packageName, "/")[0] // @company
+		
+		// Check if scope has a configured registry
+		if registryName, exists := config.Scopes[scope]; exists {
+			registries := getRegistriesMap(config)
+			if _, registryExists := registries[registryName]; registryExists {
+				return registryName
+			}
+		}
+	}
+	
+	// Fallback to default registry
+	if defaultReg, exists := config.Registry["default"]; exists {
+		if defaultStr, ok := defaultReg.(string); ok {
+			return defaultStr
+		}
+	}
+	
+	return "prompdhub"
+}
+
+// addRegistry adds a new registry to the configuration
+func addRegistry(config *Config, name, url string) error {
+	registries := getRegistriesMap(config)
+	
+	registries[name] = map[string]interface{}{
+		"url": url,
+	}
+	
+	config.Registry["registries"] = registries
+	
+	// Set as default if it's the first registry
+	if _, exists := config.Registry["default"]; !exists {
+		config.Registry["default"] = name
+	}
+	
+	return SaveConfig(config)
+}
+
+// removeRegistry removes a registry from the configuration
+func removeRegistry(config *Config, name string) error {
+	registries := getRegistriesMap(config)
+	
+	if _, exists := registries[name]; !exists {
+		return fmt.Errorf("registry '%s' not found", name)
+	}
+	
+	delete(registries, name)
+	config.Registry["registries"] = registries
+	
+	// Update default if we removed the default registry
+	if defaultReg, exists := config.Registry["default"]; exists {
+		if defaultStr, ok := defaultReg.(string); ok && defaultStr == name {
+			// Set new default from remaining registries
+			for regName := range registries {
+				config.Registry["default"] = regName
+				break
+			}
+			// If no registries left, remove default
+			if len(registries) == 0 {
+				delete(config.Registry, "default")
+			}
+		}
+	}
+	
+	return SaveConfig(config)
+}
+
+// setDefaultRegistry sets the default registry
+func setDefaultRegistry(config *Config, name string) error {
+	registries := getRegistriesMap(config)
+	
+	if _, exists := registries[name]; !exists {
+		return fmt.Errorf("registry '%s' not found", name)
+	}
+	
+	config.Registry["default"] = name
+	
+	return SaveConfig(config)
+}
+
+// getRegistryInfo gets information about a specific registry
+func getRegistryInfo(config *Config, name string) (*RegistryInfo, error) {
+	registries := getRegistriesMap(config)
+	
+	regData, exists := registries[name]
+	if !exists {
+		return nil, fmt.Errorf("registry '%s' not found", name)
+	}
+	
+	regMap, ok := regData.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid registry data for '%s'", name)
+	}
+	
+	info := &RegistryInfo{}
+	
+	if url, exists := regMap["url"]; exists {
+		if urlStr, ok := url.(string); ok {
+			info.URL = urlStr
+		}
+	}
+	
+	if token, exists := regMap["token"]; exists {
+		if tokenStr, ok := token.(string); ok {
+			info.Token = tokenStr
+		}
+	}
+	
+	if username, exists := regMap["username"]; exists {
+		if usernameStr, ok := username.(string); ok {
+			info.Username = usernameStr
+		}
+	}
+	
+	return info, nil
+}
+
+// setRegistryToken sets the token for a specific registry
+func setRegistryToken(config *Config, name, token, username string) error {
+	registries := getRegistriesMap(config)
+	
+	regData, exists := registries[name]
+	if !exists {
+		return fmt.Errorf("registry '%s' not found", name)
+	}
+	
+	regMap, ok := regData.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid registry data for '%s'", name)
+	}
+	
+	regMap["token"] = token
+	if username != "" {
+		regMap["username"] = username
+	}
+	
+	registries[name] = regMap
+	config.Registry["registries"] = registries
+	
+	return SaveConfig(config)
 }

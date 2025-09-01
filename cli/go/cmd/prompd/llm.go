@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -67,6 +68,9 @@ func executeFileEnhanced(filename string, args []string) error {
 	paramsFile := ""
 	format := ""
 	params := make(map[string]interface{})
+	metaSystem := ""
+	metaContext := ""
+	metaUser := ""
 	
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -110,6 +114,21 @@ func executeFileEnhanced(filename string, args []string) error {
 				if len(parts) == 2 {
 					params[parts[0]] = parts[1]
 				}
+				i++
+			}
+		case "--meta-system":
+			if i+1 < len(args) {
+				metaSystem = args[i+1]
+				i++
+			}
+		case "--meta-context":
+			if i+1 < len(args) {
+				metaContext = args[i+1]
+				i++
+			}
+		case "--meta-user":
+			if i+1 < len(args) {
+				metaUser = args[i+1]
 				i++
 			}
 		}
@@ -176,8 +195,27 @@ func executeFileEnhanced(filename string, args []string) error {
 		}
 	}
 	
+	// Apply metadata overrides if provided
+	systemSection := extractSectionContent(prompd.Content, "system")
+	contextSection := extractSectionContent(prompd.Content, "context")
+	userSection := extractSectionContent(prompd.Content, "user")
+	
+	// Override with command line values
+	if metaSystem != "" {
+		systemSection = resolveMetadataValue(metaSystem, filename, verbose)
+	}
+	if metaContext != "" {
+		contextSection = resolveMetadataValue(metaContext, filename, verbose)
+	}
+	if metaUser != "" {
+		userSection = resolveMetadataValue(metaUser, filename, verbose)
+	}
+	
+	// Reconstruct content with overrides
+	overriddenContent := reconstructContentWithOverrides(prompd.Content, systemSection, contextSection, userSection)
+	
 	// Apply template processing (variable substitution + basic conditionals)
-	content := processTemplate(prompd.Content, params)
+	content := processTemplate(overriddenContent, params)
 	
 	if verbose {
 		fmt.Printf("Executing %s with %s/%s\n", filename, provider, model)
@@ -646,4 +684,102 @@ func loadParametersFromFile(filename string) (map[string]interface{}, error) {
 	}
 	
 	return params, nil
+}
+
+// extractSectionContent extracts content from a markdown section
+func extractSectionContent(content, section string) string {
+	lines := strings.Split(content, "\n")
+	var result []string
+	inSection := false
+	sectionHeader := "## " + strings.Title(section)
+	
+	for _, line := range lines {
+		if strings.HasPrefix(line, "## ") {
+			if strings.HasPrefix(line, sectionHeader) {
+				inSection = true
+				continue
+			} else if inSection {
+				break
+			}
+		}
+		
+		if inSection {
+			result = append(result, line)
+		}
+	}
+	
+	return strings.Join(result, "\n")
+}
+
+// resolveMetadataValue resolves a metadata value from either direct text or file path
+func resolveMetadataValue(value, currentFile string, verbose bool) string {
+	// Check if it's a file path
+	if strings.HasPrefix(value, "./") || strings.HasPrefix(value, "/") || (len(value) > 1 && value[1] == ':') {
+		filePath := value
+		if strings.HasPrefix(value, "./") {
+			// Relative path - resolve relative to current file
+			currentDir := filepath.Dir(currentFile)
+			filePath = filepath.Join(currentDir, value[2:])
+		}
+		
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Printf("Error reading file '%s': %v\n", filePath, err)
+			return value // Return original value as fallback
+		}
+		
+		if verbose {
+			fmt.Printf("Loaded content from %s\n", filePath)
+		}
+		
+		return string(content)
+	}
+	
+	// Direct text content
+	return value
+}
+
+// reconstructContentWithOverrides reconstructs the content with section overrides
+func reconstructContentWithOverrides(originalContent, systemSection, contextSection, userSection string) string {
+	lines := strings.Split(originalContent, "\n")
+	var result []string
+	currentSection := ""
+	
+	for _, line := range lines {
+		if strings.HasPrefix(line, "## ") {
+			sectionName := strings.ToLower(strings.TrimSpace(line[3:]))
+			currentSection = sectionName
+			
+			// Add the header
+			result = append(result, line)
+			
+			// Add override content if available
+			switch currentSection {
+			case "system":
+				if systemSection != "" {
+					result = append(result, strings.Split(systemSection, "\n")...)
+					currentSection = "skip" // Skip original content
+				}
+			case "context":
+				if contextSection != "" {
+					result = append(result, strings.Split(contextSection, "\n")...)
+					currentSection = "skip" // Skip original content
+				}
+			case "user":
+				if userSection != "" {
+					result = append(result, strings.Split(userSection, "\n")...)
+					currentSection = "skip" // Skip original content
+				}
+			}
+		} else if currentSection == "skip" && strings.HasPrefix(line, "## ") {
+			// New section found, stop skipping
+			currentSection = ""
+			result = append(result, line)
+		} else if currentSection != "skip" {
+			// Add original line if not skipping
+			result = append(result, line)
+		}
+	}
+	
+	return strings.Join(result, "\n")
 }

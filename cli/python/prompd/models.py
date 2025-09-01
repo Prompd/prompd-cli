@@ -1,5 +1,6 @@
 """Core data models for prompd."""
 
+import re
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 from pathlib import Path
@@ -99,9 +100,16 @@ def parse_content_reference(value: Union[str, List[str], Dict[str, Any]]) -> Con
         raise ValueError(f"Invalid content reference format: {value}")
 
 
+class UsingPackage(BaseModel):
+    """Package reference with optional prefix."""
+    name: str
+    prefix: Optional[str] = None
+
+
 class PrompdMetadata(BaseModel):
     """Metadata section of prompd file."""
-    name: str
+    id: Optional[str] = None  # Machine-readable identifier (kebab-case) - auto-generated from name if not provided
+    name: Optional[str] = None  # Human-readable display name (can have spaces)
     description: Optional[str] = None
     version: Optional[str] = None
     author: Optional[str] = None
@@ -110,19 +118,30 @@ class PrompdMetadata(BaseModel):
     requires: List[str] = Field(default_factory=list)
     inputs: Dict[str, Any] = Field(default_factory=dict)
     
+    # Composable architecture fields
+    using: List[Union[str, UsingPackage]] = Field(default_factory=list)
+    inherits: Optional[str] = None
+    
     # Content references
     system: Optional[Union[str, List[str]]] = None
+    assistant: Optional[Union[str, List[str]]] = None
     context: Optional[Union[str, List[str]]] = None
     user: Optional[Union[str, List[str]]] = None
     response: Optional[Union[str, List[str]]] = None
 
-    @field_validator('name')
+    @field_validator('id')
     @classmethod
-    def validate_name(cls, v):
-        """Validate name follows kebab-case convention."""
-        if not v.replace('-', '').replace('_', '').isalnum():
-            raise ValueError(f"Name should use kebab-case: {v}")
+    def validate_id(cls, v):
+        """Validate id follows kebab-case convention."""
+        if v and not re.match(r'^[a-z0-9-]+$', v):
+            raise ValueError(f"ID must use kebab-case (lowercase letters, numbers, hyphens): {v}")
         return v
+    
+    def model_post_init(self, __context):
+        """Auto-generate id from name if not provided."""
+        if not self.id and self.name:
+            # Convert name to kebab-case
+            self.id = re.sub(r'[^a-z0-9]+', '-', self.name.lower()).strip('-')
 
 
 class MessageRole(str, Enum):

@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
 import yaml
 from pydantic import ValidationError
@@ -65,6 +65,9 @@ class PrompdParser:
         yaml_content = parts[1].strip()
         markdown_content = parts[2].strip()
         
+        # Pre-process YAML to handle package references with @ symbols
+        yaml_content = self._preprocess_package_references(yaml_content)
+        
         # Parse YAML frontmatter
         try:
             metadata_dict = yaml.safe_load(yaml_content) or {}
@@ -86,6 +89,178 @@ class PrompdParser:
             content=markdown_content,
             sections=sections
         )
+    
+    def _preprocess_package_references(self, yaml_content: str) -> str:
+        """
+        Pre-process YAML to validate and quote package references with @ symbols.
+        
+        Scans all YAML fields recursively to identify package references (strings starting with @),
+        validates they exist, and quotes them for proper YAML parsing.
+        
+        Args:
+            yaml_content: Raw YAML content
+            
+        Returns:
+            Processed YAML content with validated and quoted package references
+        """
+        import yaml
+        import re
+        from typing import Any, Dict, List, Union
+        
+        try:
+            # First attempt to parse YAML to identify structure
+            # Use safe_load with custom resolver to handle @ symbols temporarily
+            class CustomLoader(yaml.SafeLoader):
+                pass
+            
+            def package_reference_constructor(loader, node):
+                # Return the raw string value for @ references
+                return loader.construct_scalar(node)
+            
+            # Add constructor for handling @ symbols temporarily
+            CustomLoader.add_constructor('tag:yaml.org,2002:str', package_reference_constructor)
+            
+            try:
+                data = yaml.load(yaml_content, Loader=CustomLoader)
+            except yaml.YAMLError:
+                # If YAML parsing fails, fall back to regex approach for @ symbols
+                return self._regex_quote_package_references(yaml_content)
+                
+            if not isinstance(data, dict):
+                return yaml_content
+                
+            # Process all fields recursively to find package references
+            processed = yaml_content
+            package_refs = self._find_all_package_references(data)
+            
+            for field_path, package_ref in package_refs:
+                # Validate package reference exists
+                if not self._validate_package_exists(package_ref):
+                    raise ParseError(f"Package reference not found: {package_ref}")
+                
+                # Quote the validated reference based on its context
+                processed = self._quote_package_reference(processed, field_path, package_ref)
+                            
+            return processed
+            
+        except Exception:
+            # Fall back to regex approach if structured parsing fails
+            return self._regex_quote_package_references(yaml_content)
+    
+    def _find_all_package_references(self, data, current_path="") -> List[Tuple[str, str]]:
+        """
+        Recursively find all package references (strings starting with @) in YAML data.
+        
+        Args:
+            data: Parsed YAML data structure
+            current_path: Current field path for context
+            
+        Returns:
+            List of (field_path, package_reference) tuples
+        """
+        from typing import Any, Dict, List, Union, Tuple
+        
+        package_refs = []
+        
+        if isinstance(data, dict):
+            for key, value in data.items():
+                field_path = f"{current_path}.{key}" if current_path else key
+                
+                if isinstance(value, str) and value.startswith('@'):
+                    package_refs.append((field_path, value))
+                elif isinstance(value, list):
+                    # Handle arrays
+                    for i, item in enumerate(value):
+                        if isinstance(item, str) and item.startswith('@'):
+                            package_refs.append((f"{field_path}[{i}]", item))
+                        elif isinstance(item, dict):
+                            # Handle objects in arrays (like using: array)
+                            nested_refs = self._find_all_package_references(item, f"{field_path}[{i}]")
+                            package_refs.extend(nested_refs)
+                elif isinstance(value, dict):
+                    # Recursively process nested objects
+                    nested_refs = self._find_all_package_references(value, field_path)
+                    package_refs.extend(nested_refs)
+                    
+        return package_refs
+    
+    def _quote_package_reference(self, yaml_content: str, field_path: str, package_ref: str) -> str:
+        """
+        Quote a specific package reference in YAML content based on its field path.
+        
+        Args:
+            yaml_content: Current YAML content
+            field_path: Path to the field (e.g., "inherits", "context[0]", "using[0].package")
+            package_ref: Package reference to quote
+            
+        Returns:
+            Updated YAML content with quoted package reference
+        """
+        import re
+        
+        escaped_ref = re.escape(package_ref)
+        
+        # Handle different field path patterns
+        if '[' in field_path:
+            # Array context: field[index] or field[index].subfield
+            if '.package' in field_path:
+                # using[0].package format
+                pattern = rf'(\s*package:\s*)({escaped_ref})'
+                replacement = rf'\1"\2"'
+            else:
+                # Array item: context[0] format
+                pattern = rf'(\s*-\s*)({escaped_ref})'
+                replacement = rf'\1"\2"'
+        else:
+            # Simple field: field_name format
+            field_name = field_path.split('.')[0]  # Get root field name
+            pattern = rf'(\s*{field_name}:\s*)({escaped_ref})'
+            replacement = rf'\1"\2"'
+        
+        return re.sub(pattern, replacement, yaml_content)
+    
+    def _regex_quote_package_references(self, yaml_content: str) -> str:
+        """Fallback regex-based approach for quoting package references."""
+        import re
+        
+        patterns = [
+            # Generic pattern for any field: field_name: @package -> field_name: "@package"
+            (r'(\s*[a-zA-Z_][a-zA-Z0-9_]*:\s*)(@[^\s]+)', r'\1"\2"'),
+            # Array items: - @package -> - "@package"
+            (r'(\s*-\s*)(@[^\s]+)', r'\1"\2"'),
+        ]
+        
+        processed = yaml_content
+        for pattern, replacement in patterns:
+            processed = re.sub(pattern, replacement, processed)
+            
+        return processed
+    
+    def _validate_package_exists(self, package_ref: str) -> bool:
+        """
+        Validate that a package reference exists and is accessible.
+        
+        Args:
+            package_ref: Package reference like @prompd.io/core-patterns@2.0.0
+            
+        Returns:
+            True if package exists and is accessible, False otherwise
+        """
+        try:
+            # Import here to avoid circular imports
+            from .package_resolver import PackageResolver
+            
+            resolver = PackageResolver()
+            # Try to resolve the package - this will raise an exception if not found
+            resolved_path = resolver.resolve_package(package_ref)
+            return resolved_path is not None
+            
+        except Exception as e:
+            # For now, log the error and return False
+            # In production, we might want more sophisticated error handling
+            if hasattr(self, 'verbose') and self.verbose:
+                print(f"Package validation warning: {package_ref} - {e}")
+            return False  # Temporarily return False until package resolver is fully integrated
     
     def _parse_sections(self, content: str) -> Dict[str, str]:
         """

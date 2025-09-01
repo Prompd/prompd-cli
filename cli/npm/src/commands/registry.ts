@@ -2,13 +2,113 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { RegistryClient, createDefaultRegistryConfig, SearchQuery } from '../lib/registry';
+import { RegistryClient } from '../lib/registry';
+import { ConfigManager } from '../lib/config';
 
 export function createRegistryCommand(): Command {
   const command = new Command('registry');
-  command.description('Package registry operations for sharing and discovering workflows');
+  command.description('Manage package registries');
 
-  // Publish command
+  // Registry list command
+  const listCommand = new Command('list');
+  listCommand
+    .description('List all configured registries')
+    .action(async () => {
+      try {
+        const configManager = ConfigManager.getInstance();
+        const config = await configManager.loadConfig();
+        const registries = config.registry.registries;
+        const defaultRegistry = config.registry.default;
+
+        if (Object.keys(registries).length === 0) {
+          console.log(chalk.yellow('No registries configured'));
+          console.log(chalk.dim("Use 'prompd registry add' to add a registry"));
+          return;
+        }
+
+        console.log(chalk.bold('Configured Registries:'));
+        for (const [name, registryConfig] of Object.entries(registries)) {
+          const defaultMark = name === defaultRegistry ? chalk.green(' (default)') : '';
+          const url = registryConfig.url || 'N/A';
+          const username = registryConfig.username || 'Not logged in';
+          console.log(`  • ${chalk.cyan(name)}${defaultMark}`);
+          console.log(`    URL: ${url}`);
+          console.log(`    User: ${username}`);
+        }
+      } catch (error) {
+        console.error(chalk.red(`Error listing registries: ${error}`));
+        process.exit(1);
+      }
+    });
+
+  // Registry add command
+  const addCommand = new Command('add');
+  addCommand
+    .description('Add a new registry')
+    .argument('<name>', 'Registry name')
+    .argument('<url>', 'Registry URL')
+    .action(async (name: string, url: string) => {
+      try {
+        const configManager = ConfigManager.getInstance();
+        await configManager.addRegistry(name, url);
+        console.log(chalk.green(`Added registry '${chalk.cyan(name)}' at ${url}`));
+      } catch (error) {
+        console.error(chalk.red(`Error adding registry: ${error}`));
+        process.exit(1);
+      }
+    });
+
+  // Registry remove command
+  const removeCommand = new Command('remove');
+  removeCommand
+    .description('Remove a registry')
+    .argument('<name>', 'Registry name')
+    .option('--force', 'Force removal of default prompdhub registry')
+    .action(async (name: string, options) => {
+      try {
+        // Warn about removing prompdhub unless forced
+        if (name === 'prompdhub' && !options.force) {
+          console.log(chalk.yellow('Warning:') + ' Removing the main prompdhub registry');
+          console.log('Use --force to confirm, or consider setting a different default instead');
+          process.exit(1);
+        }
+
+        const configManager = ConfigManager.getInstance();
+        await configManager.removeRegistry(name);
+        console.log(chalk.green(`Removed registry '${chalk.cyan(name)}'`));
+      } catch (error) {
+        console.error(chalk.red(`Error removing registry: ${error}`));
+        process.exit(1);
+      }
+    });
+
+  // Registry set-default command
+  const setDefaultCommand = new Command('set-default');
+  setDefaultCommand
+    .description('Set the default registry')
+    .argument('<name>', 'Registry name')
+    .action(async (name: string) => {
+      try {
+        const configManager = ConfigManager.getInstance();
+        await configManager.setDefaultRegistry(name);
+        console.log(chalk.green(`Set '${chalk.cyan(name)}' as default registry`));
+      } catch (error) {
+        console.error(chalk.red(`Error setting default registry: ${error}`));
+        process.exit(1);
+      }
+    });
+
+  // Add all registry management commands
+  command.addCommand(listCommand);
+  command.addCommand(addCommand);
+  command.addCommand(removeCommand);
+  command.addCommand(setDefaultCommand);
+
+  return command;
+}
+
+// Legacy publish command (to be integrated with main CLI)
+export function createPublishCommand(): Command {
   const publishCommand = new Command('publish');
   publishCommand
     .description('Publish a package to the registry')
@@ -17,18 +117,15 @@ export function createRegistryCommand(): Command {
     .option('--tag <tag>', 'Package tag', 'latest')
     .option('--dry-run', 'Show what would be published without actually publishing')
     .option('--force', 'Force publish even if version exists')
-    .option('--registry <url>', 'Registry URL override')
+    .option('--registry <registry>', 'Registry name to publish to')
     .action(async (directory: string, options) => {
       try {
         console.log(chalk.cyan(`📦 Publishing package from ${directory}...`));
         
-        const config = createDefaultRegistryConfig();
-        if (options.registry) {
-          config.registryUrl = options.registry;
-        }
+        // Resolve registry
+        const registryName = options.registry;
+        const client = new RegistryClient(registryName);
 
-        const client = new RegistryClient(config);
-        
         // Event listeners for progress
         client.on('publishStart', ({ packageDir, options }) => {
           console.log(chalk.blue(`🚀 Starting publish from ${packageDir}`));
@@ -36,7 +133,7 @@ export function createRegistryCommand(): Command {
         
         client.on('publishComplete', ({ name, version, access }) => {
           console.log(chalk.green(`✅ Successfully published ${name}@${version} (${access})`));
-          console.log(chalk.gray(`   Registry: ${config.registryUrl}`));
+          console.log(chalk.gray(`   Registry: ${client.registryUrl}`));
           console.log(chalk.gray(`   Install: prompd install ${name}@${version}`));
         });
         
@@ -52,342 +149,165 @@ export function createRegistryCommand(): Command {
         });
 
       } catch (error) {
-        console.error(chalk.red('Publish failed:'), error instanceof Error ? error.message : error);
+        console.error(chalk.red(`Publish failed: ${error}`));
         process.exit(1);
       }
     });
 
-  // Install command
-  const installCommand = new Command('install');
-  installCommand
-    .alias('i')
-    .description('Install a package from the registry')
-    .argument('<package>', 'Package name (e.g., company/user-auth@1.0.0)')
-    .option('-v, --version <version>', 'Specific version to install')
-    .option('--save-dev', 'Save to dev dependencies')
-    .option('-g, --global', 'Install globally')
-    .option('--force', 'Force reinstall')
-    .option('--skip-cache', 'Skip cache and download fresh')
-    .option('--registry <url>', 'Registry URL override')
-    .action(async (packageName: string, options) => {
-      try {
-        console.log(chalk.cyan(`📦 Installing ${packageName}...`));
-        
-        const config = createDefaultRegistryConfig();
-        if (options.registry) {
-          config.registryUrl = options.registry;
-        }
+  return publishCommand;
+}
 
-        const client = new RegistryClient(config);
-        
-        // Event listeners
-        client.on('installStart', ({ packageName, options }) => {
-          console.log(chalk.blue(`📥 Downloading ${packageName}...`));
-        });
-        
-        client.on('installingDependency', ({ name, version }) => {
-          console.log(chalk.gray(`   Installing dependency: ${name}@${version}`));
-        });
-        
-        client.on('installingFromCache', ({ name, version }) => {
-          console.log(chalk.yellow(`📂 Using cached ${name}@${version}`));
-        });
-        
-        client.on('installComplete', ({ name, version }) => {
-          console.log(chalk.green(`✅ Successfully installed ${name}@${version}`));
-        });
-        
-        client.on('installError', ({ packageName, error }) => {
-          console.error(chalk.red(`❌ Install failed: ${error.message}`));
-        });
-
-        await client.install(packageName, {
-          version: options.version,
-          saveDev: options.saveDev,
-          global: options.global,
-          force: options.force,
-          skipCache: options.skipCache
-        });
-
-      } catch (error) {
-        console.error(chalk.red('Install failed:'), error instanceof Error ? error.message : error);
-        process.exit(1);
-      }
-    });
-
-  // Search command
+// Legacy search command (to be integrated with main CLI)
+export function createSearchCommand(): Command {
   const searchCommand = new Command('search');
   searchCommand
     .description('Search for packages in the registry')
     .argument('<query>', 'Search query')
-    .option('-c, --category <category>', 'Filter by category')
-    .option('-t, --type <type>', 'Filter by type (prompt, workflow, collection)')
-    .option('--tags <tags>', 'Filter by tags (comma-separated)')
-    .option('--author <author>', 'Filter by author')
-    .option('-l, --limit <limit>', 'Number of results', '20')
-    .option('--sort <sort>', 'Sort order (relevance, downloads, updated, created)', 'relevance')
-    .option('--registry <url>', 'Registry URL override')
+    .option('-l, --limit <limit>', 'Maximum number of results', '20')
+    .option('-r, --registry <registry>', 'Search specific registry')
     .action(async (query: string, options) => {
       try {
-        console.log(chalk.cyan(`🔍 Searching for "${query}"...`));
-        
-        const config = createDefaultRegistryConfig();
-        if (options.registry) {
-          config.registryUrl = options.registry;
+        const limit = parseInt(options.limit, 10);
+        const registryName = options.registry;
+        const client = new RegistryClient(registryName);
+
+        const results = await client.search({ query, limit });
+
+        if (results.packages.length === 0) {
+          console.log(`No packages found for: ${chalk.cyan(query)}`);
+          if (registryName) {
+            console.log(chalk.dim(`Searched in registry: ${registryName}`));
+          }
+          return;
         }
 
-        const client = new RegistryClient(config);
-        
-        const searchQuery: SearchQuery = {
-          query,
-          category: options.category,
-          type: options.type as any,
-          tags: options.tags ? options.tags.split(',') : undefined,
-          author: options.author,
-          limit: parseInt(options.limit),
-          sort: options.sort as any
-        };
-
-        const results = await client.search(searchQuery);
-        
-        console.log(chalk.green(`\n📦 Found ${results.total} packages:`));
+        const registryDisplayName = registryName || 'default registry';
+        console.log(`Found ${results.packages.length} package(s) for ${chalk.cyan(query)} in ${chalk.yellow(registryDisplayName)}:`);
         console.log();
 
         for (const pkg of results.packages) {
-          console.log(`${chalk.bold(pkg.name)} ${chalk.gray(`v${pkg.version}`)}`);
-          console.log(`   ${pkg.description}`);
-          console.log(`   ${chalk.blue(`@${pkg.author}`)} • ${chalk.yellow(pkg.category)} • ${pkg.downloads.toLocaleString()} downloads`);
+          console.log(`${chalk.bold.cyan(pkg.name)} - ${chalk.green(`v${pkg.version}`)}`);
+          console.log(`  ${pkg.description || 'No description available'}`);
           
-          if (pkg.tags.length > 0) {
-            console.log(`   ${pkg.tags.map(tag => chalk.cyan(`#${tag}`)).join(' ')}`);
+          if (pkg.author) {
+            console.log(`  Author: ${pkg.author}`);
           }
           
-          console.log(`   ${chalk.gray(`Updated ${new Date(pkg.updatedAt).toLocaleDateString()}`)}`);
           console.log();
         }
 
-        if (results.hasMore) {
-          console.log(chalk.gray(`... and ${results.total - results.packages.length} more results`));
-          console.log(chalk.gray('Use --limit to see more results'));
-        }
-
       } catch (error) {
-        console.error(chalk.red('Search failed:'), error instanceof Error ? error.message : error);
+        console.error(chalk.red(`Search failed: ${error}`));
         process.exit(1);
       }
     });
 
-  // Info command
-  const infoCommand = new Command('info');
-  infoCommand
-    .description('Show package information')
+  return searchCommand;
+}
+
+// Legacy install command (to be integrated with main CLI)
+export function createInstallCommand(): Command {
+  const installCommand = new Command('install');
+  installCommand
+    .description('Install a package from the registry')
     .argument('<package>', 'Package name')
-    .option('-v, --version <version>', 'Specific version')
-    .option('--registry <url>', 'Registry URL override')
+    .option('--version <version>', 'Specific version to install')
+    .option('--global', 'Install globally')
+    .option('--registry <registry>', 'Install from specific registry (overrides scope resolution)')
     .action(async (packageName: string, options) => {
       try {
-        const config = createDefaultRegistryConfig();
+        const configManager = ConfigManager.getInstance();
+        
+        // Resolve which registry to use
+        let registryName: string;
         if (options.registry) {
-          config.registryUrl = options.registry;
+          // Explicit registry override
+          registryName = options.registry;
+        } else {
+          // Auto-resolve based on package scope
+          registryName = configManager.resolveRegistryForPackage(packageName);
         }
 
-        const client = new RegistryClient(config);
-        const packageInfo = await client.getPackageInfo(packageName, options.version);
-        
-        console.log(chalk.cyan(`📦 ${packageInfo.name}@${packageInfo.version}`));
-        console.log();
-        console.log(`Description: ${packageInfo.description}`);
-        console.log(`Author: ${packageInfo.author}`);
-        console.log(`License: ${packageInfo.license}`);
-        console.log(`Type: ${packageInfo.type}`);
-        console.log(`Category: ${packageInfo.category}`);
-        
-        if (packageInfo.keywords.length > 0) {
-          console.log(`Keywords: ${packageInfo.keywords.join(', ')}`);
-        }
-        
-        if (packageInfo.tags.length > 0) {
-          console.log(`Tags: ${packageInfo.tags.map(tag => `#${tag}`).join(' ')}`);
-        }
-        
-        console.log(`Created: ${new Date(packageInfo.createdAt).toLocaleDateString()}`);
-        console.log(`Updated: ${new Date(packageInfo.updatedAt).toLocaleDateString()}`);
-        
-        if (packageInfo.repository) {
-          console.log(`Repository: ${packageInfo.repository.url}`);
-        }
-        
-        if (Object.keys(packageInfo.dependencies).length > 0) {
-          console.log();
-          console.log(chalk.bold('Dependencies:'));
-          for (const [name, version] of Object.entries(packageInfo.dependencies)) {
-            console.log(`  ${name}: ${version}`);
-          }
-        }
-        
-        console.log();
-        console.log(chalk.gray('Install:'));
-        console.log(`  prompd install ${packageInfo.name}@${packageInfo.version}`);
+        const client = new RegistryClient(registryName);
 
-      } catch (error) {
-        console.error(chalk.red('Failed to get package info:'), error instanceof Error ? error.message : error);
-        process.exit(1);
-      }
-    });
-
-  // Versions command
-  const versionsCommand = new Command('versions');
-  versionsCommand
-    .description('List available versions for a package')
-    .argument('<package>', 'Package name')
-    .option('--registry <url>', 'Registry URL override')
-    .action(async (packageName: string, options) => {
-      try {
-        const config = createDefaultRegistryConfig();
-        if (options.registry) {
-          config.registryUrl = options.registry;
+        console.log(`Installing package: ${chalk.cyan(packageName)}`);
+        console.log(`   Registry: ${chalk.yellow(registryName)}`);
+        if (options.version) {
+          console.log(`   Version: ${chalk.green(options.version)}`);
         }
 
-        const client = new RegistryClient(config);
-        const versions = await client.getPackageVersions(packageName);
-        
-        if (versions.length === 0) {
-          console.log(chalk.yellow(`No versions found for ${packageName}`));
-          return;
-        }
-        
-        console.log(chalk.cyan(`📦 Available versions for ${packageName}:`));
-        console.log();
-        
-        // Sort versions in descending order
-        const sortedVersions = versions.sort((a, b) => {
-          const semver = require('semver');
-          return semver.rcompare(a, b);
+        await client.install(packageName, {
+          version: options.version,
+          global: options.global
         });
-        
-        for (const version of sortedVersions) {
-          console.log(`  ${version}`);
-        }
-        
-        console.log();
-        console.log(chalk.gray('Install specific version:'));
-        console.log(`  prompd install ${packageName}@${sortedVersions[0]}`);
+
+        console.log(chalk.green('Package installed successfully!'));
 
       } catch (error) {
-        console.error(chalk.red('Failed to get versions:'), error instanceof Error ? error.message : error);
+        console.error(chalk.red(`Installation failed: ${error}`));
         process.exit(1);
       }
     });
 
-  // Init command - create a new project
-  const initCommand = new Command('init');
-  initCommand
-    .description('Initialize a new prompd project')
-    .argument('[name]', 'Project name')
-    .option('--type <type>', 'Project type (prompt, workflow, collection)', 'collection')
-    .option('--category <category>', 'Project category', 'general')
-    .option('--author <author>', 'Author name')
-    .option('--license <license>', 'License', 'MIT')
-    .action(async (name: string, options) => {
+  return installCommand;
+}
+
+// Login command (to be integrated with main CLI)
+export function createLoginCommand(): Command {
+  const loginCommand = new Command('login');
+  loginCommand
+    .description('Authenticate with a Prompd registry')
+    .option('-t, --token <token>', 'Use API token instead of interactive login')
+    .option('-r, --registry <registry>', 'Login to specific registry')
+    .action(async (options) => {
       try {
-        const projectName = name || path.basename(process.cwd());
-        const projectFile = path.join(process.cwd(), 'project.prompdproj');
-        
-        if (await fs.pathExists(projectFile)) {
-          console.error(chalk.red('project.prompdproj already exists in this directory'));
+        const registryName = options.registry;
+        const client = new RegistryClient(registryName);
+        const actualRegistryName = registryName || 'default';
+
+        if (options.token) {
+          // Token-based login
+          console.log(chalk.dim(`Authenticating with ${actualRegistryName}...`));
+          const userData = await client.loginWithToken(options.token);
+          
+          console.log(chalk.green(`Successfully authenticated as ${userData.username}`));
+          console.log(`   Registry: ${actualRegistryName} (${client.registryUrl})`);
+        } else {
+          // Interactive login not implemented yet
+          console.log(chalk.yellow('Interactive login not yet implemented. Use --token option.'));
           process.exit(1);
         }
 
-        const author = options.author || process.env.USER || 'Unknown';
-        
-        const projectConfig = {
-          name: projectName,
-          version: '1.0.0',
-          description: `A ${options.type} project`,
-          author,
-          license: options.license,
-          keywords: [],
-          dependencies: {},
-          type: options.type,
-          category: options.category,
-          tags: [],
-          files: ['**/*', '!node_modules', '!.git']
-        };
-
-        const yaml = require('yaml');
-        const content = `---
-${yaml.stringify(projectConfig)}---
-
-# ${projectName}
-
-${projectConfig.description}
-
-## Installation
-
-\`\`\`bash
-prompd install ${projectName}
-\`\`\`
-
-## Usage
-
-Describe how to use this ${options.type} here.
-`;
-
-        await fs.writeFile(projectFile, content);
-        
-        // Create basic directory structure
-        if (options.type === 'collection') {
-          await fs.ensureDir('prompts');
-          await fs.ensureDir('workflows');
-          
-          // Create sample files
-          await fs.writeFile('prompts/example.prompd', `---
-name: "example-prompt"
-description: "An example prompt"
-version: "1.0.0"
-parameters:
-  - name: "input"
-    type: "string"
-    description: "Input text"
-    required: true
----
-
-Process this input: {input}
-`);
-        }
-        
-        await fs.writeFile('.prompdignore', `# Ignore files and directories
-node_modules/
-.git/
-.DS_Store
-*.log
-.env
-temp/
-cache/
-`);
-
-        console.log(chalk.green(`✅ Initialized new ${options.type} project: ${projectName}`));
-        console.log(chalk.gray(`Created project.prompdproj`));
-        console.log();
-        console.log(chalk.blue('Next steps:'));
-        console.log('1. Edit project.prompdproj with your project details');
-        console.log('2. Add your prompts and workflows');
-        console.log('3. Test your project: prompd validate');
-        console.log('4. Publish to registry: prompd registry publish');
-
       } catch (error) {
-        console.error(chalk.red('Failed to initialize project:'), error instanceof Error ? error.message : error);
+        console.error(chalk.red(`Authentication failed: ${error}`));
         process.exit(1);
       }
     });
 
-  // Add subcommands
-  command.addCommand(publishCommand);
-  command.addCommand(installCommand);
-  command.addCommand(searchCommand);
-  command.addCommand(infoCommand);
-  command.addCommand(versionsCommand);
-  command.addCommand(initCommand);
+  return loginCommand;
+}
 
-  return command;
+// Logout command (to be integrated with main CLI)
+export function createLogoutCommand(): Command {
+  const logoutCommand = new Command('logout');
+  logoutCommand
+    .description('Clear registry authentication credentials')
+    .option('-r, --registry <registry>', 'Logout from specific registry')
+    .action(async (options) => {
+      try {
+        const registryName = options.registry;
+        const client = new RegistryClient(registryName);
+        
+        await client.logout();
+        
+        const actualRegistryName = registryName || 'default';
+        console.log(chalk.green(`Successfully logged out from ${actualRegistryName}`));
+
+      } catch (error) {
+        console.error(chalk.red(`Logout failed: ${error}`));
+        process.exit(1);
+      }
+    });
+
+  return logoutCommand;
 }

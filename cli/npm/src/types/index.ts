@@ -11,7 +11,8 @@ export interface PrompdParameter {
 }
 
 export interface PrompdMetadata {
-  name: string;
+  id: string;         // Machine-readable identifier (kebab-case) - REQUIRED
+  name?: string;      // Human-readable display name (can have spaces)
   description?: string;
   version?: string;
   parameters?: PrompdParameter[];
@@ -37,11 +38,22 @@ export interface CustomProvider {
   type: string;
 }
 
+export interface RegistryConfig {
+  url: string;
+  token?: string;
+  username?: string;
+}
+
 export interface Config {
   apiKeys: Record<string, string>;
   defaultProvider?: string;
   defaultModel?: string;
   customProviders: Record<string, CustomProvider>;
+  registry: {
+    default?: string;
+    registries: Record<string, RegistryConfig>;
+  };
+  scopes: Record<string, string>; // scope -> registry mapping
   maxRetries?: number;
   timeout?: number;
   verbose?: boolean;
@@ -74,5 +86,8 @@ export interface ExecuteOptions {
   params?: Record<string, any>;
   paramFiles?: string[];
   version?: string;
+  metaSystem?: string;
+  metaContext?: string;
+  metaUser?: string;
   verbose?: boolean;
 }

@@ -43,6 +43,17 @@ dependencies = [
     "pydantic>=2.0",
     "httpx>=0.24.0",
     "python-dotenv>=1.0.0",
+    # Security libraries
+    "cryptography>=41.0.0",
+    # Dependency management
+    "networkx>=3.0",
+    "semver>=3.0.0",
+    # Binary file extraction libraries
+    "openpyxl>=3.1.0",          # Excel (.xlsx) files
+    "python-docx>=1.1.0",       # Word (.docx) files
+    "PyPDF2>=3.0.0",            # PDF files
+    "python-pptx>=0.6.23",      # PowerPoint (.pptx) files
+    "Pillow>=10.0.0",           # Image processing
 ]
 
 [project.urls]
@@ -58,6 +69,10 @@ dev = [
     "black>=23.0",
     "ruff>=0.1.0",
 ]
+mcp = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+]
 
 [project.scripts]
 prompd = "prompd.cli:main"
@@ -65,6 +80,11 @@ prompd = "prompd.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["prompd*"]
+
+[tool.setuptools.package-data]
+prompd = [
+  "assets/prompts/**/*.prompd"
+]
 
 [tool.black]
 line-length = 100

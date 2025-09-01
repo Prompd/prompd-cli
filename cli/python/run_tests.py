@@ -2,6 +2,7 @@
 """Simple test runner for prompd package."""
 
 import sys
+from pathlib import Path
 from prompd.models import ParameterDefinition, ParameterType, PrompdMetadata
 from prompd.validator import PrompDValidator
 from prompd.parser import PrompdParser
@@ -78,7 +79,17 @@ def main():
         test_validator() 
         test_parser()
         
-        print("\nSUCCESS: All tests passed!")
+        print("\nSUCCESS: All core tests passed!")
+        
+        # Check if shell tests are available
+        shell_tests_path = Path(__file__).parent / "tests" / "shell" / "run_all_tests.py"
+        if shell_tests_path.exists():
+            print("\n" + "="*60)
+            print("Enhanced Shell Tests are available at:")
+            print("  python tests/shell/run_all_tests.py")
+            print("  (Run separately for comprehensive shell testing)")
+            print("="*60)
+        
         return 0
         
     except Exception as e:

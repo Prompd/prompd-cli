@@ -7,7 +7,28 @@ Prompd is a CLI tool and file format for managing structured AI prompts. Write o
 
 ## Installation
 
-### Install from PyPI (Recommended)
+### Multiple CLI Options (100% Feature Parity!)
+
+**🎉 NEW: Go CLI with Full Feature Parity!**
+
+```bash
+# Option 1: Go CLI (Zero Dependencies, Single Binary)
+# Download from releases or build:
+cd cli/go && go build -o prompd ./cmd/prompd
+
+# Option 2: Python CLI (Full Featured)
+pip install prompd
+
+# Option 3: Node.js CLI (Developer Focused) 
+cd cli/npm && npm install && npm run build
+```
+
+**All three CLIs provide identical functionality!** Choose based on your deployment needs:
+- **Go CLI**: Perfect for containers, CI/CD, minimal environments
+- **Python CLI**: Great for Python ecosystems, pip install
+- **Node.js CLI**: Ideal for Node.js projects, MCP integration
+
+### Install Python CLI from PyPI
 
 ```bash
 # Install the latest release
@@ -16,16 +37,16 @@ pip install prompd
 
 ### Install from Source
 
-If you have access to the source repository:
-
 ```bash
 # Clone and install in development mode
-git clone https://github.com/Logikbug/prompt-markdown.git
-cd prompt-markdown
-pip install -e .
+git clone https://github.com/Logikbug/prompd-cli.git
+cd prompd-cli
 
-# Or install with development dependencies
-pip install -e ".[dev]"
+# Python CLI
+pip install -e cli/python/
+
+# Or with development dependencies
+pip install -e "cli/python/[dev]"
 ```
 
 ### Requirements

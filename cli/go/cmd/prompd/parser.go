@@ -16,14 +16,25 @@ type PrompdFile struct {
 	Content  string
 }
 
+type UsingPackage struct {
+	Name   string `yaml:"name"`
+	Prefix string `yaml:"prefix,omitempty"`
+}
+
 type PrompdMetadata struct {
-	Name        string      `yaml:"name,omitempty"`
+	ID          string      `yaml:"id"`                  // Machine-readable identifier (kebab-case) - REQUIRED
+	Name        string      `yaml:"name,omitempty"`      // Human-readable display name (can have spaces)
 	Description string      `yaml:"description,omitempty"`
 	Version     string      `yaml:"version,omitempty"`
 	Parameters  []Parameter `yaml:"parameters,omitempty"`
 	Variables   []Parameter `yaml:"variables,omitempty"` // For backward compatibility
+	
+	// Composable architecture fields
+	Using    interface{} `yaml:"using,omitempty"`    // Can be string, []string, or []UsingPackage
+	Inherits string      `yaml:"inherits,omitempty"` // Package reference or file path
+	
 	System      string      `yaml:"system,omitempty"`
-	Context     string      `yaml:"context,omitempty"`
+	Context     interface{} `yaml:"context,omitempty"`  // Can be string or []string
 	User        string      `yaml:"user,omitempty"`
 	Response    string      `yaml:"response,omitempty"`
 	Requires    []string    `yaml:"requires,omitempty"`
@@ -84,8 +95,14 @@ func validateFile(filename string) error {
 	}
 
 	// Validate required fields
-	if prompd.Metadata.Name == "" {
-		return fmt.Errorf("name field is required")
+	if prompd.Metadata.ID == "" {
+		return fmt.Errorf("id field is required")
+	}
+	
+	// Validate ID follows kebab-case
+	kebabCaseRegex := regexp.MustCompile(`^[a-z0-9-]+$`)
+	if !kebabCaseRegex.MatchString(prompd.Metadata.ID) {
+		return fmt.Errorf("id '%s' must use kebab-case (lowercase letters, numbers, hyphens only)", prompd.Metadata.ID)
 	}
 
 	// Validate semantic version if present
@@ -363,4 +380,102 @@ func executeFileDemo(filename string, args []string) error {
 func isValidSemver(version string) bool {
 	re := regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)$`)
 	return re.MatchString(version)
+}
+
+// renderFile renders a .prompd file with parameters and outputs the compiled prompt
+func renderFile(filename string, args []string) error {
+	prompd, err := parsePrompdFile(filename)
+	if err != nil {
+		return err
+	}
+
+	// Parse command line arguments
+	output := ""
+	paramsFile := ""
+	params := make(map[string]interface{})
+	
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--params":
+			if i+1 < len(args) {
+				paramsFile = args[i+1]
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				output = args[i+1]
+				i++
+			}
+		case "-p":
+			if i+1 < len(args) {
+				parts := strings.SplitN(args[i+1], "=", 2)
+				if len(parts) == 2 {
+					params[parts[0]] = parts[1]
+				}
+				i++
+			}
+		}
+	}
+	
+	// Load parameters from file if specified
+	if paramsFile != "" {
+		fileParams, err := loadParametersFromFile(paramsFile)
+		if err != nil {
+			return fmt.Errorf("failed to load parameters file: %w", err)
+		}
+		
+		// Merge file parameters with command line parameters (CLI takes precedence)
+		for k, v := range fileParams {
+			if _, exists := params[k]; !exists {
+				params[k] = v
+			}
+		}
+	}
+	
+	// Merge all parameter definitions (parameters and variables for backward compatibility)
+	allParams := append(prompd.Metadata.Parameters, prompd.Metadata.Variables...)
+	
+	// Validate parameters and apply defaults
+	for _, param := range allParams {
+		value, exists := params[param.Name]
+		
+		// Check required parameters
+		if param.Required && !exists {
+			return fmt.Errorf("required parameter missing: %s", param.Name)
+		}
+		
+		// Apply default value if parameter not provided
+		if !exists && param.Default != nil {
+			params[param.Name] = param.Default
+			value = param.Default
+		}
+		
+		// Skip validation if parameter not provided and not required
+		if !exists {
+			continue
+		}
+		
+		// Validate parameter value
+		if err := validateParameterValue(param, value); err != nil {
+			return fmt.Errorf("parameter '%s' validation failed: %w", param.Name, err)
+		}
+	}
+	
+	// Apply template processing (variable substitution + basic conditionals)
+	renderedContent := processTemplate(prompd.Content, params)
+	
+	// Output result
+	if output != "" {
+		if err := os.WriteFile(output, []byte(renderedContent), 0644); err != nil {
+			return fmt.Errorf("failed to write output file: %w", err)
+		}
+		fmt.Printf("✓ Rendered content written to %s\n", output)
+	} else {
+		fmt.Println("Rendered Content:")
+		fmt.Println(strings.Repeat("-", 50))
+		fmt.Println(renderedContent)
+		fmt.Println(strings.Repeat("-", 50))
+	}
+	
+	return nil
 }

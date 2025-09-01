@@ -1,31 +1,45 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
+import { spawn } from 'child_process';
 import { createValidateCommand } from './commands/validate';
 import { createListCommand } from './commands/list';
 import { createShowCommand } from './commands/show';
-import { createExecuteCommand } from './commands/execute';
+import { createRunCommand } from './commands/execute';
+import { createCompileCommand } from './commands/render';
 import { createProviderCommand } from './commands/provider';
 import { createVersionCommand } from './commands/version';
+import { createGitCommand } from './commands/git';
 import { createMCPCommand } from './commands/mcp';
-import { createRegistryCommand } from './commands/registry';
+import { createRegistryCommand, createLoginCommand, createLogoutCommand, createSearchCommand, createInstallCommand, createPublishCommand } from './commands/registry';
+import { createPackageCommand } from './commands/package';
 
 const program = new Command();
 
 program
   .name('prompd')
   .description('CLI for structured prompt definitions')
-  .version('0.2.4');
+  .version('0.3.0');
 
 // Add all commands
 program.addCommand(createValidateCommand());
 program.addCommand(createListCommand());
 program.addCommand(createShowCommand());
-program.addCommand(createExecuteCommand());
+program.addCommand(createRunCommand());
+program.addCommand(createCompileCommand());
+program.addCommand(createPackageCommand());
 program.addCommand(createProviderCommand());
 program.addCommand(createVersionCommand());
+program.addCommand(createGitCommand());
 program.addCommand(createMCPCommand());
 program.addCommand(createRegistryCommand());
+
+// Add top-level multi-registry commands
+program.addCommand(createLoginCommand());
+program.addCommand(createLogoutCommand());
+program.addCommand(createSearchCommand());
+program.addCommand(createInstallCommand());
+program.addCommand(createPublishCommand());
 
 // Legacy providers command for backward compatibility
 program
@@ -52,8 +66,9 @@ gitCommand
   .argument('<files...>', '.prompd files to add')
   .option('-v, --verbose', 'Show git output')
   .action(async (files: string[], options) => {
-    const { execSync } = await import('child_process');
+    const { spawn } = await import('child_process');
     const chalk = (await import('chalk')).default;
+    const path = await import('path');
     
     try {
       for (const file of files) {
@@ -62,8 +77,26 @@ gitCommand
           continue;
         }
         
-        execSync(`git add "${file}"`, { stdio: options.verbose ? 'inherit' : 'pipe' });
-        console.log(chalk.green(`✓ Added ${file}`));
+        // Sanitize file path and use spawn instead of execSync
+        const sanitizedFile = path.normalize(file).replace(/\\/g, '/');
+        if (sanitizedFile.includes('..') || sanitizedFile.startsWith('/')) {
+          console.error(chalk.red(`Invalid file path: ${file}`));
+          continue;
+        }
+        
+        await new Promise((resolve, reject) => {
+          const child = spawn('git', ['add', sanitizedFile], {
+            stdio: options.verbose ? 'inherit' : 'pipe'
+          });
+          child.on('close', (code) => {
+            if (code === 0) {
+              console.log(chalk.green(`✓ Added ${file}`));
+              resolve(undefined);
+            } else {
+              reject(new Error(`git add failed with code ${code}`));
+            }
+          });
+        });
       }
     } catch (error) {
       console.error(chalk.red('Error adding files:'), error);
@@ -80,11 +113,29 @@ gitCommand
     const chalk = (await import('chalk')).default;
     
     try {
-      const cmd = options.path 
-        ? `git status --short "${options.path}"`
-        : 'git status --short';
+      const { spawn } = await import('child_process');
+      const path = await import('path');
       
-      const output = execSync(cmd, { encoding: 'utf-8' });
+      let args = ['status', '--short'];
+      if (options.path) {
+        // Sanitize path input
+        const sanitizedPath = path.normalize(options.path).replace(/\\/g, '/');
+        if (sanitizedPath.includes('..') || sanitizedPath.startsWith('/')) {
+          console.error(chalk.red(`Invalid path: ${options.path}`));
+          process.exit(1);
+        }
+        args.push(sanitizedPath);
+      }
+      
+      const output = await new Promise<string>((resolve, reject) => {
+        let stdout = '';
+        const child = spawn('git', args, { stdio: 'pipe' });
+        child.stdout?.on('data', (data) => stdout += data.toString());
+        child.on('close', (code) => {
+          if (code === 0) resolve(stdout);
+          else reject(new Error(`git status failed with code ${code}`));
+        });
+      });
       
       if (!output.trim()) {
         console.log(chalk.green('No changes to .prompd files'));
@@ -145,10 +196,27 @@ gitCommand
     }
     
     try {
-      execSync(`git commit -m "${options.message}"`, { 
-        stdio: options.verbose ? 'inherit' : 'pipe' 
+      const { spawn } = await import('child_process');
+      
+      // Validate commit message to prevent injection
+      if (options.message.includes('`') || options.message.includes('$') || options.message.includes(';')) {
+        console.error(chalk.red('Error: commit message contains invalid characters'));
+        process.exit(1);
+      }
+      
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('git', ['commit', '-m', options.message], {
+          stdio: options.verbose ? 'inherit' : 'pipe'
+        });
+        child.on('close', (code) => {
+          if (code === 0) {
+            console.log(chalk.green(`✓ Committed with message: ${options.message}`));
+            resolve();
+          } else {
+            reject(new Error(`git commit failed with code ${code}`));
+          }
+        });
       });
-      console.log(chalk.green(`✓ Committed with message: ${options.message}`));
     } catch (error) {
       console.error(chalk.red('Error committing:'), error);
       process.exit(1);
@@ -182,12 +250,25 @@ gitCommand
         const tagName = `${basename}-v${version.replace(/^v/, '')}`;
         
         try {
+          const { spawn } = await import('child_process');
           // Check if tag exists
-          execSync(`git tag -l "${tagName}"`, { encoding: 'utf-8' });
-          versionRef = tagName;
-          if (options.verbose) {
-            console.log(chalk.gray(`Using tag: ${tagName}`));
-          }
+          await new Promise<void>((resolve, reject) => {
+            const child = spawn('git', ['tag', '-l', tagName], { stdio: 'pipe' });
+            child.on('close', (code) => {
+              if (code === 0) {
+                versionRef = tagName;
+                if (options.verbose) {
+                  console.log(chalk.gray(`Using tag: ${tagName}`));
+                }
+                resolve();
+              } else {
+                if (options.verbose) {
+                  console.log(chalk.gray(`Tag ${tagName} not found, using ${version}`));
+                }
+                resolve();
+              }
+            });
+          });
         } catch {
           // Tag doesn't exist, use version as-is
           if (options.verbose) {
@@ -196,9 +277,28 @@ gitCommand
         }
       }
       
+      // Sanitize inputs
+      const sanitizedFile = path.normalize(file).replace(/\\/g, '/');
+      if (sanitizedFile.includes('..') || sanitizedFile.startsWith('/')) {
+        console.error(chalk.red(`Invalid file path: ${file}`));
+        process.exit(1);
+      }
+      
+      // Validate version reference
+      if (!/^[a-zA-Z0-9._-]+$/.test(versionRef)) {
+        console.error(chalk.red(`Invalid version reference: ${versionRef}`));
+        process.exit(1);
+      }
+      
       // Get file content at version
-      const content = execSync(`git show ${versionRef}:"${file}"`, { 
-        encoding: 'utf-8' 
+      const content = await new Promise<string>((resolve, reject) => {
+        let stdout = '';
+        const child = spawn('git', ['show', `${versionRef}:${sanitizedFile}`], { stdio: 'pipe' });
+        child.stdout?.on('data', (data) => stdout += data);
+        child.on('close', (code) => {
+          if (code === 0) resolve(stdout);
+          else reject(new Error(`git show failed with code ${code}`));
+        });
       });
       
       // Write content back to file
@@ -223,8 +323,9 @@ gitCommand
   .argument('<files...>', '.prompd files to unstage')
   .option('-v, --verbose', 'Show git output')
   .action(async (files: string[], options) => {
-    const { execSync } = await import('child_process');
+    const { spawn } = await import('child_process');
     const chalk = (await import('chalk')).default;
+    const path = await import('path');
     
     try {
       for (const file of files) {
@@ -233,8 +334,26 @@ gitCommand
           continue;
         }
         
-        execSync(`git reset HEAD "${file}"`, { stdio: options.verbose ? 'inherit' : 'pipe' });
-        console.log(chalk.green(`✓ Removed ${file} from staging area`));
+        // Sanitize file path
+        const sanitizedFile = path.normalize(file).replace(/\\/g, '/');
+        if (sanitizedFile.includes('..') || sanitizedFile.startsWith('/')) {
+          console.error(chalk.red(`Invalid file path: ${file}`));
+          continue;
+        }
+        
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn('git', ['reset', 'HEAD', sanitizedFile], {
+            stdio: options.verbose ? 'inherit' : 'pipe'
+          });
+          child.on('close', (code) => {
+            if (code === 0) {
+              console.log(chalk.green(`✓ Removed ${file} from staging area`));
+              resolve();
+            } else {
+              reject(new Error(`git reset failed with code ${code}`));
+            }
+          });
+        });
       }
     } catch (error) {
       console.error(chalk.red('Error removing files from staging:'), error);

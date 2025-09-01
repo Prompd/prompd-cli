@@ -60,17 +60,20 @@ def test_parse_missing_frontmatter():
         parser.parse_content(content)
 
 
-def test_parse_missing_name():
-    """Test parsing fails without name field."""
+def test_parse_missing_name_allowed():
+    """Parser should allow missing 'name' (friendly display), no exception."""
     content = """---
-description: Missing name
+description: Missing name but valid structure
+version: 1.0.0
 ---
 Content here
 """
-    
+
     parser = PrompdParser()
-    with pytest.raises(ParseError, match=r"(?s)Invalid metadata.*name.*Field required"):
-        parser.parse_content(content)
+    prompd = parser.parse_content(content)
+    assert prompd.metadata.name is None
+    # ID is also optional at parse time; enforced by validator later
+    assert prompd.metadata.id is None
 
 
 def test_extract_variables():

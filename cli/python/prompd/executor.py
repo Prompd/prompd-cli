@@ -63,7 +63,8 @@ class PrompDExecutor:
         cli_params: Optional[List[str]] = None,
         param_files: Optional[List[Path]] = None,
         api_key: Optional[str] = None,
-        extra_config: Optional[Dict[str, Any]] = None
+        extra_config: Optional[Dict[str, Any]] = None,
+        metadata_overrides: Optional[Dict[str, str]] = None
     ) -> LLMResponse:
         """
         Execute a prompd file with given parameters.
@@ -97,9 +98,63 @@ class PrompDExecutor:
                 resolved_params, 
                 [param.dict() for param in prompd.metadata.parameters]
             )
-            
+
+            # Handle dynamic metadata overrides BEFORE resolving structured content
+            # Keys may include 'meta:<section>' (preferred) or legacy 'custom:<section>' / 'custom'
+            pending_append_to_context: List[str] = []
+            std_overrides: Dict[str, str] = {}
+            if metadata_overrides:
+                for key in list(metadata_overrides.keys()):
+                    raw_value = metadata_overrides[key]
+                    # Normalize and map synonyms
+                    def _norm_section(name: str) -> str:
+                        name = (name or '').strip().lower().replace(' ', '-')
+                        if name == 'assistant':
+                            return 'system'
+                        if name == 'task':
+                            return 'user'
+                        return name
+
+                    if key.startswith('meta:') or key.startswith('custom:'):
+                        section_name = _norm_section(key.split(':', 1)[1])
+                        resolved_val = self._resolve_custom_value(raw_value, base_file=prompd_file)
+                        if section_name in ('system', 'user', 'context', 'response'):
+                            # Defer to standard section override later
+                            std_overrides[section_name] = resolved_val
+                        else:
+                            # Replace existing section if present; else append into context later
+                            if section_name in prompd.sections:
+                                prompd.sections[section_name] = resolved_val
+                            else:
+                                pending_append_to_context.append(f"## {section_name}\n\n{resolved_val}")
+                        # Remove handled key to avoid double-application
+                        del metadata_overrides[key]
+                    elif key == 'custom':
+                        resolved_val = self._resolve_custom_value(raw_value, base_file=prompd_file)
+                        pending_append_to_context.append(resolved_val)
+                        del metadata_overrides[key]
+
             # Get structured content with references resolved
             content = self.parser.get_structured_content(prompd, resolved_params)
+
+            # Append any pending custom content into context
+            if pending_append_to_context:
+                combined = "\n\n".join(pending_append_to_context)
+                if content.get('context'):
+                    content['context'] = f"{content['context']}\n\n{combined}"
+                else:
+                    content['context'] = combined
+            
+            # Apply standard section overrides (system/user/context/response)
+            if std_overrides:
+                for k, v in std_overrides.items():
+                    content[k] = v
+
+            # Apply any remaining metadata overrides (back-compat direct keys)
+            if metadata_overrides:
+                for key, value in metadata_overrides.items():
+                    if key in content:
+                        content[key] = value
             
             # Perform variable substitution
             substituted_content = await self._substitute_variables(content, resolved_params)
@@ -122,6 +177,22 @@ class PrompDExecutor:
                 raise
             else:
                 raise PrompDError(f"Execution failed: {e}")
+
+    def _resolve_custom_value(self, raw: str, base_file: Path) -> str:
+        """Resolve a custom override value which may be a file path or inline text."""
+        try:
+            text = str(raw)
+            # Treat as file path if it looks like one
+            p = Path(text)
+            if text.startswith('./') or text.startswith('../'):
+                candidate = (base_file.parent / p).resolve()
+                if candidate.exists() and candidate.is_file():
+                    return candidate.read_text(encoding='utf-8')
+            elif p.exists() and p.is_file():
+                return p.read_text(encoding='utf-8')
+        except Exception:
+            pass
+        return str(raw)
     
     async def _resolve_parameters(
         self,
