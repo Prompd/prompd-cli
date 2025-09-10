@@ -18,6 +18,28 @@ from .parser import PrompdParser
 from .validator import PrompDValidator
 
 
+def _serialize_for_validation(obj):
+    """Convert Python objects to JSON-serializable format for validation."""
+    if hasattr(obj, '__dict__'):
+        # Convert dataclass/object to dict
+        result = {}
+        for key, value in obj.__dict__.items():
+            if not key.startswith('_'):  # Skip private attributes
+                result[key] = _serialize_for_validation(value)
+        return result
+    elif hasattr(obj, 'value') and hasattr(obj, 'name'):  # Enum-like objects
+        return obj.value if hasattr(obj.value, 'lower') else str(obj.value)
+    elif isinstance(obj, list):
+        return [_serialize_for_validation(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: _serialize_for_validation(value) for key, value in obj.items()}
+    elif isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    else:
+        # For any other object, try to convert to string as fallback
+        return str(obj)
+
+
 @dataclass
 class ValidationResult:
     """Result of package validation."""
@@ -53,8 +75,8 @@ class PackageValidator:
                 else:
                     warnings.append(issue.get('message', 'Unknown validation warning'))
             
-            # Convert metadata to dict for validation
-            metadata_dict = {
+            # Convert metadata to dict for validation - serialize all fields to ensure JSON compatibility
+            metadata_dict = _serialize_for_validation({
                 'name': package_info.name,
                 'description': package_info.description,
                 'version': package_info.version,
@@ -63,12 +85,12 @@ class PackageValidator:
                 'homepage': getattr(package_info, 'homepage', None),
                 'repository': getattr(package_info, 'repository', None),
                 'tags': getattr(package_info, 'tags', []),
-                'parameters': [p.__dict__ if hasattr(p, '__dict__') else p for p in (package_info.parameters or [])],
+                'parameters': package_info.parameters or [],
                 'dependencies': getattr(package_info, 'dependencies', {}),
                 'type': getattr(package_info, 'type', None),
                 'runtime': getattr(package_info, 'runtime', None),
                 'examples': getattr(package_info, 'examples', [])
-            }
+            })
             
             # Validate package-specific fields
             self._validate_package_metadata(metadata_dict, errors, warnings)

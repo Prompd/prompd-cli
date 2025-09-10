@@ -359,11 +359,34 @@ def _is_valid_semver(version: str) -> bool:
     return re.match(semver_pattern, version) is not None
 
 
+def _serialize_for_json(obj):
+    """Convert Python objects to JSON-serializable format."""
+    if hasattr(obj, '__dict__'):
+        # Convert dataclass/object to dict
+        result = {}
+        for key, value in obj.__dict__.items():
+            if not key.startswith('_'):  # Skip private attributes
+                result[key] = _serialize_for_json(value)
+        return result
+    elif hasattr(obj, 'value') and hasattr(obj, 'name'):  # Enum-like objects
+        return obj.value if hasattr(obj.value, 'lower') else str(obj.value)
+    elif isinstance(obj, list):
+        return [_serialize_for_json(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: _serialize_for_json(value) for key, value in obj.items()}
+    elif isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    else:
+        # For any other object, try to convert to string as fallback
+        return str(obj)
+
+
 def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
     """Create a .pdpkg package from a directory."""
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # Add manifest
-        zip_file.writestr('manifest.json', json.dumps(manifest, indent=2))
+        # Add manifest - ensure it's JSON serializable
+        serialized_manifest = _serialize_for_json(manifest)
+        zip_file.writestr('manifest.json', json.dumps(serialized_manifest, indent=2))
         
         # Add all files in source directory
         for root, dirs, files in os.walk(source_dir):

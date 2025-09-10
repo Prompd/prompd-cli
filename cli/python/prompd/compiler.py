@@ -472,10 +472,10 @@ class TemplateProcessingStage(CompilerStage):
                 if context.verbose:
                     print(f"Warning: Could not inherit from {parent_path}: {e}")
         
-        # Process variable substitution
+        # Process variable substitution  
         if content:
             for key, value in context.parameters.items():
-                placeholder = f"{{{key}}}"  # {variable} - single braces for now
+                placeholder = f"{{{{{key}}}}}"  # {{variable}} - double braces for handlebars-style templates
                 content = content.replace(placeholder, str(value))
         
         context.content = content

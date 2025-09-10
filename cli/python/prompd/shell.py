@@ -1566,6 +1566,7 @@ class PrompdShell:
         # Show chat header like Claude Code
         try:
             self.console.print(Panel(
+                "[bold yellow]🧪 BETA FEATURE[/bold yellow] - AI features are experimental\n\n"
                 "I can help you with your prompts, packages, and development tasks.\n"
                 "[dim]Type /exit to return to shell commands | /clear to clear conversation[/dim]",
                 title="[bold]Prompd Assistant[/bold]",

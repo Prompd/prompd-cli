@@ -29,7 +29,7 @@ except:
 
 
 @click.group()
-@click.version_option(version="0.3.0", prog_name="prompd")
+@click.version_option(version="0.3.1", prog_name="prompd")
 def cli():
     """Prompd - CLI for structured prompt definitions."""
     pass
@@ -466,7 +466,7 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
 @cli.command("shell")
 @click.option("--simple", is_flag=True, help="Use the simple REPL (no AI chat UI)")
 def shell_command(simple: bool):
-    """Start the interactive Prompd shell (REPL)."""
+    """Start the interactive Prompd shell (REPL). [AI features in BETA]"""
     try:
         if simple:
             from prompd.interactive_simple import SimplePrompdREPL
@@ -484,7 +484,7 @@ def shell_command(simple: bool):
 
 @cli.command("chat")
 def chat_command():
-    """Start the Prompd shell directly in chat mode."""
+    """Start the Prompd shell directly in chat mode. [BETA FEATURE]"""
     try:
         from prompd.shell import PrompdShell
         sh = PrompdShell()
@@ -1503,7 +1503,7 @@ def logout(registry: Optional[str]):
 @click.option('--dev', is_flag=True, help='Add to development dependencies')
 @click.option('--registry', help='Registry to install from')
 def install(packages: tuple, global_install: bool, dev: bool, registry: Optional[str]):
-    """Install packages from registry (npm-style).
+    """Install packages from registry.
     
     Without arguments: installs all dependencies from manifest.json
     With arguments: installs specified packages and updates manifest.json
@@ -1587,7 +1587,7 @@ def install(packages: tuple, global_install: bool, dev: bool, registry: Optional
         # Installing specific packages
         # Create or update manifest.json
         if not manifest_path.exists():
-            # Create new manifest.json (like npm does)
+            # Create new manifest.json
             manifest = {
                 "name": Path.cwd().name.lower().replace(' ', '-'),
                 "version": "1.0.0",
@@ -1813,8 +1813,9 @@ def search(query: str, limit: int, registry: Optional[str]):
 @cli.command()
 @click.argument('package_file', type=click.Path(exists=True, path_type=Path))
 @click.option('--registry', help='Registry to publish to')
+@click.option('-ns', '--namespace', help='Namespace to publish to (overrides current namespace context)')
 @click.option('--dry-run', is_flag=True, help='Show what would be published without actually doing it')
-def publish(package_file: Path, registry: Optional[str], dry_run: bool):
+def publish(package_file: Path, registry: Optional[str], namespace: Optional[str], dry_run: bool):
     """Publish package to registry."""
     try:
         from .registry import RegistryClient
@@ -1824,7 +1825,14 @@ def publish(package_file: Path, registry: Optional[str], dry_run: bool):
             return
         
         client = RegistryClient(registry_name=registry)
-        result = client.publish_package(package_file)
+        
+        # Handle namespace specification
+        if namespace:
+            # Override current namespace context for this publish
+            result = client.publish_package(package_file, target_namespace=namespace)
+        else:
+            # Use current namespace context or default behavior
+            result = client.publish_package(package_file)
         
         console.print(f"[green]SUCCESS[/green] Published {result.get('name')}@{result.get('version')}")
         console.print(f"  Registry: {client.registry_name}")
@@ -1834,6 +1842,259 @@ def publish(package_file: Path, registry: Optional[str], dry_run: bool):
     except Exception as e:
         console.print(f"[red]Publish failed:[/red] {e}")
         sys.exit(1)
+
+
+# ================================================================================
+# NAMESPACE MANAGEMENT COMMANDS
+# ================================================================================
+
+@cli.group(name='namespace')
+def namespace():
+    """Manage namespaces for organizations."""
+    pass
+
+
+# Add the 'ns' alias as a separate group
+@cli.group(name='ns')
+def ns():
+    """Alias for namespace commands."""
+    pass
+
+
+@namespace.command('list')
+@click.option('--registry', help='Registry to query')
+@click.option('--show-permissions', '-p', is_flag=True, help='Show detailed permissions for each namespace')
+def namespace_list(registry: Optional[str], show_permissions: bool):
+    """List accessible namespaces."""
+    try:
+        from .registry import RegistryClient
+        
+        client = RegistryClient(registry_name=registry)
+        namespaces = client.list_user_namespaces()
+        
+        if not namespaces:
+            console.print("[yellow]No namespaces available[/yellow]")
+            console.print("\nTo get started:")
+            console.print("• Free users can publish to @public automatically")
+            console.print("• Create a team namespace: [cyan]prompd namespace create @my-company[/cyan]")
+            return
+        
+        # Get current namespace context
+        current_ns = client.get_current_namespace()
+        
+        console.print(f"[bold]Available namespaces ({len(namespaces)} total):[/bold]")
+        
+        from rich.table import Table
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("NAMESPACE", style="cyan")
+        table.add_column("PACKAGES", justify="right")
+        table.add_column("DOWNLOADS", justify="right")
+        table.add_column("ROLE", style="green")
+        if show_permissions:
+            table.add_column("PERMISSIONS", style="dim")
+        table.add_column("STATUS", justify="center")
+        
+        for ns in namespaces:
+            status = "[bold green]CURRENT[/bold green]" if ns['name'] == current_ns else ""
+            if ns.get('verified'):
+                status += " ✓" if status else "✓"
+            
+            permissions_str = ""
+            if show_permissions:
+                perms = ns.get('permissions', {})
+                perm_list = []
+                if perms.get('canPublish'): perm_list.append('publish')
+                if perms.get('canManage'): perm_list.append('manage')
+                if perms.get('canInvite'): perm_list.append('invite')
+                if perms.get('canDelete'): perm_list.append('delete')
+                permissions_str = ', '.join(perm_list) or 'read'
+            
+            row = [
+                ns['name'],
+                str(ns.get('packageCount', 0)),
+                str(ns.get('downloadCount', 0)),
+                ns.get('role', 'read').upper(),
+            ]
+            if show_permissions:
+                row.append(permissions_str)
+            row.append(status)
+            
+            table.add_row(*row)
+        
+        console.print(table)
+        
+        if current_ns:
+            console.print(f"\n[dim]Current namespace context: [cyan]{current_ns}[/cyan][/dim]")
+        else:
+            console.print("\n[dim]No current namespace context set[/dim]")
+        
+        console.print("\n[dim]Switch namespace: [cyan]prompd ns use <namespace>[/cyan][/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]Failed to list namespaces:[/red] {e}")
+        sys.exit(1)
+
+
+@namespace.command('current')
+@click.option('--registry', help='Registry to query')
+def namespace_current(registry: Optional[str]):
+    """Show current namespace context."""
+    try:
+        from .registry import RegistryClient
+        
+        client = RegistryClient(registry_name=registry)
+        current_ns = client.get_current_namespace()
+        
+        if current_ns:
+            # Get namespace details
+            details = client.get_namespace_details(current_ns)
+            console.print(f"[bold]Current namespace:[/bold] [cyan]{current_ns}[/cyan]")
+            
+            if details:
+                console.print(f"  Description: {details.get('description', 'No description')}")
+                console.print(f"  Packages: {details.get('packageCount', 0)}")
+                console.print(f"  Downloads: {details.get('downloadCount', 0)}")
+                console.print(f"  Role: {details.get('role', 'unknown').upper()}")
+                if details.get('verified'):
+                    console.print("  Status: [green]Verified ✓[/green]")
+        else:
+            console.print("[yellow]No current namespace context set[/yellow]")
+            console.print("\nSet a namespace context:")
+            console.print("  [cyan]prompd ns use @public[/cyan]     # Use public namespace")
+            console.print("  [cyan]prompd ns use @my-company[/cyan] # Use your team namespace")
+        
+    except Exception as e:
+        console.print(f"[red]Failed to get current namespace:[/red] {e}")
+        sys.exit(1)
+
+
+@namespace.command('use')
+@click.argument('namespace_name', required=True)
+@click.option('--registry', help='Registry to use')
+def namespace_use(namespace_name: str, registry: Optional[str]):
+    """Switch to a different namespace context."""
+    try:
+        from .registry import RegistryClient
+        
+        # Normalize namespace name
+        if not namespace_name.startswith('@'):
+            namespace_name = '@' + namespace_name
+        
+        client = RegistryClient(registry_name=registry)
+        
+        # Validate user has access to this namespace
+        namespaces = client.list_user_namespaces()
+        available_names = [ns['name'] for ns in namespaces]
+        
+        if namespace_name not in available_names:
+            console.print(f"[red]Error:[/red] You don't have access to namespace [cyan]{namespace_name}[/cyan]")
+            console.print("\nAvailable namespaces:")
+            for name in available_names:
+                console.print(f"  • {name}")
+            sys.exit(1)
+        
+        # Set the namespace context
+        client.set_current_namespace(namespace_name)
+        
+        console.print(f"[green]✓[/green] Switched to namespace [cyan]{namespace_name}[/cyan]")
+        console.print("\n[dim]Future publishes will use this namespace unless overridden with the -ns flag[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]Failed to switch namespace:[/red] {e}")
+        sys.exit(1)
+
+
+@namespace.command('create')
+@click.argument('namespace_name', required=True)
+@click.option('--description', '-d', help='Description for the namespace')
+@click.option('--organization', '-o', help='Organization ID to create namespace under')
+@click.option('--visibility', type=click.Choice(['public', 'private']), default='public', help='Namespace visibility')
+@click.option('--registry', help='Registry to create namespace in')
+def namespace_create(namespace_name: str, description: Optional[str], organization: Optional[str], 
+                    visibility: str, registry: Optional[str]):
+    """Create a new namespace."""
+    try:
+        from .registry import RegistryClient
+        
+        # Normalize namespace name
+        if not namespace_name.startswith('@'):
+            namespace_name = '@' + namespace_name
+        
+        client = RegistryClient(registry_name=registry)
+        
+        # Prepare namespace data
+        namespace_data = {
+            'name': namespace_name,
+            'visibility': visibility
+        }
+        
+        if description:
+            namespace_data['description'] = description
+        if organization:
+            namespace_data['organizationId'] = organization
+        
+        console.print(f"[bold]Creating namespace:[/bold] [cyan]{namespace_name}[/cyan]")
+        
+        result = client.create_namespace(namespace_data)
+        
+        if result.get('requiresVerification'):
+            console.print(f"[yellow]Namespace requires verification[/yellow]")
+            console.print(f"Reason: {result.get('reason')}")
+            console.print(f"Request ID: {result.get('requestId')}")
+            console.print("\nCheck verification status: [cyan]prompd ns verify-status @namespace[/cyan]")
+        else:
+            console.print(f"[green]✓[/green] Namespace [cyan]{namespace_name}[/cyan] created successfully")
+            
+            # Automatically switch to the new namespace
+            client.set_current_namespace(namespace_name)
+            console.print(f"[dim]Automatically switched to namespace context[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]Failed to create namespace:[/red] {e}")
+        sys.exit(1)
+
+
+# ================================================================================
+# NS ALIAS COMMANDS
+# ================================================================================
+
+@ns.command('list')
+@click.option('--registry', help='Registry to query')
+@click.option('--show-permissions', '-p', is_flag=True, help='Show detailed permissions for each namespace')
+def ns_list(registry: Optional[str], show_permissions: bool):
+    """List accessible namespaces."""
+    # Call the original function
+    namespace_list(registry, show_permissions)
+
+
+@ns.command('current')
+@click.option('--registry', help='Registry to query')
+def ns_current(registry: Optional[str]):
+    """Show current namespace context."""
+    # Call the original function
+    namespace_current(registry)
+
+
+@ns.command('use')
+@click.argument('namespace_name', required=True)
+@click.option('--registry', help='Registry to use')
+def ns_use(namespace_name: str, registry: Optional[str]):
+    """Switch to a different namespace context."""
+    # Call the original function
+    namespace_use(namespace_name, registry)
+
+
+@ns.command('create')
+@click.argument('namespace_name', required=True)
+@click.option('--description', '-d', help='Description for the namespace')
+@click.option('--organization', '-o', help='Organization ID to create namespace under')
+@click.option('--visibility', type=click.Choice(['public', 'private']), default='public', help='Namespace visibility')
+@click.option('--registry', help='Registry to create namespace in')
+def ns_create(namespace_name: str, description: Optional[str], organization: Optional[str], 
+             visibility: str, registry: Optional[str]):
+    """Create a new namespace."""
+    # Call the original function
+    namespace_create(namespace_name, description, organization, visibility, registry)
 
 
 @cli.command()
@@ -2189,6 +2450,161 @@ def update_dependencies(dry_run: bool, latest: bool):
         
     except Exception as e:
         console.print(f"[red]Update check failed:[/red] {e}")
+        sys.exit(1)
+
+
+# Import required functions for package operations
+from prompd.package_validator import validate_package
+from prompd.registry import create_pdpkg
+
+
+@cli.group()
+def package():
+    """Package management commands."""
+    pass
+
+
+@package.command('create')
+@click.argument('source', type=click.Path(exists=True, path_type=Path))
+@click.argument('output_path', type=click.Path(path_type=Path), required=False)
+@click.option('--name', help='Package name (overrides .pdproj)')
+@click.option('--version', help='Package version (overrides .pdproj)')
+@click.option('--description', help='Package description (overrides .pdproj)')
+@click.option('--author', help='Package author (overrides .pdproj)')
+def package_create(source: Path, output_path: Optional[Path], name: Optional[str], version: Optional[str], description: Optional[str], author: Optional[str]):
+    """Create a .pdpkg package from a directory or .pdproj file."""
+    try:
+        # Check if source is a .pdproj file
+        if source.suffix == '.pdproj':
+            # Parse .pdproj file as YAML (no frontmatter in .pdproj files)
+            import yaml
+            with open(source, 'r', encoding='utf-8') as f:
+                pdproj_content = f.read()
+            
+            # Parse as YAML (comment-style format)
+            pdproj_data = yaml.safe_load(pdproj_content)
+            
+            # Extract metadata from .pdproj
+            proj_name = name or pdproj_data.get('name', source.stem)
+            proj_version = version or pdproj_data.get('version', '1.0.0')
+            proj_description = description or pdproj_data.get('description', 'Package created from .pdproj')
+            proj_author = author or pdproj_data.get('author', 'unknown')
+            
+            # Source directory is parent of .pdproj file
+            source_dir = source.parent
+            
+            # Default output path based on project name and version
+            if not output_path:
+                output_path = source.parent / f"{proj_name.lower().replace(' ', '-')}-v{proj_version}.pdpkg"
+            
+        else:
+            # Legacy directory mode - require manual parameters
+            if not all([name, version, description]):
+                console.print("[red]ERROR[/red] When packaging a directory, --name, --version, and --description are required")
+                sys.exit(1)
+            
+            source_dir = source
+            proj_name = name
+            proj_version = version
+            proj_description = description
+            proj_author = author
+            
+            # Default output path
+            if not output_path:
+                output_path = source_dir / f"{proj_name}-v{proj_version}.pdpkg"
+        
+        # Ensure output has .pdpkg extension
+        if not output_path.suffix:
+            output_path = output_path.with_suffix('.pdpkg')
+        elif output_path.suffix != '.pdpkg':
+            output_path = output_path.with_suffix('.pdpkg')
+        
+        # Create manifest
+        manifest = {
+            'name': proj_name,
+            'version': proj_version,
+            'description': proj_description,
+            'type': 'package'
+        }
+        
+        if proj_author:
+            manifest['author'] = proj_author
+        
+        # Find .prompd and .pdflow files
+        prompd_files = list(source_dir.glob('**/*.prompd'))
+        pdflow_files = list(source_dir.glob('**/*.pdflow'))
+        
+        if prompd_files:
+            manifest['files'] = {'prompts': [str(f.relative_to(source_dir)) for f in prompd_files]}
+        
+        if pdflow_files:
+            if 'files' not in manifest:
+                manifest['files'] = {}
+            manifest['files']['workflows'] = [str(f.relative_to(source_dir)) for f in pdflow_files]
+        
+        # Create package
+        create_pdpkg(source_dir, output_path, manifest)
+        
+        console.print(f"[bold green]Package created successfully![/bold green]")
+        console.print(f"   Package: [cyan]{output_path}[/cyan]")
+        console.print(f"   Size: {output_path.stat().st_size / 1024:.1f} KB")
+        
+        # Validate the created package
+        validate_pdpkg(output_path)
+        console.print("[green]Package validation passed[/green]")
+        
+    except Exception as e:
+        console.print(f"[bold red]Package creation failed:[/bold red] {e}")
+        sys.exit(1)
+
+
+@package.command('validate')
+@click.argument('package_path', type=click.Path(exists=True, path_type=Path))
+def package_validate(package_path: Path):
+    """Validate a .pdpkg package archive."""
+    try:
+        # Check file extension - only accept package archives
+        if not package_path.name.endswith('.pdpkg'):
+            console.print(f"[red]ERROR[/red] [bold red]Invalid package format![/bold red]")
+            console.print(f"   File: {package_path.name}")
+            console.print("   Expected: .pdpkg archive file")
+            console.print("   Note: .prompd files are individual prompts, not packages")
+            console.print("   Use 'prompd validate' to validate individual .prompd files")
+            sys.exit(1)
+        
+        console.print(f"[blue]INFO[/blue] Validating package: [cyan]{package_path.name}[/cyan]")
+        
+        result = validate_package(package_path)
+        
+        if result.is_valid:
+            console.print("[green]SUCCESS[/green] [bold green]Package validation passed![/bold green]")
+            
+            # Show package info if available
+            if result.package_info:
+                info = result.package_info
+                console.print(f"   Package: [cyan]{info.get('name', 'unknown')}[/cyan]")
+                console.print(f"   Version: [green]{info.get('version', 'unknown')}[/green]")
+                console.print(f"   Description: {info.get('description', 'No description')}")
+                
+                if 'parameters' in info:
+                    console.print(f"   Parameters: {len(info['parameters'])}")
+        else:
+            console.print("[red]ERROR[/red] [bold red]Package validation failed![/bold red]")
+            
+            for error in result.errors:
+                console.print(f"   - [red]{error}[/red]")
+        
+        # Show warnings if any
+        if result.warnings:
+            console.print("\n[yellow]WARNINGS:[/yellow]")
+            for warning in result.warnings:
+                console.print(f"   - [yellow]{warning}[/yellow]")
+        
+        if not result.is_valid:
+            sys.exit(1)
+        
+    except Exception as e:
+        console.print(f"[red]ERROR[/red] [bold red]Validation failed:[/bold red] {e}")
         sys.exit(1)
 
 
