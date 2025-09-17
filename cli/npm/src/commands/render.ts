@@ -8,14 +8,14 @@ export function createCompileCommand(): Command {
   const cmd = new Command('compile');
   
   cmd
-    .description('Compile a .prompd file with parameters - returns compiled prompt text')
-    .argument('<file>', '.prompd file to render')
+    .description('Compile a .prmd file with parameters - returns compiled prompt text')
+    .argument('<file>', '.prmd file to render')
     .option('-p, --param <key=value>', 'Parameter in format key=value', collectParams, {})
     .option('--param-file <file>', 'JSON parameter file')
     .option('-o, --output <file>', 'Output file path')
     .action(async (file: string, options: any) => {
       try {
-        // Parse the .prompd file
+        // Parse the .prmd file
         const parser = new PrompdParser();
         const prompd = await parser.parseFile(file);
         

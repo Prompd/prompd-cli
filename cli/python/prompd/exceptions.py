@@ -7,7 +7,7 @@ class PrompDError(Exception):
 
 
 class ParseError(PrompDError):
-    """Error parsing .prompd file."""
+    """Error parsing .prmd file."""
     pass
 
 

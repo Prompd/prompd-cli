@@ -69,11 +69,11 @@ Usage:
   prompd <command> [options]
 
 🚀 Core Commands:
-  validate <file>           Validate a .prompd file
-  list [path]              List .prompd files in directory  
+  validate <file>           Validate a .prmd file
+  list [path]              List .prmd files in directory  
   show <file>              Show file structure and parameters
   compile <file> [options] Multi-stage compilation with binary extraction
-  run <file> [options]     Execute a .prompd file with LLM (redirects to Python CLI)
+  run <file> [options]     Execute a .prmd file with LLM (redirects to Python CLI)
   
 📦 Package Management:
   package <source>         Create a .pdpkg package from .pdproj file or directory
@@ -91,7 +91,7 @@ Usage:
 🔧 Additional Commands:
   provider <subcommand>    Manage LLM providers (limited in Go CLI)
   providers                List available LLM providers  
-  git <subcommand>         Git operations for .prompd files
+  git <subcommand>         Git operations for .prmd files
   version <subcommand>     Version management commands
   help                     Show this help
 
@@ -103,9 +103,9 @@ Registry Management Commands:
   prompd registry info <package>       Show detailed package information
 
 Examples:
-  prompd validate prompt.prompd
+  prompd validate prompt.prmd
   prompd list prompts/
-  prompd show example.prompd
+  prompd show example.prmd
   prompd login sk-ant-api_...
   prompd search code-review
   prompd publish my-prompt.pdpkg

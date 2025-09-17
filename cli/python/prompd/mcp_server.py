@@ -3,7 +3,7 @@ Minimal MCP-style HTTP server for Prompd using FastAPI.
 
 Endpoints (JSON):
   GET  /health                 -> { status, version }
-  GET  /compile                -> compile a .prompd/.pdflow (query: to, params=json)
+  GET  /compile                -> compile a .prmd/.pdflow (query: to, params=json)
   POST /run                    -> { provider, model, params, meta, version }
   GET  /validate               -> validate the file
 
@@ -54,7 +54,7 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
     @app.get("/validate", dependencies=[Depends(auth_dep)])
     async def validate():
         try:
-            if source.suffix == ".prompd":
+            if source.suffix == ".prmd":
                 PrompdParser().parse_file(source)
             # For .pdflow you could add flow validation here
             return {"ok": True}

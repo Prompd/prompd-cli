@@ -112,7 +112,7 @@ export function createPublishCommand(): Command {
   const publishCommand = new Command('publish');
   publishCommand
     .description('Publish a package to the registry')
-    .argument('[directory]', 'Directory containing project.prompdproj file', '.')
+    .argument('[directory]', 'Directory containing project.prmdproj file', '.')
     .option('--access <access>', 'Package access level', 'public')
     .option('--tag <tag>', 'Package tag', 'latest')
     .option('--dry-run', 'Show what would be published without actually publishing')

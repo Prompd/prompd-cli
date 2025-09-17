@@ -37,7 +37,7 @@ class PrompdCompleter(Completer):
         ]
         self.path_completer = PathCompleter(
             only_directories=False,
-            file_filter=lambda path: path.suffix in ['.prompd', '.pdpkg', '.json']
+            file_filter=lambda path: path.suffix in ['.prmd', '.pdpkg', '.json']
         )
     
     def get_completions(self, document, complete_event):
@@ -50,7 +50,7 @@ class PrompdCompleter(Completer):
                 if cmd.startswith(text.lower()):
                     yield Completion(cmd, start_position=-len(text))
         elif words[0] in ['compile', 'show', 'validate']:
-            # Complete .prompd files for these commands
+            # Complete .prmd files for these commands
             for completion in self.path_completer.get_completions(document, complete_event):
                 yield completion
         elif words[0] in ['publish', 'install']:
@@ -164,12 +164,12 @@ class PrompdREPL:
         table.add_column("Example", style="yellow")
         
         commands = [
-            ("compile", "Compile a .prompd file with parameters", "compile my-prompt.prompd"),
+            ("compile", "Compile a .prmd file with parameters", "compile my-prompt.prmd"),
             ("publish", "Publish a package to registry", "publish my-package.pdpkg"),
             ("search", "Search registry for packages", "search security"),
-            ("show", "Show prompt structure and parameters", "show prompt.prompd"),
-            ("validate", "Validate a prompt or package", "validate prompt.prompd"),
-            ("list", "List local .prompd files", "list"),
+            ("show", "Show prompt structure and parameters", "show prompt.prmd"),
+            ("validate", "Validate a prompt or package", "validate prompt.prmd"),
+            ("list", "List local .prmd files", "list"),
             ("login", "Login to registry", "login"),
             ("logout", "Logout from registry", "logout"),
             ("status", "Show current status", "status"),
@@ -196,10 +196,10 @@ class PrompdREPL:
         table.add_row("Logged In", "Yes" if self.registry.is_authenticated() else "No")
         
         # Count local files
-        prompd_files = list(self.current_dir.glob("*.prompd"))
+        prompd_files = list(self.current_dir.glob("*.prmd"))
         pdpkg_files = list(self.current_dir.glob("*.pdpkg"))
         
-        table.add_row("Local .prompd files", str(len(prompd_files)))
+        table.add_row("Local .prmd files", str(len(prompd_files)))
         table.add_row("Local .pdpkg files", str(len(pdpkg_files)))
         
         self.console.print(table)
@@ -210,10 +210,10 @@ class PrompdREPL:
         if args:
             prompt_file = args[0]
         else:
-            # Show available .prompd files
-            prompd_files = list(self.current_dir.glob("*.prompd"))
+            # Show available .prmd files
+            prompd_files = list(self.current_dir.glob("*.prmd"))
             if not prompd_files:
-                self.console.print("[yellow]No .prompd files found in current directory[/yellow]")
+                self.console.print("[yellow]No .prmd files found in current directory[/yellow]")
                 return
             
             self.console.print("[cyan]Available prompt files:[/cyan]")
@@ -483,19 +483,19 @@ class PrompdREPL:
             if path.suffix == '.pdpkg':
                 validate_package(str(path))
                 self.console.print(f"[green]✓[/green] Package {path.name} is valid")
-            elif path.suffix == '.prompd':
+            elif path.suffix == '.prmd':
                 parser = PrompdParser()
                 parser.parse_file(str(path))
                 self.console.print(f"[green]✓[/green] Prompt {path.name} is valid")
             else:
-                self.console.print("[red]Unsupported file type. Use .prompd or .pdpkg files[/red]")
+                self.console.print("[red]Unsupported file type. Use .prmd or .pdpkg files[/red]")
         
         except Exception as e:
             self.console.print(f"[red]Validation failed: {str(e)}[/red]")
     
     def interactive_list(self, args: List[str]):
         """List local files"""
-        prompd_files = list(self.current_dir.glob("*.prompd"))
+        prompd_files = list(self.current_dir.glob("*.prmd"))
         pdpkg_files = list(self.current_dir.glob("*.pdpkg"))
         
         if prompd_files or pdpkg_files:
@@ -514,7 +514,7 @@ class PrompdREPL:
             
             self.console.print(table)
         else:
-            self.console.print("[yellow]No .prompd or .pdpkg files found in current directory[/yellow]")
+            self.console.print("[yellow]No .prmd or .pdpkg files found in current directory[/yellow]")
     
     def interactive_login(self):
         """Interactive login"""

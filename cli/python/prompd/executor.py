@@ -70,7 +70,7 @@ class PrompDExecutor:
         Execute a prompd file with given parameters.
         
         Args:
-            prompd_file: Path to .prompd file
+            prompd_file: Path to .prmd file
             provider: LLM provider name
             model: Model name
             cli_params: CLI parameters as list of "key=value" strings
@@ -156,8 +156,34 @@ class PrompDExecutor:
                     if key in content:
                         content[key] = value
             
-            # Perform variable substitution
-            substituted_content = await self._substitute_variables(content, resolved_params)
+            # Use the full compilation pipeline instead of basic template substitution
+            from .compiler import PrompdCompiler
+            compiler = PrompdCompiler()
+            
+            # Compile to provider JSON format to get properly processed content
+            compiled_json_str = compiler.compile(
+                source=prompd_file,
+                output_format=f"provider-json:{provider}",
+                parameters=resolved_params
+            )
+            
+            # Parse the compiled JSON to extract the message content
+            import json
+            try:
+                compiled_data = json.loads(compiled_json_str)
+                if "messages" in compiled_data and compiled_data["messages"]:
+                    # Extract the user message content from the compiled JSON
+                    user_message = compiled_data["messages"][0]["content"]
+                    substituted_content = {
+                        "user": user_message,
+                        "system": None,  # System message handling can be added if needed
+                        "context": None,
+                        "response": None
+                    }
+                else:
+                    raise PrompDError("Compiled output contains no messages")
+            except (json.JSONDecodeError, KeyError) as e:
+                raise PrompDError(f"Failed to parse compiled output: {e}")
             
             # Create execution context
             context = ExecutionContext(
@@ -375,7 +401,7 @@ async def execute_prompd(
     Convenience function to execute a prompd file.
     
     Args:
-        file_path: Path to .prompd file
+        file_path: Path to .prmd file
         provider: LLM provider name
         model: Model name
         **kwargs: Additional parameters

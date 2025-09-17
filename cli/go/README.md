@@ -33,17 +33,17 @@ Binaries will be in the `dist/` folder.
 ## Usage
 
 ```bash
-# Validate a .prompd file
-./prompd validate example.prompd
+# Validate a .prmd file
+./prompd validate example.prmd
 
-# List all .prompd files
+# List all .prmd files
 ./prompd list prompts/
 
 # Show file structure
-./prompd show example.prompd
+./prompd show example.prmd
 
 # Execute (demo mode)
-./prompd execute example.prompd --provider openai --model gpt-4 -p name=Alice
+./prompd execute example.prmd --provider openai --model gpt-4 -p name=Alice
 
 # Show version
 ./prompd version

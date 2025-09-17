@@ -1,5 +1,5 @@
 """
-Package validation for .prompd and .pdpkg formats.
+Package validation for .prmd and .pdpkg formats.
 
 Validates packages according to Registry specifications and ensures
 compatibility with the Prompd ecosystem.
@@ -50,25 +50,25 @@ class ValidationResult:
 
 
 class PackageValidator:
-    """Validates .prompd files and .pdpkg packages."""
+    """Validates .prmd files and .pdpkg packages."""
     
     def __init__(self):
         self.parser = PrompdParser()
-        self.prompd_validator = PrompDValidator()
+        self.prmd_validator = PrompDValidator()
     
     def validate_prompd_package(self, file_path: Path) -> ValidationResult:
-        """Validate a single .prompd file as a package."""
+        """Validate a single .prmd file as a package."""
         errors = []
         warnings = []
         package_info = None
         
         try:
-            # Parse the .prompd file
+            # Parse the .prmd file
             parsed = self.parser.parse_file(str(file_path))
             package_info = parsed.metadata
             
-            # Validate basic .prompd structure
-            validation_issues = self.prompd_validator.validate_file(file_path)
+            # Validate basic .prmd structure
+            validation_issues = self.prmd_validator.validate_file(file_path)
             for issue in validation_issues:
                 if issue.get('level') == 'error':
                     errors.append(issue.get('message', 'Unknown validation error'))
@@ -103,7 +103,7 @@ class PackageValidator:
                     errors.append(f"Content validation error: {content_err}")
             
         except Exception as e:
-            errors.append(f"Failed to parse .prompd file: {e}")
+            errors.append(f"Failed to parse .prmd file: {e}")
             import traceback
             errors.append(f"Traceback: {traceback.format_exc()}")
         
@@ -135,7 +135,7 @@ class PackageValidator:
                 # Validate package structure
                 self._validate_package_structure(zip_file, errors, warnings)
                 
-                # Validate contained .prompd files
+                # Validate contained .prmd files
                 self._validate_contained_prompd_files(zip_file, errors, warnings)
                 
                 # Validate file references
@@ -206,7 +206,7 @@ class PackageValidator:
             self._validate_dependencies(metadata['dependencies'], errors, warnings)
     
     def _validate_content_structure(self, parsed: Dict[str, Any], errors: List[str], warnings: List[str]):
-        """Validate the content structure of a .prompd file."""
+        """Validate the content structure of a .prmd file."""
         content = parsed.get('content', '') or ''
         
         if not content.strip():
@@ -270,11 +270,11 @@ class PackageValidator:
                 errors.append(f"Security violation: Absolute path detected in {file_name}")
         
         # Check for common directories
-        has_prompts = any(f.startswith('prompts/') or f.endswith('.prompd') for f in file_list)
+        has_prompts = any(f.startswith('prompts/') or f.endswith('.prmd') for f in file_list)
         has_workflows = any(f.startswith('workflows/') or f.endswith('.pdflow') for f in file_list)
         
         if not has_prompts and not has_workflows:
-            warnings.append("Package contains no .prompd or .pdflow files")
+            warnings.append("Package contains no .prmd or .pdflow files")
         
         # Check for reasonable file count
         if len(file_list) > 100:
@@ -287,8 +287,8 @@ class PackageValidator:
                 warnings.append(f"Suspicious file detected: {file_name}")
     
     def _validate_contained_prompd_files(self, zip_file: zipfile.ZipFile, errors: List[str], warnings: List[str]):
-        """Validate all .prompd files contained in the package."""
-        prompd_files = [f for f in zip_file.namelist() if f.endswith('.prompd')]
+        """Validate all .prmd files contained in the package."""
+        prompd_files = [f for f in zip_file.namelist() if f.endswith('.prmd')]
         
         for prompd_file in prompd_files:
             try:
@@ -296,7 +296,7 @@ class PackageValidator:
                     content = f.read().decode('utf-8')
                     # Basic validation - could be expanded
                     if not content.strip():
-                        errors.append(f"Empty .prompd file: {prompd_file}")
+                        errors.append(f"Empty .prmd file: {prompd_file}")
             except Exception as e:
                 errors.append(f"Failed to read {prompd_file}: {e}")
     
@@ -305,13 +305,22 @@ class PackageValidator:
         """Validate that referenced files exist in the package."""
         file_list = zip_file.namelist()
         
-        for category, files in file_refs.items():
-            if not isinstance(files, list):
-                continue
-            
-            for file_ref in files:
+        # Handle both dict format (categorized) and list format (simple array)
+        if isinstance(file_refs, dict):
+            for category, files in file_refs.items():
+                if not isinstance(files, list):
+                    continue
+                
+                for file_ref in files:
+                    if file_ref not in file_list:
+                        errors.append(f"Referenced file not found in package: {file_ref}")
+        elif isinstance(file_refs, list):
+            # Simple list of file paths
+            for file_ref in file_refs:
                 if file_ref not in file_list:
                     errors.append(f"Referenced file not found in package: {file_ref}")
+        else:
+            errors.append(f"Invalid file references format: expected dict or list, got {type(file_refs)}")
     
     def _validate_parameters(self, parameters: List[Dict[str, Any]], errors: List[str], warnings: List[str]):
         """Validate parameter definitions."""
@@ -388,10 +397,10 @@ class PackageValidator:
 
 
 def validate_package(file_path: Path) -> ValidationResult:
-    """Validate a package file (.prompd or .pdpkg)."""
+    """Validate a package file (.prmd or .pdpkg)."""
     validator = PackageValidator()
     
-    if file_path.suffix == '.prompd':
+    if file_path.suffix == '.prmd':
         return validator.validate_prompd_package(file_path)
     elif file_path.suffix == '.pdpkg':
         return validator.validate_pdpkg_package(file_path)

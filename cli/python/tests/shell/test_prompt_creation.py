@@ -34,7 +34,7 @@ if __name__ == "__main__":
     print("-"*50)
     confirm_intent_data = {
         'intent': 'unclear', 
-        'raw_input': 'yes, create livestock-feeding-schedules.prompd'
+        'raw_input': 'yes, create livestock-feeding-schedules.prmd'
     }
     
     print(f"Input: {confirm_intent_data['raw_input']}")
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     print(f"Response: {confirm_response}")
     
     # Check if file was created
-    created_file = shell.current_dir / "livestock-feeding-schedules.prompd"
+    created_file = shell.current_dir / "livestock-feeding-schedules.prmd"
     if created_file.exists():
         print(f"\nSUCCESS: File created at {created_file}")
         print("File contents preview:")

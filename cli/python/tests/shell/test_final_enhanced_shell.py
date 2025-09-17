@@ -35,7 +35,7 @@ if __name__ == "__main__":
         ("Go back", "cd .."),
         
         # File viewing
-        ("View file", "cat cooking-recipes.prompd"),
+        ("View file", "cat cooking-recipes.prmd"),
         
         # AI-powered creation
         ("Create prompt", "create a new prompt for testing the enhanced shell"),
@@ -95,13 +95,13 @@ if __name__ == "__main__":
         "NAVIGATION & FILE OPERATIONS",
         "  * cd command with full path support",
         "  * Enhanced list with directories",
-        "  * cat command with .prompd syntax highlighting",
+        "  * cat command with .prmd syntax highlighting",
         "  * Tab autocompletion",
         "",
         "AI-POWERED CONTENT CREATION",
         "  * Natural language prompt generation",
         "  * Complex file operations with confirmation",
-        "  * Template-based .prompd file creation",
+        "  * Template-based .prmd file creation",
         "",
         "PROFESSIONAL FEATURES",
         "  * Dual-mode operation (command <-> chat)",

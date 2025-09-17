@@ -18,6 +18,7 @@ from prompd.config import PrompDConfig
 from prompd.exceptions import PrompDError, ValidationError, ParseError, ProviderError, ConfigurationError
 from prompd.compiler import PrompdCompiler
 from prompd.registry import RegistryClient, validate_pdpkg
+from prompd.security import validate_git_file_path, validate_git_message, validate_version_string, SecurityError
 from prompd import __version__ as PROMPD_VERSION
 
 # Configure console with proper encoding handling for Windows
@@ -29,7 +30,7 @@ except:
 
 
 @click.group()
-@click.version_option(version="0.3.1", prog_name="prompd")
+@click.version_option(version="0.4.0", prog_name="prompd")
 def cli():
     """Prompd - CLI for structured prompt definitions."""
     pass
@@ -47,7 +48,7 @@ def _run_impl(ctx, file: Path, provider: Optional[str], model: Optional[str], pa
         
         if version:
             # Create a temporary file with the specified version
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.prompd', delete=False, encoding='utf-8') as tmp:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.prmd', delete=False, encoding='utf-8') as tmp:
                 temp_file = Path(tmp.name)
                 
                 # Get the file content at that version
@@ -258,7 +259,7 @@ def _run_impl(ctx, file: Path, provider: Optional[str], model: Optional[str], pa
 @click.pass_context
 def run(ctx, file: Path, provider: Optional[str], model: Optional[str], param: tuple, param_file: tuple, 
         api_key: Optional[str], output: Optional[str], format: str, version: Optional[str], verbose: bool, show_usage: bool):
-    """Run a .prompd file with an LLM provider (supports --meta:* flags)."""
+    """Run a .prmd file with an LLM provider (supports --meta:* flags)."""
     return _run_impl(ctx, file, provider, model, param, param_file, api_key, output, format, version, verbose, show_usage)
 @cli.command()
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
@@ -266,7 +267,7 @@ def run(ctx, file: Path, provider: Optional[str], model: Optional[str], param: t
 @click.option("--git", is_flag=True, help="Include git history consistency checks")
 @click.option("--version-only", is_flag=True, help="Only validate version-related aspects")
 def validate(file: Path, verbose: bool, git: bool, version_only: bool):
-    """Validate a .prompd file syntax and structure."""
+    """Validate a .prmd file syntax and structure."""
     try:
         validator = PrompDValidator()
         
@@ -313,15 +314,15 @@ def validate(file: Path, verbose: bool, git: bool, version_only: bool):
 
 @cli.command("list")
 @click.option("--path", "-p", type=click.Path(exists=True, path_type=Path), 
-              default=Path("."), help="Directory to search for .prompd files")
+              default=Path("."), help="Directory to search for .prmd files")
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed information")
 def list_prompts(path: Path, detailed: bool):
-    """List available .prompd files."""
+    """List available .prmd files."""
     try:
-        prompd_files = list(Path(path).glob("**/*.prompd"))
+        prompd_files = list(Path(path).glob("**/*.prmd"))
         
         if not prompd_files:
-            console.print(f"No .prompd files found in {path}")
+            console.print(f"No .prmd files found in {path}")
             return
         
         if detailed:
@@ -383,7 +384,7 @@ def mcp():
 @click.option("--token-url", default=None, help="OAuth token URL")
 @click.option("--scopes", default=None, help="OAuth scopes (comma separated)")
 def mcp_serve(path: Path, host: str, port: int, oauth_client_id: str, auth_url: str, token_url: str, scopes: str):
-    """Serve a .prompd or .pdflow over HTTP with simple MCP-style endpoints."""
+    """Serve a .prmd or .pdflow over HTTP with simple MCP-style endpoints."""
     try:
         try:
             from prompd.mcp_server import serve_app
@@ -410,11 +411,11 @@ def mcp_serve(path: Path, host: str, port: int, oauth_client_id: str, auth_url: 
 
 
 @mcp.command("dockerize")
-@click.option("--dockerfile", default="Dockerfile.prompd-mcp", help="Output Dockerfile name", show_default=True)
-@click.option("--compose", default="docker-compose.prompd-mcp.yml", help="Output docker-compose file name", show_default=True)
+@click.option("--dockerfile", default="Dockerfile.prmd-mcp", help="Output Dockerfile name", show_default=True)
+@click.option("--compose", default="docker-compose.prmd-mcp.yml", help="Output docker-compose file name", show_default=True)
 @click.option("--port", type=int, default=3333, help="Container port to expose", show_default=True)
 def mcp_dockerize(dockerfile: str, compose: str, port: int):
-    """Scaffold Docker + Compose files to serve a .prompd/.pdflow via MCP."""
+    """Scaffold Docker + Compose files to serve a .prmd/.pdflow via MCP."""
     try:
         from textwrap import dedent
         dockerfile_content = dedent(f"""
@@ -428,7 +429,7 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
             PROMPD_DEFAULT_MODEL=gpt-3.5-turbo
         EXPOSE {port}
         # Serve any mounted file under /data; override the path with docker run args or compose command
-        CMD ["prompd", "mcp", "serve", "/data/prompt.prompd", "--host", "0.0.0.0", "--port", "{port}"]
+        CMD ["prompd", "mcp", "serve", "/data/prompt.prmd", "--host", "0.0.0.0", "--port", "{port}"]
         """)
 
         compose_content = dedent(f"""
@@ -508,19 +509,19 @@ def chat_command():
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.pass_context
 def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_provider_json: Optional[str], param: tuple, params_file: tuple, output: Optional[str], verbose: bool):
-    """Compile a .prompd file or package reference to a target format.
+    """Compile a .prmd file or package reference to a target format.
     
     Supports package references like:
-    - @namespace/package@version/path/to/file.prompd
-    - @prompd.io/security@1.0.0/prompts/audit.prompd
-    - package@version/file.prompd
+    - @namespace/package@version/path/to/file.prmd
+    - @prompd.io/security@1.0.0/prompts/audit.prmd
+    - package@version/file.prmd
     """
     try:
         # Check if source is a package reference with path
         source_path = Path(source)
         
         # Pattern to detect package references: @namespace/package@version/path or package@version/path
-        package_pattern = r'^(@[\w.-]+/[\w.-]+|[\w.-]+)@([\w.-]+)/(.+\.prompd)$'
+        package_pattern = r'^(@[\w.-]+/[\w.-]+|[\w.-]+)@([\w.-]+)/(.+\.prmd)$'
         import re
         match = re.match(package_pattern, source)
         
@@ -635,7 +636,8 @@ def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_
             source=source,
             output_format=output_format,
             parameters=parameters,
-            output_file=Path(output) if output else None
+            output_file=Path(output) if output else None,
+            verbose=verbose
         )
 
         if output:
@@ -829,7 +831,7 @@ def set_api_key(provider_name: str, api_key: str):
         config.api_keys[provider_name] = api_key
         config.save()
         
-        console.print(f"[green]✓[/green] API key set for {provider_name}")
+        console.print(f"[green]Success:[/green] API key set for {provider_name}")
         
     except Exception as e:
         console.print(f"[red]Error setting API key:[/red] {e}")
@@ -846,7 +848,7 @@ def remove_api_key(provider_name: str):
         if hasattr(config, 'api_keys') and config.api_keys and provider_name in config.api_keys:
             del config.api_keys[provider_name]
             config.save()
-            console.print(f"[green]✓[/green] API key removed for {provider_name}")
+            console.print(f"[green]Success:[/green] API key removed for {provider_name}")
         else:
             console.print(f"[yellow]No API key configured for {provider_name}[/yellow]")
         
@@ -870,7 +872,7 @@ def providers():
 @cli.command()
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 def show(file: Path):
-    """Show the structure and parameters of a .prompd file."""
+    """Show the structure and parameters of a .prmd file."""
     try:
         parser = PrompdParser()
         prompd = parser.parse_file(file)
@@ -932,7 +934,7 @@ def show(file: Path):
 
 @cli.group()
 def git():
-    """Git operations for .prompd files."""
+    """Git operations for .prmd files."""
     pass
 
 
@@ -940,12 +942,12 @@ def git():
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
 @click.option("--verbose", "-v", is_flag=True, help="Show git output")
 def git_add(files: tuple, verbose: bool):
-    """Add .prompd files to git staging area."""
+    """Add .prmd files to git staging area."""
     try:
         for file_path in files:
             file_path = Path(file_path)
-            if not file_path.suffix == ".prompd":
-                console.print(f"[yellow]Skipping non-.prompd file:[/yellow] {file_path}")
+            if not file_path.suffix == ".prmd":
+                console.print(f"[yellow]Skipping non-.prmd file:[/yellow] {file_path}")
                 continue
             
             result = subprocess.run(
@@ -969,12 +971,12 @@ def git_add(files: tuple, verbose: bool):
 @click.option("--cached", is_flag=True, help="Only remove from index, keep in working directory")
 @click.option("--verbose", "-v", is_flag=True, help="Show git output")
 def git_remove(files: tuple, cached: bool, verbose: bool):
-    """Remove .prompd files from git tracking."""
+    """Remove .prmd files from git tracking."""
     try:
         for file_path in files:
             file_path = Path(file_path)
-            if not file_path.suffix == ".prompd":
-                console.print(f"[yellow]Skipping non-.prompd file:[/yellow] {file_path}")
+            if not file_path.suffix == ".prmd":
+                console.print(f"[yellow]Skipping non-.prmd file:[/yellow] {file_path}")
                 continue
             
             cmd = ["git", "rm"]
@@ -1003,7 +1005,7 @@ def git_remove(files: tuple, cached: bool, verbose: bool):
 @click.option("--path", "-p", type=click.Path(exists=True, path_type=Path), 
               help="Check status for specific path")
 def git_status(path: Optional[Path]):
-    """Show git status for .prompd files."""
+    """Show git status for .prmd files."""
     try:
         cmd = ["git", "status", "--short"]
         if path:
@@ -1017,17 +1019,17 @@ def git_status(path: Optional[Path]):
         )
         
         if not result.stdout:
-            console.print("[green]No changes to .prompd files[/green]")
+            console.print("[green]No changes to .prmd files[/green]")
             return
         
-        # Filter for .prompd files
+        # Filter for .prmd files
         prompd_changes = []
         for line in result.stdout.strip().split('\n'):
-            if '.prompd' in line:
+            if '.prmd' in line:
                 prompd_changes.append(line)
         
         if prompd_changes:
-            console.print("[bold]Git status for .prompd files:[/bold]")
+            console.print("[bold]Git status for .prmd files:[/bold]")
             for change in prompd_changes:
                 status_code = change[:2]
                 file_path = change[3:]
@@ -1051,7 +1053,7 @@ def git_status(path: Optional[Path]):
                 
                 console.print(f"  [{status_color}]{status_text:10}[/{status_color}] {file_path}")
         else:
-            console.print("[dim]No .prompd file changes[/dim]")
+            console.print("[dim]No .prmd file changes[/dim]")
             
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Error checking status:[/red] {e.stderr}")
@@ -1060,12 +1062,12 @@ def git_status(path: Optional[Path]):
 
 @git.command("commit")
 @click.option("--message", "-m", required=True, help="Commit message")
-@click.option("--all", "-a", is_flag=True, help="Automatically stage all modified .prompd files")
+@click.option("--all", "-a", is_flag=True, help="Automatically stage all modified .prmd files")
 def git_commit(message: str, all: bool):
-    """Commit staged .prompd files."""
+    """Commit staged .prmd files."""
     try:
         if all:
-            # First add all modified .prompd files
+            # First add all modified .prmd files
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 capture_output=True,
@@ -1074,14 +1076,25 @@ def git_commit(message: str, all: bool):
             )
             
             for line in result.stdout.strip().split('\n'):
-                if line and '.prompd' in line and line[0] == ' ' and line[1] == 'M':
+                if line and '.prmd' in line and line[0] == ' ' and line[1] == 'M':
                     file_path = line[3:]
-                    subprocess.run(["git", "add", file_path], check=True)
-                    console.print(f"[dim]Auto-staging: {file_path}[/dim]")
+                    try:
+                        safe_path = validate_git_file_path(file_path)
+                        subprocess.run(["git", "add", safe_path], check=True)
+                        console.print(f"[dim]Auto-staging: {safe_path}[/dim]")
+                    except SecurityError as e:
+                        console.print(f"[red]Security warning: Skipping unsafe file path: {e}[/red]")
+                        continue
         
-        # Commit
+        # Commit with validated message
+        try:
+            safe_message = validate_git_message(message)
+        except SecurityError as e:
+            console.print(f"[red]Error: Invalid commit message: {e}[/red]")
+            raise click.Abort()
+        
         result = subprocess.run(
-            ["git", "commit", "-m", message],
+            ["git", "commit", "-m", safe_message],
             capture_output=True,
             text=True,
             check=True
@@ -1108,7 +1121,7 @@ def git_commit(message: str, all: bool):
 @click.argument("version")
 @click.option("--output", "-o", type=click.Path(), help="Output to different file instead of overwriting")
 def git_checkout(file: Path, version: str, output: Optional[str]):
-    """Checkout a specific version of a .prompd file.
+    """Checkout a specific version of a .prmd file.
     
     VERSION can be:
     - A semantic version (e.g., '1.2.3')
@@ -1119,8 +1132,8 @@ def git_checkout(file: Path, version: str, output: Optional[str]):
     """
     try:
         file = Path(file)
-        if not file.suffix == ".prompd":
-            console.print(f"[red]Error:[/red] {file} is not a .prompd file")
+        if not file.suffix == ".prmd":
+            console.print(f"[red]Error:[/red] {file} is not a .prmd file")
             sys.exit(1)
         
         # Try to resolve as semantic version tag first
@@ -1181,7 +1194,7 @@ def version():
 @click.option("--message", "-m", help="Commit message")
 @click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
 def version_bump(file: Path, bump_type: str, message: Optional[str], dry_run: bool):
-    """Bump version in a .prompd file and create git tag."""
+    """Bump version in a .prmd file and create git tag."""
     try:
         parser = PrompdParser()
         prompd = parser.parse_file(file)
@@ -1211,7 +1224,7 @@ def version_bump(file: Path, bump_type: str, message: Optional[str], dry_run: bo
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.option("--limit", "-n", type=int, default=10, help="Number of versions to show")
 def version_history(file: Path, limit: int):
-    """Show version history for a .prompd file."""
+    """Show version history for a .prmd file."""
     try:
         tags = _get_git_tags(file, limit)
         
@@ -1245,7 +1258,7 @@ def version_history(file: Path, limit: int):
 @click.argument("version1")
 @click.argument("version2", required=False)
 def version_diff(file: Path, version1: str, version2: Optional[str]):
-    """Show differences between versions of a .prompd file."""
+    """Show differences between versions of a .prmd file."""
     try:
         version2 = version2 or "HEAD"
         diff_output = _git_diff_versions(file, version1, version2)
@@ -1355,7 +1368,7 @@ def _is_valid_semver(version: str) -> bool:
 
 
 def _update_version_in_file(file_path: Path, new_version: str):
-    """Update version field in .prompd file."""
+    """Update version field in .prmd file."""
     content = file_path.read_text(encoding='utf-8')
     
     # Parse YAML frontmatter
@@ -1381,16 +1394,24 @@ def _update_version_in_file(file_path: Path, new_version: str):
 def _git_commit_and_tag(file_path: Path, version: str, message: str):
     """Create git commit and tag."""
     try:
+        # Validate inputs for security
+        safe_path = validate_git_file_path(str(file_path))
+        safe_message = validate_git_message(message)
+        safe_version = validate_version_string(version)
+        
         # Add file to git
-        subprocess.run(["git", "add", str(file_path)], check=True, capture_output=True)
+        subprocess.run(["git", "add", safe_path], check=True, capture_output=True)
         
         # Commit
-        subprocess.run(["git", "commit", "-m", message], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", safe_message], check=True, capture_output=True)
         
-        # Create tag
-        tag_name = f"{file_path.stem}-v{version}"
+        # Create tag (validate tag name components)
+        safe_stem = validate_git_file_path(file_path.stem)
+        tag_name = f"{safe_stem}-v{safe_version}"
         subprocess.run(["git", "tag", tag_name], check=True, capture_output=True)
         
+    except SecurityError as e:
+        raise Exception(f"Security validation failed: {e}")
     except subprocess.CalledProcessError as e:
         raise Exception(f"Git operation failed: {e.stderr.decode()}")
 
@@ -1473,7 +1494,7 @@ def login(token: Optional[str], username: Optional[str], password: Optional[str]
             password = getpass.getpass('Password: ')
             result = client.login_with_credentials(username, password)
         
-        console.print(f"[green]✓[/green] Logged in to {client.registry_name} as {result.get('username', 'user')}")
+        console.print(f"[green]Success:[/green] Logged in to {client.registry_name} as {result.get('username', 'user')}")
         
     except Exception as e:
         console.print(f"[red]Login failed:[/red] {e}")
@@ -1490,7 +1511,7 @@ def logout(registry: Optional[str]):
         client = RegistryClient(registry_name=registry)
         client.logout()
         
-        console.print(f"[green]✓[/green] Logged out from {client.registry_name}")
+        console.print(f"[green]Success:[/green] Logged out from {client.registry_name}")
         
     except Exception as e:
         console.print(f"[red]Logout failed:[/red] {e}")
@@ -1712,7 +1733,7 @@ def install(packages: tuple, global_install: bool, dev: bool, registry: Optional
         if not global_install:
             with open(manifest_path, 'w', encoding='utf-8') as f:
                 json.dump(manifest, f, indent=2)
-            console.print(f"\n[dim]Updated manifest.json and .prompd/lock.json[/dim]")
+            console.print(f"\n[dim]Updated manifest.json and .prmd/lock.json[/dim]")
         
     except Exception as e:
         console.print(f"[red]Installation failed:[/red] {e}")
@@ -1834,7 +1855,10 @@ def publish(package_file: Path, registry: Optional[str], namespace: Optional[str
             # Use current namespace context or default behavior
             result = client.publish_package(package_file)
         
-        console.print(f"[green]SUCCESS[/green] Published {result.get('name')}@{result.get('version')}")
+        package_info = result.get('package', {})
+        package_name = package_info.get('fullName', 'Unknown')
+        package_version = package_info.get('version', 'Unknown')
+        console.print(f"[green]SUCCESS[/green] Published {package_name}@{package_version}")
         console.print(f"  Registry: {client.registry_name}")
         if 'package_url' in result:
             console.print(f"  URL: {result['package_url']}")
@@ -1897,7 +1921,7 @@ def namespace_list(registry: Optional[str], show_permissions: bool):
         for ns in namespaces:
             status = "[bold green]CURRENT[/bold green]" if ns['name'] == current_ns else ""
             if ns.get('verified'):
-                status += " ✓" if status else "✓"
+                status += " [OK]" if status else "[OK]"
             
             permissions_str = ""
             if show_permissions:
@@ -1956,7 +1980,7 @@ def namespace_current(registry: Optional[str]):
                 console.print(f"  Downloads: {details.get('downloadCount', 0)}")
                 console.print(f"  Role: {details.get('role', 'unknown').upper()}")
                 if details.get('verified'):
-                    console.print("  Status: [green]Verified ✓[/green]")
+                    console.print("  Status: [green]Verified [OK][/green]")
         else:
             console.print("[yellow]No current namespace context set[/yellow]")
             console.print("\nSet a namespace context:")
@@ -1996,7 +2020,7 @@ def namespace_use(namespace_name: str, registry: Optional[str]):
         # Set the namespace context
         client.set_current_namespace(namespace_name)
         
-        console.print(f"[green]✓[/green] Switched to namespace [cyan]{namespace_name}[/cyan]")
+        console.print(f"[green]Success:[/green] Switched to namespace [cyan]{namespace_name}[/cyan]")
         console.print("\n[dim]Future publishes will use this namespace unless overridden with the -ns flag[/dim]")
         
     except Exception as e:
@@ -2043,7 +2067,7 @@ def namespace_create(namespace_name: str, description: Optional[str], organizati
             console.print(f"Request ID: {result.get('requestId')}")
             console.print("\nCheck verification status: [cyan]prompd ns verify-status @namespace[/cyan]")
         else:
-            console.print(f"[green]✓[/green] Namespace [cyan]{namespace_name}[/cyan] created successfully")
+            console.print(f"[green]Success:[/green] Namespace [cyan]{namespace_name}[/cyan] created successfully")
             
             # Automatically switch to the new namespace
             client.set_current_namespace(namespace_name)
@@ -2198,7 +2222,7 @@ def clean_cache(clean_global: bool, clean_local: bool, clean_all: bool):
         if clean_global:
             cleaned.append("global")
         
-        console.print(f"[green]✓[/green] Cleaned {' and '.join(cleaned)} cache(s)")
+        console.print(f"[green]Success:[/green] Cleaned {' and '.join(cleaned)} cache(s)")
         
     except Exception as e:
         console.print(f"[red]Failed to clean cache:[/red] {e}")
@@ -2352,7 +2376,7 @@ def install_dependencies(package: str, save: bool, save_dev: bool, target: Optio
         
         # Generate lock file
         lock_data = resolver.generate_lock_file()
-        lock_file = Path.cwd() / '.prompd' / 'lock.json'
+        lock_file = Path.cwd() / '.prmd' / 'lock.json'
         lock_file.parent.mkdir(parents=True, exist_ok=True)
         
         with open(lock_file, 'w') as f:
@@ -2364,7 +2388,7 @@ def install_dependencies(package: str, save: bool, save_dev: bool, target: Optio
         if save or save_dev:
             from .package_resolver import PackageResolver
             resolver_inst = PackageResolver()
-            config = resolver_inst.get_project_config()
+            config = resolver_inst.get_or_create_project_config()
             
             ref = PackageReference.parse(package)
             dep_name = ref.to_string().split('@')[0]
@@ -2395,7 +2419,7 @@ def update_dependencies(dry_run: bool, latest: bool):
     try:
         # Load current project config
         resolver_inst = PackageResolver()
-        config = resolver_inst.get_project_config()
+        config = resolver_inst.get_or_create_project_config()
         
         if not config.dependencies:
             console.print("[yellow]No dependencies to update[/yellow]")
@@ -2519,28 +2543,36 @@ def package_create(source: Path, output_path: Optional[Path], name: Optional[str
         elif output_path.suffix != '.pdpkg':
             output_path = output_path.with_suffix('.pdpkg')
         
-        # Create manifest
+        # Create manifest (matches backend PdpkgManifestSchema)
         manifest = {
             'name': proj_name,
             'version': proj_version,
             'description': proj_description,
-            'type': 'package'
+            'license': 'MIT',
+            'tags': [],
+            'dependencies': {},
+            'keywords': []
         }
         
         if proj_author:
             manifest['author'] = proj_author
         
-        # Find .prompd and .pdflow files
-        prompd_files = list(source_dir.glob('**/*.prompd'))
-        pdflow_files = list(source_dir.glob('**/*.pdflow'))
+        # Find .prmd and .pdflow files (ensure they are actual files, not directories)
+        prompd_files = [f for f in source_dir.glob('**/*.prmd') if f.is_file()]
+        pdflow_files = [f for f in source_dir.glob('**/*.pdflow') if f.is_file()]
         
         if prompd_files:
-            manifest['files'] = {'prompts': [str(f.relative_to(source_dir)) for f in prompd_files]}
+            # Set main file (first .prmd file found)
+            main_file = str(prompd_files[0].relative_to(source_dir)).replace('\\', '/')
+            manifest['main'] = main_file
+            
+            # If there are additional .prmd files, add them to files array
+            if len(prompd_files) > 1:
+                additional_files = [str(f.relative_to(source_dir)).replace('\\', '/') for f in prompd_files[1:]]
+                manifest['files'] = additional_files
         
         if pdflow_files:
-            if 'files' not in manifest:
-                manifest['files'] = {}
-            manifest['files']['workflows'] = [str(f.relative_to(source_dir)) for f in pdflow_files]
+            manifest['workflows'] = [str(f.relative_to(source_dir)).replace('\\', '/') for f in pdflow_files]
         
         # Create package
         create_pdpkg(source_dir, output_path, manifest)
@@ -2568,8 +2600,8 @@ def package_validate(package_path: Path):
             console.print(f"[red]ERROR[/red] [bold red]Invalid package format![/bold red]")
             console.print(f"   File: {package_path.name}")
             console.print("   Expected: .pdpkg archive file")
-            console.print("   Note: .prompd files are individual prompts, not packages")
-            console.print("   Use 'prompd validate' to validate individual .prompd files")
+            console.print("   Note: .prmd files are individual prompts, not packages")
+            console.print("   Use 'prompd validate' to validate individual .prmd files")
             sys.exit(1)
         
         console.print(f"[blue]INFO[/blue] Validating package: [cyan]{package_path.name}[/cyan]")

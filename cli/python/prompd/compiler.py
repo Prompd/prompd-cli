@@ -2,7 +2,7 @@
 Prompd Compiler - Composable prompt compilation system.
 
 This module implements the multi-stage compilation pipeline that transforms
-.prompd files into various output formats (markdown, provider JSON, etc.)
+.prmd files into various output formats (markdown, provider JSON, etc.)
 """
 
 from abc import ABC, abstractmethod
@@ -77,7 +77,7 @@ class LexicalAnalysisStage(CompilerStage):
         self.parser = PrompdParser()
     
     def process(self, context: CompilationContext) -> None:
-        """Parse the .prompd file into metadata and content."""
+        """Parse the .prmd file into metadata and content."""
         try:
             prompd_file = self.parser.parse_file(context.source_file)
             context.metadata = prompd_file.metadata
@@ -101,13 +101,12 @@ class DependencyResolutionStage(CompilerStage):
         if not context.metadata:
             return
         
-        # Get metadata as dict for processing
-        metadata_dict = context.metadata.dict() if hasattr(context.metadata, 'dict') else context.metadata.__dict__
-        
+        # Initialize resolved packages dict
+        resolved_packages = {}
+
         # Process 'using' field (package imports with optional prefixes)
-        if 'using' in metadata_dict and metadata_dict['using']:
-            using_imports = metadata_dict['using']
-            resolved_packages = {}
+        if hasattr(context.metadata, 'using') and context.metadata.using:
+            using_imports = context.metadata.using
             
             # Handle different using formats
             if isinstance(using_imports, str):
@@ -124,7 +123,7 @@ class DependencyResolutionStage(CompilerStage):
                     context.warnings.append(f"Failed to resolve package {using_imports}: {e}")
                     
             elif isinstance(using_imports, list):
-                # List of packages (can be strings or dicts with prefix)
+                # List of packages (can be strings, dicts, or UsingPackage objects)
                 for item in using_imports:
                     if isinstance(item, str):
                         # Simple string in list
@@ -138,6 +137,23 @@ class DependencyResolutionStage(CompilerStage):
                                 print(f"Resolved package: {item} -> {package_path}")
                         except Exception as e:
                             context.warnings.append(f"Failed to resolve package {item}: {e}")
+                    elif hasattr(item, 'name') and hasattr(item, 'prefix'):
+                        # UsingPackage object
+                        package_ref = item.name
+                        prefix = item.prefix
+                        try:
+                            package_path = self.resolver.resolve_package(package_ref)
+                            resolved_packages[package_ref] = {
+                                'path': package_path,
+                                'prefix': prefix
+                            }
+                            if context.verbose:
+                                if prefix:
+                                    print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
+                                else:
+                                    print(f"Resolved package: {package_ref} -> {package_path}")
+                        except Exception as e:
+                            context.warnings.append(f"Failed to resolve package {package_ref}: {e}")
                     elif isinstance(item, dict):
                         # Dict with name and optional prefix
                         package_ref = item.get('name', item.get('package', ''))
@@ -191,11 +207,21 @@ class DependencyResolutionStage(CompilerStage):
             context.dependencies['imports'] = resolved_packages
         
         # Process 'inherits' field (can be package reference or direct file path)
-        if 'inherits' in metadata_dict and metadata_dict['inherits']:
-            inherits_ref = metadata_dict['inherits']
+        if hasattr(context.metadata, 'inherits') and context.metadata.inherits:
+            inherits_ref = context.metadata.inherits
+
+            # Resolve aliases in inherits field (e.g., "@pkg/templates/file.prmd" -> "@scope/package@version/templates/file.prmd")
+            resolved_inherits_ref = self._resolve_alias_in_path(inherits_ref, resolved_packages)
+
+            if resolved_inherits_ref != inherits_ref:
+                inherits_ref = resolved_inherits_ref
+                # Update the metadata with the resolved reference
+                context.metadata.inherits = inherits_ref
+                if context.verbose:
+                    print(f"Resolved alias in inherits: {inherits_ref}")
             
-            # Check if it's a file path (contains .prompd or starts with . or /)
-            if '.prompd' in inherits_ref or inherits_ref.startswith(('./', '../', '/')):
+            # Check if it's a local file path (starts with . or / or doesn't start with @)
+            if inherits_ref.startswith(('./', '../', '/')) or (not inherits_ref.startswith('@') and '.prmd' in inherits_ref):
                 # Direct file path - resolve relative to source file
                 from pathlib import Path
                 source_dir = Path(context.source_file).parent if context.source_file else Path.cwd()
@@ -204,15 +230,92 @@ class DependencyResolutionStage(CompilerStage):
                 if context.verbose:
                     print(f"Resolved inheritance file: {inherits_ref} -> {parent_path.resolve()}")
             else:
-                # Package reference - resolve through package system
+                # Package reference with file path - resolve through package system
                 try:
-                    parent_path = self.resolver.resolve_package(inherits_ref)
-                    context.dependencies['inherits'] = parent_path
-                    if context.verbose:
-                        print(f"Resolved inheritance package: {inherits_ref} -> {parent_path}")
+                    # Parse package reference and file path
+                    # Format: @namespace/package@version/path/to/file.prmd
+                    import re
+                    pattern = r'^(@[\w.-]+/[\w.-]+@[\w.-]+)/(.+)$'
+                    match = re.match(pattern, inherits_ref)
+
+                    if match:
+                        package_ref = match.group(1)  # @namespace/package@version
+                        file_path_in_package = match.group(2)  # path/to/file.prmd
+
+                        if context.verbose:
+                            print(f"Parsing package inheritance: {package_ref} / {file_path_in_package}")
+
+                        # Resolve the package to its local path
+                        package_path = self.resolver.resolve_package(package_ref)
+
+                        # Construct full path to the inherited file
+                        full_file_path = package_path / file_path_in_package
+                        context.dependencies['inherits'] = str(full_file_path)
+
+                        if context.verbose:
+                            print(f"Resolved inheritance package: {inherits_ref} -> {full_file_path}")
+                    else:
+                        # Fallback: try as direct package reference
+                        parent_path = self.resolver.resolve_package(inherits_ref)
+                        context.dependencies['inherits'] = parent_path
+                        if context.verbose:
+                            print(f"Resolved inheritance package (direct): {inherits_ref} -> {parent_path}")
+
                 except Exception as e:
                     context.warnings.append(f"Failed to resolve inheritance {inherits_ref}: {e}")
-    
+
+        # Process content reference fields (system, context, user, assistant, response) for alias resolution
+        content_fields = ['system', 'assistant', 'context', 'user', 'response']
+        for field_name in content_fields:
+            if hasattr(context.metadata, field_name):
+                field_value = getattr(context.metadata, field_name)
+
+                if field_value:
+                    # Handle both single strings and lists of strings
+                    if isinstance(field_value, str):
+                        resolved_value = self._resolve_alias_in_path(field_value, resolved_packages)
+                        if resolved_value != field_value:
+                            setattr(context.metadata, field_name, resolved_value)
+                            if context.verbose:
+                                print(f"Resolved alias in {field_name}: {field_value} -> {resolved_value}")
+                    elif isinstance(field_value, list):
+                        resolved_list = []
+                        for item in field_value:
+                            if isinstance(item, str):
+                                resolved_item = self._resolve_alias_in_path(item, resolved_packages)
+                                resolved_list.append(resolved_item)
+                                if resolved_item != item and context.verbose:
+                                    print(f"Resolved alias in {field_name}: {item} -> {resolved_item}")
+                            else:
+                                resolved_list.append(item)
+                        setattr(context.metadata, field_name, resolved_list)
+
+    def _resolve_alias_in_path(self, path: str, resolved_packages: dict) -> str:
+        """
+        Resolve alias prefixes in file paths.
+
+        Examples:
+        - "@pkg/templates/file.prmd" with "@pkg" aliased to "@scope/package@version"
+          becomes "@scope/package@version/templates/file.prmd"
+        """
+        if not path.startswith('@') or '/' not in path:
+            return path
+
+        # Extract the potential alias (everything before the first '/')
+        parts = path.split('/', 1)
+        potential_alias = parts[0]  # e.g., "@pkg"
+        remaining_path = parts[1]   # e.g., "templates/file.prmd"
+
+        # Look for this alias in resolved packages
+        for package_name, package_info in resolved_packages.items():
+            if isinstance(package_info, dict) and package_info.get('prefix') == potential_alias:
+                # Found the alias! Replace it with the full package name
+                resolved_path = f"{package_name}/{remaining_path}"
+                return resolved_path
+
+        # No alias found, return original path
+        return path
+
     def get_name(self) -> str:
         return "Dependency Resolution"
 
@@ -342,7 +445,7 @@ class TemplateProcessingStage(CompilerStage):
         """Process template variables, conditionals, and package references."""
         if not context.content:
             return
-        
+
         content = context.content
         
         # Process package references with prefixes (e.g., @security/prompts/audit)
@@ -366,7 +469,7 @@ class TemplateProcessingStage(CompilerStage):
                             # Try different extensions
                             possible_files = [
                                 Path(package_path) / resource_path,
-                                Path(package_path) / f"{resource_path}.prompd",
+                                Path(package_path) / f"{resource_path}.prmd",
                                 Path(package_path) / f"{resource_path}.md",
                                 Path(package_path) / f"{resource_path}.txt",
                             ]
@@ -376,8 +479,8 @@ class TemplateProcessingStage(CompilerStage):
                                     try:
                                         content_data = file_path.read_text(encoding='utf-8')
                                         
-                                        # If it's a .prompd file, parse and extract content
-                                        if file_path.suffix == '.prompd':
+                                        # If it's a .prmd file, parse and extract content
+                                        if file_path.suffix == '.prmd':
                                             from .parser import PrompdParser
                                             parser = PrompdParser()
                                             try:
@@ -405,27 +508,27 @@ class TemplateProcessingStage(CompilerStage):
         # Process inheritance - load and merge parent content
         if 'inherits' in context.dependencies:
             parent_path = context.dependencies['inherits']
-            
+
             try:
                 from pathlib import Path
                 from .parser import PrompdParser
-                
+
                 parser = PrompdParser()
                 parent_file = None
-                
+
                 # Check if it's a direct file path
                 parent_path_obj = Path(parent_path)
-                if parent_path_obj.suffix == '.prompd' and parent_path_obj.exists():
+                if parent_path_obj.suffix == '.prmd' and parent_path_obj.exists():
                     # Direct file path
                     parent_file = parent_path_obj
                 elif parent_path_obj.is_dir():
-                    # Package directory - find main .prompd file
-                    prompd_files = list(parent_path_obj.glob('*.prompd'))
+                    # Package directory - find main .prmd file
+                    prompd_files = list(parent_path_obj.glob('*.prmd'))
                 
                     if prompd_files:
-                        # Use the first .prompd file or look for main.prompd  
+                        # Use the first .prmd file or look for main.prmd  
                         for f in prompd_files:
-                            if f.name == 'main.prompd':
+                            if f.name == 'main.prmd':
                                 parent_file = f
                                 break
                         if not parent_file:
@@ -433,9 +536,9 @@ class TemplateProcessingStage(CompilerStage):
                     
                 
                 if parent_file:
-                    # Parse parent file  
+                    # Parse parent file
                     parent_data = parser.parse_file(parent_file)
-                    
+
                     # Merge parent content with child content (parent sections first)
                     if parent_data.content:
                         if context.content:
@@ -716,11 +819,11 @@ class CompilerPipeline:
             from .package_resolver import package_resolver
             try:
                 package_path = package_resolver.resolve_package(source)
-                # Find the main .prompd file in the package
-                prompd_files = list(package_path.glob('**/*.prompd'))
+                # Find the main .prmd file in the package
+                prompd_files = list(package_path.glob('**/*.prmd'))
                 if not prompd_files:
-                    raise PrompDError(f"No .prompd files found in package: {source}")
-                # Use the first .prompd file found (or could be specified in manifest)
+                    raise PrompDError(f"No .prmd files found in package: {source}")
+                # Use the first .prmd file found (or could be specified in manifest)
                 source_path = prompd_files[0]
             except Exception as e:
                 raise PrompDError(f"Failed to resolve package {source}: {e}")
@@ -754,13 +857,14 @@ class PrompdCompiler:
         source: Union[str, Path],
         output_format: str = "markdown",
         parameters: Optional[Dict[str, Any]] = None,
-        output_file: Optional[Path] = None
+        output_file: Optional[Path] = None,
+        verbose: bool = False
     ) -> Union[str, bytes]:
         """
-        Compile a .prompd file to the specified format.
+        Compile a .prmd file to the specified format.
         
         Args:
-            source: Path to .prompd file or package reference
+            source: Path to .prmd file or package reference
             output_format: Target format (markdown, provider-json:openai, etc.)
             parameters: Parameters to substitute
             output_file: Optional output file path
@@ -774,7 +878,8 @@ class PrompdCompiler:
         context = self.pipeline.execute(
             source,
             output_format=output_format,
-            parameters=parameters or {}
+            parameters=parameters or {},
+            verbose=verbose
         )
         
         if context.errors:

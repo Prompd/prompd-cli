@@ -16,7 +16,7 @@ if __name__ == "__main__":
     shell = PrompdShell()
     
     # Make sure we have the test file
-    test_file = shell.current_dir / "test-prompt.prompd"
+    test_file = shell.current_dir / "test-prompt.prmd"
     if not test_file.exists():
         print(f"Creating test file: {test_file}")
         test_file.write_text("""---
@@ -27,14 +27,14 @@ This is a test.""")
     
     print("\nStep 1: Request file move through chat handler")
     print("-"*50)
-    shell.handle_chat_input("move test-prompt.prompd to prompts")
+    shell.handle_chat_input("move test-prompt.prmd to prompts")
     
     print("\nStep 2: Confirm the move")
     print("-"*50) 
-    shell.handle_chat_input("yes, move test-prompt.prompd")
+    shell.handle_chat_input("yes, move test-prompt.prmd")
     
     # Check if file was moved
-    moved_file = shell.current_dir / "prompts" / "test-prompt.prompd"
+    moved_file = shell.current_dir / "prompts" / "test-prompt.prmd"
     if moved_file.exists():
         print(f"\nSUCCESS: File moved to {moved_file}")
     else:

@@ -76,7 +76,7 @@ Process this input: {input}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
       
-      const issues = await parser.validateFile('test.prompd');
+      const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(0);
     });
 
@@ -92,7 +92,7 @@ Content with {input}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
       
-      const issues = await parser.validateFile('test.prompd');
+      const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
       expect(issues[0].message).toBe('name field is required');
@@ -108,7 +108,7 @@ Content`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
       
-      const issues = await parser.validateFile('test.prompd');
+      const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
       expect(issues[0].message).toBe('invalid semantic version: invalid-version');
@@ -126,7 +126,7 @@ Content with {input} and {undefined_var}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
       
-      const issues = await parser.validateFile('test.prompd');
+      const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
       expect(issues[0].message).toBe('undefined variable referenced: undefined_var');
@@ -146,7 +146,7 @@ Content with {param1} and {param2}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
       
-      const issues = await parser.validateFile('test.prompd');
+      const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
       expect(issues[0].message).toBe('invalid parameter type: invalid-type. Must be one of: string, number, boolean, array, object');
@@ -164,7 +164,7 @@ Content with {old_var}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
       
-      const issues = await parser.validateFile('test.prompd');
+      const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(0);
     });
   });

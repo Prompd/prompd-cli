@@ -6,8 +6,8 @@ export function createValidateCommand(): Command {
   const command = new Command('validate');
   
   command
-    .description('Validate a .prompd file syntax and structure')
-    .argument('<file>', 'Path to the .prompd file')
+    .description('Validate a .prmd file syntax and structure')
+    .argument('<file>', 'Path to the .prmd file')
     .option('-v, --verbose', 'Show detailed validation results')
     .option('--git', 'Include git history consistency checks')
     .option('--version-only', 'Only validate version-related aspects')

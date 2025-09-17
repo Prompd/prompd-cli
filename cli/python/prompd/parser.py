@@ -1,4 +1,4 @@
-"""Enhanced parser for structured .prompd files."""
+"""Enhanced parser for structured .prmd files."""
 
 import re
 from pathlib import Path
@@ -12,17 +12,17 @@ from prompd.exceptions import ParseError
 
 
 class PrompdParser:
-    """Parser for .prompd (Prompt Definition) files."""
+    """Parser for .prmd (Prompt Definition) files."""
     
     def __init__(self):
         self.section_pattern = re.compile(r'^# (.+)$', re.MULTILINE)
     
     def parse_file(self, file_path: Path) -> PrompdFile:
         """
-        Parse a .prompd file into structured format.
+        Parse a .prmd file into structured format.
         
         Args:
-            file_path: Path to .prompd file
+            file_path: Path to .prmd file
             
         Returns:
             Parsed PrompdFile object
@@ -55,12 +55,12 @@ class PrompdParser:
         """
         # Check for frontmatter delimiters
         if not content.startswith("---"):
-            raise ParseError("Prompd file must start with YAML frontmatter (---)")
+            raise ParseError("Prmd file must start with YAML frontmatter (---)")
         
         # Split frontmatter and content
         parts = content.split("---", 2)
         if len(parts) < 3:
-            raise ParseError("Invalid prompd format: missing closing frontmatter delimiter")
+            raise ParseError("Invalid prmd format: missing closing frontmatter delimiter")
         
         yaml_content = parts[1].strip()
         markdown_content = parts[2].strip()

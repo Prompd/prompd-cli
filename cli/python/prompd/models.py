@@ -15,6 +15,7 @@ class ParameterType(str, Enum):
     BOOLEAN = "boolean"
     ARRAY = "array"
     OBJECT = "object"
+    FILE = "file"
 
 
 class ParameterDefinition(BaseModel):

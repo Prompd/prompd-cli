@@ -187,11 +187,11 @@ class ProjectConfig:
 
 
 class PackageLock:
-    """Manages .prompd/lock.json for reproducible builds."""
+    """Manages .prmd/lock.json for reproducible builds."""
     
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        self.lock_file = project_root / '.prompd' / 'lock.json'
+        self.lock_file = project_root / '.prmd' / 'lock.json'
         self._lock_data: Dict[str, PackageLockEntry] = {}
         self._loaded = False
     
@@ -308,6 +308,10 @@ class BasePackageCache:
     
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
+        # Don't create directory on init - create only when needed
+    
+    def _ensure_cache_dir(self):
+        """Ensure cache directory exists (call before writing operations)."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
     
     def get_package_dir(self, package_ref: PackageReference) -> Path:
@@ -337,6 +341,9 @@ class BasePackageCache:
     
     def _cache_package_atomic(self, package_ref: PackageReference, package_data: bytes) -> Path:
         """Atomically cache a package with battle-tested security validation."""
+        # Ensure cache directory exists before attempting to write
+        self._ensure_cache_dir()
+        
         package_dir = self.get_package_dir(package_ref)
         temp_dir = package_dir.with_suffix('.installing')
         
@@ -895,24 +902,39 @@ class PackageResolver:
                 package=package_ref.name
             )
         
-        # Get package metadata to find download URL
-        metadata_url = urljoin(registry_url.rstrip('/') + '/', package_endpoint.lstrip('/'))
-        
+        # Get package versions to find download URL
+        if package_ref.namespace:
+            # Scoped package
+            versions_endpoint = registry.endpoints.get('scopedPackageVersions', '@{scope}/{package}/versions').format(
+                scope=package_ref.namespace,
+                package=package_ref.name
+            )
+        else:
+            # Regular package
+            versions_endpoint = registry.endpoints.get('packageVersions', '{package}/versions').format(
+                package=package_ref.name
+            )
+
+        versions_url = urljoin(registry_url.rstrip('/') + '/', versions_endpoint.lstrip('/'))
+
         with httpx.Client() as client:
-            # Get package metadata
-            response = client.get(metadata_url)
+            # Get package versions
+            response = client.get(versions_url)
             response.raise_for_status()
-            metadata = response.json()
-            
-            # Get version-specific info
-            versions = metadata.get('versions', {})
+            versions_data = response.json()
+
+            # Convert versions array to dict format expected by the rest of the code
+            versions = {}
+            for version_info in versions_data.get('versions', []):
+                version_num = version_info['version']
+                versions[version_num] = version_info
+
             if package_ref.version == 'latest':
-                # Use dist-tags to find latest version
-                dist_tags = metadata.get('dist-tags', {})
-                version = dist_tags.get('latest')
-                if not version and versions:
-                    # Fallback: use highest version
+                # Use highest version as latest
+                if versions:
                     version = max(versions.keys())
+                else:
+                    raise PrompDError(f"No versions found for {package_ref.name}")
             else:
                 version = package_ref.version
             
@@ -925,12 +947,21 @@ class PackageResolver:
             if 'dist' in version_info and 'tarball' in version_info['dist']:
                 download_url = version_info['dist']['tarball']
             else:
-                # Construct download URL from template
-                download_endpoint = registry.endpoints.get('download', '{package}/-/{package}-{version}.pdpkg')
-                download_url = urljoin(registry_url.rstrip('/') + '/', download_endpoint.format(
-                    package=package_ref.name,
-                    version=version
-                ).lstrip('/'))
+                # Construct download URL from template using proper endpoint
+                if package_ref.namespace:
+                    # Scoped package
+                    download_endpoint = registry.endpoints.get('scopedDownload', '@{scope}/{package}/download/{version}').format(
+                        scope=package_ref.namespace,
+                        package=package_ref.name,
+                        version=version
+                    )
+                else:
+                    # Regular package
+                    download_endpoint = registry.endpoints.get('download', '{package}/download/{version}').format(
+                        package=package_ref.name,
+                        version=version
+                    )
+                download_url = urljoin(registry_url.rstrip('/') + '/', download_endpoint.lstrip('/'))
             
             # Download the package with progress bar
             with client.stream('GET', download_url) as download_response:
@@ -1010,21 +1041,19 @@ class PackageResolver:
         
         if clear_local and self.project_cache.cache_dir.exists():
             shutil.rmtree(self.project_cache.cache_dir)
-            self.project_cache.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.project_cache._ensure_cache_dir()
         
         if clear_global and self.global_cache.cache_dir.exists():
             shutil.rmtree(self.global_cache.cache_dir)
-            self.global_cache.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.global_cache._ensure_cache_dir()
     
     def get_project_config(self) -> ProjectConfig:
         """Load project configuration from .prompd/config.yaml."""
         config_file = self.project_root / '.prompd' / 'config.yaml'
         
         if not config_file.exists():
-            # Create default config
-            config = ProjectConfig()
-            self.save_project_config(config)
-            return config
+            # Return default config without saving
+            return ProjectConfig()
         
         try:
             import yaml
@@ -1040,6 +1069,18 @@ class PackageResolver:
         except Exception as e:
             print(f"Warning: Failed to load project config: {e}")
             return ProjectConfig()
+    
+    def get_or_create_project_config(self) -> ProjectConfig:
+        """Load project configuration, creating it if it doesn't exist."""
+        config_file = self.project_root / '.prompd' / 'config.yaml'
+        
+        if not config_file.exists():
+            # Create default config only when explicitly requested
+            config = ProjectConfig()
+            self.save_project_config(config)
+            return config
+        
+        return self.get_project_config()
     
     def save_project_config(self, config: ProjectConfig):
         """Save project configuration to .prompd/config.yaml."""
@@ -1077,7 +1118,7 @@ class PackageResolver:
         
         # Update project config (only for local installations)
         if not global_install:
-            config = self.get_project_config()
+            config = self.get_or_create_project_config()
             
             dep_name = package_ref.to_string().split('@')[0]  # Remove version for config
             if dev:
@@ -1098,7 +1139,7 @@ class PackageResolver:
         """
         # Update project config (only for local installations)
         if not global_uninstall:
-            config = self.get_project_config()
+            config = self.get_or_create_project_config()
             
             if dev and package_name in config.dev_dependencies:
                 version = config.dev_dependencies.pop(package_name)

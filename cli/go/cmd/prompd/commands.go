@@ -337,18 +337,18 @@ Usage:
   prompd git <subcommand> [options]
 
 Subcommands:
-  add <files...>          Add .prompd files to git staging
-  commit -m <message>     Commit staged .prompd files
-  status                  Show git status for .prompd files
+  add <files...>          Add .prmd files to git staging
+  commit -m <message>     Commit staged .prmd files
+  status                  Show git status for .prmd files
   checkout <file> <version> Checkout specific version of file
-  remove <files...>       Remove .prompd files from git tracking
+  remove <files...>       Remove .prmd files from git tracking
 
 Examples:
-  prompd git add prompts/*.prompd
+  prompd git add prompts/*.prmd
   prompd git commit -m "Update prompts"
   prompd git status
-  prompd git checkout example.prompd v1.2.3
-  prompd git remove prompts/old.prompd --cached`)
+  prompd git checkout example.prmd v1.2.3
+  prompd git remove prompts/old.prmd --cached`)
 }
 
 func handleGitAdd() {
@@ -359,8 +359,8 @@ func handleGitAdd() {
 	
 	files := os.Args[3:]
 	for _, file := range files {
-		if !strings.HasSuffix(file, ".prompd") {
-			fmt.Printf("Warning: Skipping non-.prompd file: %s\n", file)
+		if !strings.HasSuffix(file, ".prmd") {
+			fmt.Printf("Warning: Skipping non-.prmd file: %s\n", file)
 			continue
 		}
 		
@@ -407,12 +407,12 @@ func handleGitStatus() {
 		os.Exit(1)
 	}
 	
-	fmt.Println("Git status for .prompd files:")
+	fmt.Println("Git status for .prmd files:")
 	lines := strings.Split(string(output), "\n")
 	found := false
 	
 	for _, line := range lines {
-		if strings.Contains(line, ".prompd") && strings.TrimSpace(line) != "" {
+		if strings.Contains(line, ".prmd") && strings.TrimSpace(line) != "" {
 			found = true
 			status := line[:2]
 			file := strings.TrimSpace(line[2:])
@@ -431,7 +431,7 @@ func handleGitStatus() {
 	}
 	
 	if !found {
-		fmt.Println("  No .prompd file changes")
+		fmt.Println("  No .prmd file changes")
 	}
 }
 
@@ -444,15 +444,15 @@ func handleGitCheckout() {
 	file := os.Args[3]
 	version := os.Args[4]
 	
-	if !strings.HasSuffix(file, ".prompd") {
-		fmt.Printf("Error: %s is not a .prompd file\n", file)
+	if !strings.HasSuffix(file, ".prmd") {
+		fmt.Printf("Error: %s is not a .prmd file\n", file)
 		os.Exit(1)
 	}
 	
 	// Try semantic version tag first
 	versionRef := version
 	if isValidSemver(version) {
-		tagName := fmt.Sprintf("%s-v%s", strings.TrimSuffix(filepath.Base(file), ".prompd"), version)
+		tagName := fmt.Sprintf("%s-v%s", strings.TrimSuffix(filepath.Base(file), ".prmd"), version)
 		// Check if tag exists
 		cmd := exec.Command("git", "tag", "-l", tagName)
 		if output, err := cmd.Output(); err == nil && strings.TrimSpace(string(output)) != "" {
@@ -504,8 +504,8 @@ func handleGitRemove() {
 	}
 	
 	for _, file := range files {
-		if !strings.HasSuffix(file, ".prompd") {
-			fmt.Printf("Warning: Skipping non-.prompd file: %s\n", file)
+		if !strings.HasSuffix(file, ".prmd") {
+			fmt.Printf("Warning: Skipping non-.prmd file: %s\n", file)
 			continue
 		}
 		
@@ -544,10 +544,10 @@ Subcommands:
   suggest <file>          Suggest appropriate version bump
 
 Examples:
-  prompd version bump example.prompd minor
-  prompd version history example.prompd
-  prompd version diff example.prompd v1.0.0 v1.1.0
-  prompd version suggest example.prompd`)
+  prompd version bump example.prmd minor
+  prompd version history example.prmd
+  prompd version diff example.prmd v1.0.0 v1.1.0
+  prompd version suggest example.prmd`)
 }
 
 func handleVersionBump() {
@@ -593,7 +593,7 @@ func handleVersionBump() {
 		// Don't exit - the file was updated successfully
 		fmt.Println("File updated but git operations failed")
 	} else {
-		fmt.Printf("✓ Created commit and tag: %s-v%s\n", strings.TrimSuffix(filepath.Base(file), ".prompd"), newVersion)
+		fmt.Printf("✓ Created commit and tag: %s-v%s\n", strings.TrimSuffix(filepath.Base(file), ".prmd"), newVersion)
 	}
 	
 	fmt.Printf("✓ Bumped %s from %s to %s\n", file, currentVersion, newVersion)
@@ -775,7 +775,7 @@ func bumpVersion(version, bumpType string) string {
 	return fmt.Sprintf("%d.%d.%d", major, minor, patch)
 }
 
-// updateVersionInFile updates the version field in a .prompd file
+// updateVersionInFile updates the version field in a .prmd file
 func updateVersionInFile(filename, newVersion string) error {
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -836,7 +836,7 @@ func gitCommitAndTag(filename, version, message string) error {
 	}
 	
 	// Create tag
-	tagName := fmt.Sprintf("%s-v%s", strings.TrimSuffix(filepath.Base(filename), ".prompd"), version)
+	tagName := fmt.Sprintf("%s-v%s", strings.TrimSuffix(filepath.Base(filename), ".prmd"), version)
 	cmd = exec.Command("git", "tag", tagName)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git tag failed: %w", err)
@@ -950,7 +950,7 @@ Usage:
   prompd compile <file> [options]
 
 Arguments:
-  <file>                    Path to .prompd file or package reference
+  <file>                    Path to .prmd file or package reference
 
 Options:
   -p key=value             Parameter in format key=value
@@ -960,10 +960,10 @@ Options:
   -v, --verbose            Verbose output
 
 Examples:
-  prompd compile example.prompd
-  prompd compile example.prompd -p name="Alice" -p style="formal"
-  prompd compile example.prompd --to-provider-json openai
-  prompd compile example.prompd -o output.md -v`)
+  prompd compile example.prmd
+  prompd compile example.prmd -p name="Alice" -p style="formal"
+  prompd compile example.prmd --to-provider-json openai
+  prompd compile example.prmd -o output.md -v`)
 }
 
 // handleRun - Renamed from handleExecute  

@@ -125,10 +125,10 @@ class SimplePrompdREPL:
         table.add_column("Status", style="yellow", width=15)
         
         commands = [
-            ("compile", "Compile a .prompd file with parameters", "Ready"),
+            ("compile", "Compile a .prmd file with parameters", "Ready"),
             ("show", "Show prompt structure and parameters", "Ready"),
             ("validate", "Validate a prompt or package", "Ready"),
-            ("list", "List local .prompd files", "Ready"),
+            ("list", "List local .prmd files", "Ready"),
             ("status", "Show current status", "Ready"),
             ("clear", "Clear the screen", "Ready"),
             ("help", "Show this help", "Ready"),
@@ -155,16 +155,16 @@ class SimplePrompdREPL:
         table.add_row("Interactive Mode", "Simple (Rich-only)")
         
         # Count local files
-        prompd_files = list(self.current_dir.glob("*.prompd"))
+        prompd_files = list(self.current_dir.glob("*.prmd"))
         pdpkg_files = list(self.current_dir.glob("*.pdpkg"))
         
-        table.add_row("Local .prompd files", str(len(prompd_files)))
+        table.add_row("Local .prmd files", str(len(prompd_files)))
         table.add_row("Local .pdpkg files", str(len(pdpkg_files)))
         
         # Show recent files
         if prompd_files:
             recent = sorted(prompd_files, key=lambda p: p.stat().st_mtime, reverse=True)[:3]
-            table.add_row("Recent .prompd files", ", ".join(f.name for f in recent))
+            table.add_row("Recent .prmd files", ", ".join(f.name for f in recent))
         
         self.console.print(table)
     
@@ -175,10 +175,10 @@ class SimplePrompdREPL:
             if args:
                 prompt_file = args[0]
             else:
-                # Show available .prompd files
-                prompd_files = list(self.current_dir.glob("*.prompd"))
+                # Show available .prmd files
+                prompd_files = list(self.current_dir.glob("*.prmd"))
                 if not prompd_files:
-                    self.console.print("[yellow]No .prompd files found in current directory[/yellow]")
+                    self.console.print("[yellow]No .prmd files found in current directory[/yellow]")
                     return
                 
                 self.console.print("[cyan]Available prompt files:[/cyan]")
@@ -423,7 +423,7 @@ class SimplePrompdREPL:
                     validate_package(str(path))
                     progress.remove_task(task)
                     self.console.print(f"[green]SUCCESS: Package {path.name} is valid[/green]")
-                elif path.suffix == '.prompd':
+                elif path.suffix == '.prmd':
                     parser = PrompdParser()
                     metadata = parser.parse_file(str(path))
                     progress.remove_task(task)
@@ -443,18 +443,18 @@ class SimplePrompdREPL:
                 else:
                     progress.remove_task(task)
                     self.console.print("[red]Unsupported file type[/red]")
-                    self.console.print("[dim]Supported: .prompd (prompts) and .pdpkg (packages)[/dim]")
+                    self.console.print("[dim]Supported: .prmd (prompts) and .pdpkg (packages)[/dim]")
         
         except Exception as e:
             self.console.print(f"[red]Validation failed: {str(e)}[/red]")
     
     def interactive_list(self):
         """List local files"""
-        prompd_files = list(self.current_dir.glob("*.prompd"))
+        prompd_files = list(self.current_dir.glob("*.prmd"))
         pdpkg_files = list(self.current_dir.glob("*.pdpkg"))
         
         if not prompd_files and not pdpkg_files:
-            self.console.print("[yellow]No .prompd or .pdpkg files found in current directory[/yellow]")
+            self.console.print("[yellow]No .prmd or .pdpkg files found in current directory[/yellow]")
             self.console.print(f"[dim]Current directory: {self.current_dir}[/dim]")
             return
         

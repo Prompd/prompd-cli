@@ -88,14 +88,14 @@ func getConfigPaths() []string {
 	
 	// 1. Current directory
 	if cwd, err := os.Getwd(); err == nil {
-		paths = append(paths, filepath.Join(cwd, ".prompd", "config.yaml"))
-		paths = append(paths, filepath.Join(cwd, ".prompd", "config.json"))
+		paths = append(paths, filepath.Join(cwd, ".prmd", "config.yaml"))
+		paths = append(paths, filepath.Join(cwd, ".prmd", "config.json"))
 	}
 	
 	// 2. User home directory
 	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".prompd", "config.yaml"))
-		paths = append(paths, filepath.Join(home, ".prompd", "config.json"))
+		paths = append(paths, filepath.Join(home, ".prmd", "config.yaml"))
+		paths = append(paths, filepath.Join(home, ".prmd", "config.json"))
 	}
 	
 	// 3. System config directory (Windows)
@@ -249,7 +249,7 @@ func SaveConfig(config *Config) error {
 		return fmt.Errorf("error getting home directory: %w", err)
 	}
 	
-	configDir := filepath.Join(homeDir, ".prompd")
+	configDir := filepath.Join(homeDir, ".prmd")
 	configPath := filepath.Join(configDir, "config.yaml")
 	
 	// Ensure config directory exists

@@ -62,7 +62,7 @@ Content here`;
       mockFs.writeFile.mockResolvedValue(undefined);
       mockExecSync.mockReturnValue(Buffer.from(''));
 
-      const newVersion = await versionManager.bumpVersion('test.prompd', 'patch');
+      const newVersion = await versionManager.bumpVersion('test.prmd', 'patch');
 
       expect(newVersion).toBe('1.2.4');
       expect(mockFs.writeFile).toHaveBeenCalled();
@@ -91,7 +91,7 @@ Content`;
       mockFs.writeFile.mockResolvedValue(undefined);
       mockExecSync.mockReturnValue(Buffer.from(''));
 
-      const newVersion = await versionManager.bumpVersion('test.prompd', 'minor');
+      const newVersion = await versionManager.bumpVersion('test.prmd', 'minor');
 
       expect(newVersion).toBe('1.3.0');
     });
@@ -118,7 +118,7 @@ Content`;
       mockFs.writeFile.mockResolvedValue(undefined);
       mockExecSync.mockReturnValue(Buffer.from(''));
 
-      const newVersion = await versionManager.bumpVersion('test.prompd', 'major');
+      const newVersion = await versionManager.bumpVersion('test.prmd', 'major');
 
       expect(newVersion).toBe('2.0.0');
     });
@@ -134,7 +134,7 @@ Content`;
 
       mockParserInstance.parseFile.mockResolvedValue(mockPrompdFile);
 
-      await expect(versionManager.bumpVersion('test.prompd', 'patch'))
+      await expect(versionManager.bumpVersion('test.prmd', 'patch'))
         .rejects.toThrow('No version field found in file');
     });
   });
@@ -147,7 +147,7 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
 
       mockExecSync.mockReturnValue(Buffer.from(mockGitOutput));
 
-      const history = await versionManager.getVersionHistory('test.prompd', 10);
+      const history = await versionManager.getVersionHistory('test.prmd', 10);
 
       expect(history).toHaveLength(3);
       expect(history[0].tag).toBe('v1.3.0-test-prompt');
@@ -159,7 +159,7 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
     it('should return empty array when no tags found', async () => {
       mockExecSync.mockReturnValue(Buffer.from(''));
 
-      const history = await versionManager.getVersionHistory('test.prompd', 10);
+      const history = await versionManager.getVersionHistory('test.prmd', 10);
 
       expect(history).toHaveLength(0);
     });
@@ -174,11 +174,11 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
 
       mockExecSync.mockReturnValue(Buffer.from(mockDiffOutput));
 
-      const diff = await versionManager.diffVersions('test.prompd', 'v1.0.0', 'v1.1.0');
+      const diff = await versionManager.diffVersions('test.prmd', 'v1.0.0', 'v1.1.0');
 
       expect(diff).toBe(mockDiffOutput);
       expect(mockExecSync).toHaveBeenCalledWith(
-        'git diff v1.0.0..v1.1.0 -- "test.prompd"',
+        'git diff v1.0.0..v1.1.0 -- "test.prmd"',
         { encoding: 'utf-8', stdio: 'pipe' }
       );
     });
@@ -197,7 +197,7 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
 
       mockParserInstance.parseFile.mockResolvedValue(mockPrompdFile);
 
-      const result = await versionManager.validateVersion('test.prompd', false);
+      const result = await versionManager.validateVersion('test.prmd', false);
 
       expect(result.valid).toBe(true);
       expect(result.issues).toHaveLength(0);
@@ -215,7 +215,7 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
 
       mockParserInstance.parseFile.mockResolvedValue(mockPrompdFile);
 
-      const result = await versionManager.validateVersion('test.prompd', false);
+      const result = await versionManager.validateVersion('test.prmd', false);
 
       expect(result.valid).toBe(false);
       expect(result.issues).toContain('Invalid semantic version format: invalid-version');

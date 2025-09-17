@@ -85,8 +85,8 @@ func parsePrompdFile(filename string) (*PrompdFile, error) {
 }
 
 func validateFile(filename string) error {
-	if !strings.HasSuffix(filename, ".prompd") {
-		return fmt.Errorf("file must have .prompd extension")
+	if !strings.HasSuffix(filename, ".prmd") {
+		return fmt.Errorf("file must have .prmd extension")
 	}
 
 	prompd, err := parsePrompdFile(filename)
@@ -122,6 +122,7 @@ func validateFile(filename string) error {
 		"boolean": true,
 		"array":   true,
 		"object":  true,
+		"file":    true,
 	}
 	
 	for _, param := range allParams {
@@ -131,7 +132,7 @@ func validateFile(filename string) error {
 		
 		// Validate parameter type
 		if param.Type != "" && !validTypes[param.Type] {
-			return fmt.Errorf("invalid parameter type '%s' for parameter '%s'. Must be one of: string, integer, float, boolean, array, object", param.Type, param.Name)
+			return fmt.Errorf("invalid parameter type '%s' for parameter '%s'. Must be one of: string, integer, float, boolean, array, object, file", param.Type, param.Name)
 		}
 		
 		// Validate pattern if present (for string types)
@@ -231,7 +232,7 @@ func listFiles(path string) error {
 			return err
 		}
 		
-		if !d.IsDir() && strings.HasSuffix(path, ".prompd") {
+		if !d.IsDir() && strings.HasSuffix(path, ".prmd") {
 			// Try to parse the file to get metadata
 			prompd, parseErr := parsePrompdFile(path)
 			if parseErr != nil {
@@ -382,7 +383,7 @@ func isValidSemver(version string) bool {
 	return re.MatchString(version)
 }
 
-// renderFile renders a .prompd file with parameters and outputs the compiled prompt
+// renderFile renders a .prmd file with parameters and outputs the compiled prompt
 func renderFile(filename string, args []string) error {
 	prompd, err := parsePrompdFile(filename)
 	if err != nil {

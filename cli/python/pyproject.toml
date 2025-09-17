@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "prompd"
-version = "0.3.1"
+version = "0.4.0"
 description = "Structured prompt management CLI with universal LLM provider support, version control, and git integration"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -83,7 +83,7 @@ include = ["prompd*"]
 
 [tool.setuptools.package-data]
 prompd = [
-  "assets/prompts/**/*.prompd"
+  "assets/prompts/**/*.prmd"
 ]
 
 [tool.black]

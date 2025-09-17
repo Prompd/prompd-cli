@@ -17,7 +17,7 @@ if __name__ == "__main__":
     
     test_commands = [
         "create a new prompt for cooking recipes",
-        "yes, create cooking-recipes.prompd"
+        "yes, create cooking-recipes.prmd"
     ]
     
     for cmd in test_commands:
@@ -26,7 +26,7 @@ if __name__ == "__main__":
         print(result)
     
     # Check if file was created
-    created_file = shell.current_dir / "cooking-recipes.prompd"
+    created_file = shell.current_dir / "cooking-recipes.prmd"
     if created_file.exists():
         print(f"\nSUCCESS: File created successfully!")
         

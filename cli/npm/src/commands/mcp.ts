@@ -14,9 +14,9 @@ export function createMCPCommand(): Command {
   // Start MCP server
   const startCommand = new Command('start');
   startCommand
-    .description('Start MCP server to expose .prompd files as tools')
-    .option('-d, --directory <dir>', 'Directory containing .prompd files', '.')
-    .option('-t, --tool <name:file>', 'Register specific tool (format: name:file.prompd)', [])
+    .description('Start MCP server to expose .prmd files as tools')
+    .option('-d, --directory <dir>', 'Directory containing .prmd files', '.')
+    .option('-t, --tool <name:file>', 'Register specific tool (format: name:file.prmd)', [])
     .option('--execute', 'Execute prompts with LLM (default: return templates)')
     .option('--provider <provider>', 'Default LLM provider when executing')
     .option('--model <model>', 'Default model when executing')
@@ -58,7 +58,7 @@ export function createMCPCommand(): Command {
           for (const toolSpec of options.tool) {
             const [name, file] = toolSpec.split(':');
             if (!name || !file) {
-              console.error(chalk.red(`Invalid tool specification: ${toolSpec}. Use format 'name:file.prompd'`));
+              console.error(chalk.red(`Invalid tool specification: ${toolSpec}. Use format 'name:file.prmd'`));
               continue;
             }
             console.log(chalk.blue(`Registering tool: ${name} -> ${file}`));
@@ -112,11 +112,11 @@ export function createMCPCommand(): Command {
   // Add tool registration
   const addCommand = new Command('add');
   addCommand
-    .description('Add a .prompd file or workflow to MCP server configuration')
+    .description('Add a .prmd file or workflow to MCP server configuration')
     .argument('<type>', 'Type: "prompt" or "workflow"')
     .argument('<name>', 'Tool name for MCP')  
-    .argument('[file]', 'Path to .prompd or .prompdflow file (optional for workflows)')
-    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prompd', 'mcp-config.json'))
+    .argument('[file]', 'Path to .prmd or .prmdflow file (optional for workflows)')
+    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prmd', 'mcp-config.json'))
     .action(async (type: string, name: string, file?: string, options?: any) => {
       if (type !== 'prompt' && type !== 'workflow') {
         console.error(chalk.red('Error: type must be "prompt" or "workflow"'));
@@ -132,9 +132,9 @@ export function createMCPCommand(): Command {
         if (type === 'workflow' && !file) {
           // Look for a workflow with this name in common locations
           const searchPaths = [
-            `./workflows/${sanitizedName}.prompdflow`,
-            `./${sanitizedName}.prompdflow`,
-            `./flows/${sanitizedName}.prompdflow`
+            `./workflows/${sanitizedName}.prmdflow`,
+            `./${sanitizedName}.prmdflow`,
+            `./flows/${sanitizedName}.prmdflow`
           ];
           
           for (const searchPath of searchPaths) {
@@ -158,17 +158,17 @@ export function createMCPCommand(): Command {
         }
 
         // Validate file type matches
-        if (type === 'prompt' && !resolvedFile.endsWith('.prompd')) {
-          console.error(chalk.red('Prompt files must have .prompd extension'));
+        if (type === 'prompt' && !resolvedFile.endsWith('.prmd')) {
+          console.error(chalk.red('Prompt files must have .prmd extension'));
           process.exit(1);
         }
-        if (type === 'workflow' && !resolvedFile.endsWith('.prompdflow')) {
-          console.error(chalk.red('Workflow files must have .prompdflow extension'));
+        if (type === 'workflow' && !resolvedFile.endsWith('.prmdflow')) {
+          console.error(chalk.red('Workflow files must have .prmdflow extension'));
           process.exit(1);
         }
 
         // Load or create config
-        const configPath = options?.configFile || path.join(os.homedir(), '.prompd', 'mcp-config.json');
+        const configPath = options?.configFile || path.join(os.homedir(), '.prmd', 'mcp-config.json');
         await fs.ensureDir(path.dirname(configPath));
         
         let mcpConfig: any = {};
@@ -204,7 +204,7 @@ export function createMCPCommand(): Command {
   removeCommand
     .description('Remove a tool from MCP server configuration')
     .argument('<name>', 'Tool name to remove')
-    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prompd', 'mcp-config.json'))
+    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prmd', 'mcp-config.json'))
     .action(async (name: string, options) => {
       try {
         const configPath = options.configFile;
@@ -236,7 +236,7 @@ export function createMCPCommand(): Command {
   const listCommand = new Command('list');
   listCommand
     .description('List configured MCP tools')
-    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prompd', 'mcp-config.json'))
+    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prmd', 'mcp-config.json'))
     .action(async (options) => {
       try {
         const configPath = options.configFile;
@@ -278,7 +278,7 @@ export function createMCPCommand(): Command {
   const configCommand = new Command('config');
   configCommand
     .description('Generate Claude Desktop MCP configuration')
-    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prompd', 'mcp-config.json'))
+    .option('--config-file <file>', 'MCP configuration file', path.join(os.homedir(), '.prmd', 'mcp-config.json'))
     .option('--output <file>', 'Output file for Claude Desktop config')
     .option('--server-name <name>', 'MCP server name', 'prompd')
     .action(async (options) => {
@@ -313,7 +313,7 @@ export function createMCPCommand(): Command {
         console.log(chalk.yellow('To use with Claude Desktop:'));
         console.log(chalk.gray('1. Add this configuration to your Claude Desktop settings'));
         console.log(chalk.gray('2. Restart Claude Desktop'));
-        console.log(chalk.gray('3. Your .prompd files will be available as MCP tools'));
+        console.log(chalk.gray('3. Your .prmd files will be available as MCP tools'));
 
       } catch (error) {
         console.error(chalk.red('Error generating config:'), error instanceof Error ? error.message : error);

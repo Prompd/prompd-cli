@@ -20,9 +20,9 @@ if __name__ == "__main__":
         "list",                                    # Basic list command
         "cd prompts",                             # Change directory
         "list",                                   # List in new directory
-        "cat test-prompt.prompd",                # Display file contents  
+        "cat test-prompt.prmd",                # Display file contents  
         "cd ..",                                  # Go back
-        "show cooking-recipes.prompd",           # Show command
+        "show cooking-recipes.prmd",           # Show command
         "compile cooking-recipes with context='Italian cuisine'",  # Compile with params
         "help"                                   # Help command
     ]

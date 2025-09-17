@@ -1,0 +1,165 @@
+=== VALIDATION RESULTS ===
+Testing: C:\git\github\Logikbug\prompd-base\production\public/examples/api-development.prmd
+OK C:\git\github\Logikbug\prompd-base\production\public\examples\api-development.prmd is valid
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/examples/base-prompt.prmd
+OK C:\git\github\Logikbug\prompd-base\production\public\examples\base-prompt.prmd is valid
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/examples/basic-inheritance.prmd
+OK C:\git\github\Logikbug\prompd-base\production\public\examples\basic-inheritance.prmd is valid
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/examples/package-inheritance.prmd
+ERRORS (1):
+  - Undefined variable 'this' referenced in content
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/api-patterns/api-patterns.prmd
+WARNINGS (1):
+  - Name '@prompd.io/api-patterns' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/base-patterns/base-patterns.prmd
+WARNINGS (1):
+  - Name '@prompd.io/base-patterns' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/code-patterns/code-patterns.prmd
+Downloading code-patterns@1.0.0 6.6/6.6 kB 100% ? 0:00:00
+WARNINGS (1):
+  - Name '@prompd.io/code-patterns' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/data-patterns/data-patterns.prmd
+Downloading data-patterns@1.0.0 4.4/4.4 kB 100% ? 0:00:00
+ERRORS (1):
+  - Undefined variable 'else' referenced in content
+WARNINGS (1):
+  - Name '@prompd.io/data-patterns' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/document-patterns/document-patterns.prmd
+Downloading document-patterns@1.0.0 7.8/7.8 kB 100% ? 0:00:00
+WARNINGS (1):
+  - Name '@prompd.io/document-patterns' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/excel-analytics/excel-analytics.prmd
+Downloading excel-analytics@1.0.0 4.7/4.7 kB 100% ? 0:00:00
+WARNINGS (1):
+  - Name '@prompd.io/excel-analytics' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/financial-modeling/financial-modeling.prmd
+Downloading financial-modeling@1.0.0 6.0/6.0 kB 100% ? 0:00:00
+WARNINGS (1):
+  - Name '@prompd.io/financial-modeling' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/patterns/security-analysis/security-analysis.prmd
+Downloading security-analysis@1.0.0 7.0/7.0 kB 100% ? 0:00:00
+WARNINGS (1):
+  - Name '@prompd.io/security-analysis' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/api-integration/api-migration-builder.prmd
+ERRORS (4):
+  - Undefined variable 'userId' referenced in content
+  - Undefined variable 'e' referenced in content
+  - Undefined variable 'ruleName' referenced in content
+  - Undefined variable 'id' referenced in content
+WARNINGS (1):
+  - Name 'API Migration & Legacy System Integration' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/api-integration/graphql-schema-builder.prmd
+ERRORS (2):
+  - Undefined variable 'id' referenced in content
+  - Undefined variable 'else' referenced in content
+WARNINGS (1):
+  - Name 'GraphQL Schema & Resolver Builder' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/api-integration/rest-endpoint-builder.prmd
+ERRORS (2):
+  - Undefined variable 'else' referenced in content
+  - Undefined variable 'this' referenced in content
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/data-science/eda-analysis-builder.prmd
+ERRORS (19):
+  - Undefined variable 'n_components_95' referenced in content
+  - Undefined variable 'rec' referenced in content
+  - Undefined variable 'full_duplicates' referenced in content
+  - Undefined variable 'partial_duplicates' referenced in content
+  - Undefined variable 'high_corr_pairs' referenced in content
+  - Undefined variable 'unique_count' referenced in content
+  - Undefined variable 'col' referenced in content
+  - Undefined variable 'insight' referenced in content
+  - Undefined variable 'dtype' referenced in content
+  - Undefined variable 'else' referenced in content
+  - Undefined variable 'iso_outliers' referenced in content
+  - Undefined variable 'count' referenced in content
+  - Undefined variable 'this' referenced in content
+  - Undefined variable 'feature' referenced in content
+  - Undefined variable 'zscore_outliers' referenced in content
+  - Undefined variable 'iqr_outliers' referenced in content
+  - Undefined variable 'i' referenced in content
+  - Undefined variable 'test_name' referenced in content
+  - Undefined variable 'optimal_k_silhouette' referenced in content
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/data-science/ml-pipeline-builder.prmd
+ERRORS (11):
+  - Undefined variable 'timestamp' referenced in content
+  - Undefined variable 'best_name' referenced in content
+  - Undefined variable 'run_id' referenced in content
+  - Undefined variable 'output_path' referenced in content
+  - Undefined variable 'model_path' referenced in content
+  - Undefined variable 'preprocessor_path' referenced in content
+  - Undefined variable 'missing_cols' referenced in content
+  - Undefined variable 'else' referenced in content
+  - Undefined variable 'metric' referenced in content
+  - Undefined variable 'cv_scores' referenced in content
+  - Undefined variable 'name' referenced in content
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/database/schema-analysis.prmd
+ERRORS (2):
+  - Undefined variable 'current_date' referenced in content
+  - Undefined variable 'this' referenced in content
+WARNINGS (1):
+  - Name 'Database Schema Analysis & Optimization' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/database/schema-migration-builder.prmd
+ERRORS (3):
+  - Undefined variable 'now' referenced in content
+  - Undefined variable 'else' referenced in content
+  - Undefined variable 'skip' referenced in content
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/devops/cicd-pipeline-builder.prmd
+ERRORS (13):
+  - Undefined variable 'BUILD_NUMBER' referenced in content
+  - Undefined variable 'else' referenced in content
+  - Undefined variable 'APP_NAME' referenced in content
+  - Undefined variable 'DOCKER_REGISTRY' referenced in content
+  - Undefined variable 'NODE_VERSION' referenced in content
+  - Undefined variable 'ENV_NAME' referenced in content
+  - Undefined variable 'GIT_COMMIT_SHORT' referenced in content
+  - Undefined variable 'PYTHON_VERSION' referenced in content
+  - Undefined variable 'WEBHOOK_URL' referenced in content
+  - Undefined variable 'GRAFANA_PASSWORD' referenced in content
+  - Undefined variable 'DB_PASSWORD' referenced in content
+  - Undefined variable 'this' referenced in content
+  - Undefined variable 'DATABASE_URL' referenced in content
+WARNINGS (1):
+  - Name 'CI/CD Pipeline Builder' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/finance/financial-model-builder.prmd
+ERRORS (2):
+  - Undefined variable 'i' referenced in content
+  - Undefined variable 'else' referenced in content
+WARNINGS (1):
+  - Name 'Financial Model & Forecasting Builder' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/marketing/campaign-analysis-builder.prmd
+ERRORS (4):
+  - Undefined variable 'channel' referenced in content
+  - Undefined variable 'else' referenced in content
+  - Undefined variable 'i' referenced in content
+  - Undefined variable 'm' referenced in content
+WARNINGS (1):
+  - Name 'Marketing Campaign Analysis & Optimization' contains potentially problematic characters
+---
+Testing: C:\git\github\Logikbug\prompd-base\production\public/real-world/security/owasp-security-audit.prmd
+ERRORS (2):
+  - Undefined variable 'this' referenced in content
+  - Undefined variable 'else' referenced in content
+WARNINGS (1):
+  - Name 'OWASP Security Audit & Penetration Testing' contains potentially problematic characters
+---

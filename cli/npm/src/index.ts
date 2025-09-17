@@ -58,12 +58,12 @@ program
 
 // Git operations (simplified versions)
 const gitCommand = new Command('git');
-gitCommand.description('Git operations for .prompd files');
+gitCommand.description('Git operations for .prmd files');
 
 gitCommand
   .command('add')
-  .description('Add .prompd files to git staging area')
-  .argument('<files...>', '.prompd files to add')
+  .description('Add .prmd files to git staging area')
+  .argument('<files...>', '.prmd files to add')
   .option('-v, --verbose', 'Show git output')
   .action(async (files: string[], options) => {
     const { spawn } = await import('child_process');
@@ -72,8 +72,8 @@ gitCommand
     
     try {
       for (const file of files) {
-        if (!file.endsWith('.prompd')) {
-          console.log(chalk.yellow(`Skipping non-.prompd file: ${file}`));
+        if (!file.endsWith('.prmd')) {
+          console.log(chalk.yellow(`Skipping non-.prmd file: ${file}`));
           continue;
         }
         
@@ -106,7 +106,7 @@ gitCommand
 
 gitCommand
   .command('status')
-  .description('Show git status for .prompd files')
+  .description('Show git status for .prmd files')
   .option('-p, --path <path>', 'Check status for specific path')
   .action(async (options) => {
     const { execSync } = await import('child_process');
@@ -138,16 +138,16 @@ gitCommand
       });
       
       if (!output.trim()) {
-        console.log(chalk.green('No changes to .prompd files'));
+        console.log(chalk.green('No changes to .prmd files'));
         return;
       }
       
-      // Filter for .prompd files
+      // Filter for .prmd files
       const lines = output.trim().split('\n');
-      const prompdChanges = lines.filter(line => line.includes('.prompd'));
+      const prompdChanges = lines.filter(line => line.includes('.prmd'));
       
       if (prompdChanges.length > 0) {
-        console.log(chalk.bold('Git status for .prompd files:'));
+        console.log(chalk.bold('Git status for .prmd files:'));
         for (const change of prompdChanges) {
           const statusCode = change.substring(0, 2);
           const filePath = change.substring(3);
@@ -170,7 +170,7 @@ gitCommand
           console.log(`  ${chalkFn(statusText.padEnd(10))} ${filePath}`);
         }
       } else {
-        console.log(chalk.gray('No .prompd file changes'));
+        console.log(chalk.gray('No .prmd file changes'));
       }
       
     } catch (error) {
@@ -182,7 +182,7 @@ gitCommand
 
 gitCommand
   .command('commit')
-  .description('Commit staged .prompd files')
+  .description('Commit staged .prmd files')
   .option('-m, --message <message>', 'Commit message')
   .option('-v, --verbose', 'Show git output')
   .action(async (options) => {
@@ -225,8 +225,8 @@ gitCommand
 
 gitCommand
   .command('checkout')
-  .description('Checkout a specific version of a .prompd file')
-  .argument('<file>', '.prompd file path')
+  .description('Checkout a specific version of a .prmd file')
+  .argument('<file>', '.prmd file path')
   .argument('<version>', 'Version to checkout (e.g., v1.2.3, HEAD, commit hash)')
   .option('-v, --verbose', 'Show detailed output')
   .action(async (file: string, version: string, options) => {
@@ -235,8 +235,8 @@ gitCommand
     const path = await import('path');
     
     try {
-      if (!file.endsWith('.prompd')) {
-        console.error(chalk.red(`Error: ${file} is not a .prompd file`));
+      if (!file.endsWith('.prmd')) {
+        console.error(chalk.red(`Error: ${file} is not a .prmd file`));
         process.exit(1);
       }
       
@@ -246,7 +246,7 @@ gitCommand
       
       if (semverRegex.test(version)) {
         // Try to use a tag with the file basename
-        const basename = path.basename(file, '.prompd');
+        const basename = path.basename(file, '.prmd');
         const tagName = `${basename}-v${version.replace(/^v/, '')}`;
         
         try {
@@ -319,8 +319,8 @@ gitCommand
 
 gitCommand
   .command('remove')
-  .description('Remove .prompd files from git staging area')
-  .argument('<files...>', '.prompd files to unstage')
+  .description('Remove .prmd files from git staging area')
+  .argument('<files...>', '.prmd files to unstage')
   .option('-v, --verbose', 'Show git output')
   .action(async (files: string[], options) => {
     const { spawn } = await import('child_process');
@@ -329,8 +329,8 @@ gitCommand
     
     try {
       for (const file of files) {
-        if (!file.endsWith('.prompd')) {
-          console.log(chalk.yellow(`Skipping non-.prompd file: ${file}`));
+        if (!file.endsWith('.prmd')) {
+          console.log(chalk.yellow(`Skipping non-.prmd file: ${file}`));
           continue;
         }
         

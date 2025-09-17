@@ -13,15 +13,15 @@
     "frontmatter": {
       "begin": "^(---)\\s*$",
       "end": "^(---)\\s*$",
-      "name": "meta.frontmatter.prompd",
+      "name": "meta.frontmatter.prmd",
       "beginCaptures": {
         "1": {
-          "name": "punctuation.definition.frontmatter.begin.prompd"
+          "name": "punctuation.definition.frontmatter.begin.prmd"
         }
       },
       "endCaptures": {
         "1": {
-          "name": "punctuation.definition.frontmatter.end.prompd"
+          "name": "punctuation.definition.frontmatter.end.prmd"
         }
       },
       "patterns": [
@@ -48,13 +48,13 @@
     },
     "heading": {
       "match": "^(#{1,6})\\s+(System|Context|User|Response|Assistant)\\s*$",
-      "name": "markup.heading.prompd",
+      "name": "markup.heading.prmd",
       "captures": {
         "1": {
-          "name": "punctuation.definition.heading.prompd"
+          "name": "punctuation.definition.heading.prmd"
         },
         "2": {
-          "name": "entity.name.section.prompd"
+          "name": "entity.name.section.prmd"
         }
       }
     },
@@ -62,13 +62,13 @@
       "patterns": [
         {
           "match": "\\{([a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)\\}",
-          "name": "variable.other.prompd",
+          "name": "variable.other.prmd",
           "captures": {
             "0": {
-              "name": "punctuation.definition.variable.prompd"
+              "name": "punctuation.definition.variable.prmd"
             },
             "1": {
-              "name": "variable.name.prompd"
+              "name": "variable.name.prmd"
             }
           }
         }
@@ -79,21 +79,21 @@
         {
           "begin": "\\{%",
           "end": "%\\}",
-          "name": "meta.embedded.jinja.prompd",
+          "name": "meta.embedded.jinja.prmd",
           "patterns": [
             {
               "match": "\\b(if|elif|else|endif|for|endfor|set|include)\\b",
-              "name": "keyword.control.jinja.prompd"
+              "name": "keyword.control.jinja.prmd"
             }
           ]
         },
         {
           "begin": "\\{#",
           "end": "#\\}",
-          "name": "comment.block.jinja.prompd"
+          "name": "comment.block.jinja.prmd"
         }
       ]
     }
   },
-  "scopeName": "source.prompd"
+  "scopeName": "source.prmd"
 }

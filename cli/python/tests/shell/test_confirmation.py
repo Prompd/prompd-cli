@@ -20,13 +20,13 @@ if __name__ == "__main__":
     # Step 1: Request file move
     print("\nStep 1: Request file move")
     print("-"*30)
-    response1 = assistant.get_ai_response("move test-prompt.prompd to prompts")
+    response1 = assistant.get_ai_response("move test-prompt.prmd to prompts")
     print(f"AI: {response1}")
     
     # Step 2: Confirm the move
     print("\nStep 2: Confirm the move")  
     print("-"*30)
-    response2 = assistant.get_ai_response("yes, move test-prompt.prompd")
+    response2 = assistant.get_ai_response("yes, move test-prompt.prmd")
     print(f"AI: {response2}")
     
     print("\n" + "="*50)

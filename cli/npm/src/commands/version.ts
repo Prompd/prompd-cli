@@ -9,8 +9,8 @@ export function createVersionCommand(): Command {
   // Version bump command
   const bumpCommand = new Command('bump');
   bumpCommand
-    .description('Bump version in a .prompd file and create git tag')
-    .argument('<file>', 'Path to the .prompd file')
+    .description('Bump version in a .prmd file and create git tag')
+    .argument('<file>', 'Path to the .prmd file')
     .argument('<type>', 'Version bump type (major, minor, patch)')
     .option('-m, --message <message>', 'Commit message')
     .option('--dry-run', 'Show what would be done without making changes')
@@ -41,8 +41,8 @@ export function createVersionCommand(): Command {
   // Version history command
   const historyCommand = new Command('history');
   historyCommand
-    .description('Show version history for a .prompd file')
-    .argument('<file>', 'Path to the .prompd file')
+    .description('Show version history for a .prmd file')
+    .argument('<file>', 'Path to the .prmd file')
     .option('-n, --limit <number>', 'Number of versions to show', '10')
     .action(async (file: string, options) => {
       try {
@@ -88,8 +88,8 @@ export function createVersionCommand(): Command {
   // Version diff command
   const diffCommand = new Command('diff');
   diffCommand
-    .description('Show differences between versions of a .prompd file')
-    .argument('<file>', 'Path to the .prompd file')
+    .description('Show differences between versions of a .prmd file')
+    .argument('<file>', 'Path to the .prmd file')
     .argument('<version1>', 'First version')
     .argument('[version2]', 'Second version (defaults to HEAD)')
     .action(async (file: string, version1: string, version2?: string) => {
@@ -117,7 +117,7 @@ export function createVersionCommand(): Command {
   const validateCommand = new Command('validate');
   validateCommand
     .description('Validate version consistency')
-    .argument('<file>', 'Path to the .prompd file')
+    .argument('<file>', 'Path to the .prmd file')
     .option('--git', 'Validate against git history')
     .action(async (file: string, options) => {
       try {
@@ -144,7 +144,7 @@ export function createVersionCommand(): Command {
   const suggestCommand = new Command('suggest');
   suggestCommand
     .description('Suggest appropriate version bump based on changes')
-    .argument('<file>', 'Path to the .prompd file')
+    .argument('<file>', 'Path to the .prmd file')
     .option('--changes <description>', 'Description of changes made')
     .action(async (file: string, options) => {
       try {

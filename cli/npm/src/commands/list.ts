@@ -9,17 +9,17 @@ export function createListCommand(): Command {
   const command = new Command('list');
   
   command
-    .description('List available .prompd files')
-    .option('-p, --path <path>', 'Directory to search for .prompd files', '.')
+    .description('List available .prmd files')
+    .option('-p, --path <path>', 'Directory to search for .prmd files', '.')
     .option('-d, --detailed', 'Show detailed information')
     .action(async (options) => {
       try {
         const searchPath = path.resolve(options.path);
-        const pattern = path.join(searchPath, '**/*.prompd').replace(/\\/g, '/');
+        const pattern = path.join(searchPath, '**/*.prmd').replace(/\\/g, '/');
         const files = await glob(pattern);
         
         if (files.length === 0) {
-          console.log(`No .prompd files found in ${searchPath}`);
+          console.log(`No .prmd files found in ${searchPath}`);
           return;
         }
         
@@ -33,7 +33,7 @@ export function createListCommand(): Command {
               const prompd = await parser.parseFile(file);
               const metadata = prompd.metadata;
               
-              console.log(chalk.blue('📄 ' + (metadata.name || path.basename(file, '.prompd'))));
+              console.log(chalk.blue('📄 ' + (metadata.name || path.basename(file, '.prmd'))));
               console.log(chalk.gray(`   File: ${file}`));
               if (metadata.description) {
                 const desc = metadata.description.length > 60 
@@ -56,7 +56,7 @@ export function createListCommand(): Command {
           }
         } else {
           // Simple table format
-          const maxNameWidth = Math.max(20, ...files.map(f => path.basename(f, '.prompd').length));
+          const maxNameWidth = Math.max(20, ...files.map(f => path.basename(f, '.prmd').length));
           const maxPathWidth = Math.max(25, ...files.map(f => f.length));
           
           console.log(
@@ -70,7 +70,7 @@ export function createListCommand(): Command {
             try {
               const prompd = await parser.parseFile(file);
               const metadata = prompd.metadata;
-              const name = metadata.name || path.basename(file, '.prompd');
+              const name = metadata.name || path.basename(file, '.prmd');
               const desc = metadata.description 
                 ? (metadata.description.length > 40 ? metadata.description.substring(0, 37) + '...' : metadata.description)
                 : '';
@@ -81,7 +81,7 @@ export function createListCommand(): Command {
                 desc
               );
             } catch (error) {
-              const name = path.basename(file, '.prompd');
+              const name = path.basename(file, '.prmd');
               console.log(
                 name.padEnd(maxNameWidth) + ' | ' +
                 file.padEnd(maxPathWidth) + ' | ' +

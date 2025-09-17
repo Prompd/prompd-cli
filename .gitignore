@@ -68,6 +68,8 @@ venv.bak/
 
 # Project specific
 .claude/
+*.prmd.bak
+*.prompd
 *.prompd.bak
 output/
 outputs/

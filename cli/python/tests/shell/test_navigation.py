@@ -27,14 +27,14 @@ if __name__ == "__main__":
     print("\nListing prompts directory:")
     shell.interactive_list()
     
-    print("\nDisplaying test-prompt.prompd:")
-    shell.interactive_cat("test-prompt.prompd")
+    print("\nDisplaying test-prompt.prmd:")
+    shell.interactive_cat("test-prompt.prmd")
     
     print("\nChanging back to parent directory:")
     shell.interactive_cd("..")
     
     print("\nDisplaying a created prompt file:")
-    shell.interactive_cat("cooking-recipes.prompd")
+    shell.interactive_cat("cooking-recipes.prmd")
     
     print("\n" + "="*50)
     print("Navigation and file viewing test complete!")

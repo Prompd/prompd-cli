@@ -515,7 +515,7 @@ export function activate(context: vscode.ExtensionContext) {
 async function executePrompdFile() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -597,7 +597,7 @@ async function executePrompdFile() {
 async function validatePrompdFile() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -624,7 +624,7 @@ async function validateDocument(document: vscode.TextDocument) {
 async function bumpVersion() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -660,7 +660,7 @@ async function bumpVersion() {
 async function previewPrompt() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -682,7 +682,7 @@ async function previewPrompt() {
 async function gitAddFile() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -704,7 +704,7 @@ async function gitAddFile() {
 async function gitCommitFile() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -739,7 +739,7 @@ async function gitCommitFile() {
 async function gitCheckoutVersion() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -765,7 +765,7 @@ async function gitCheckoutVersion() {
         // Build args for: prompd git checkout <file> <version> [-o output]
         const checkoutArgs = ['git', 'checkout', editor.document.fileName, version];
         if (choice === 'Save to new file') {
-            const newPath = editor.document.fileName.replace('.prompd', `-${version}.prompd`);
+            const newPath = editor.document.fileName.replace('.prmd', `-${version}.prmd`);
             checkoutArgs.push('-o', newPath);
         }
 
@@ -789,7 +789,7 @@ async function gitCheckoutVersion() {
 async function showVersionHistory() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -814,7 +814,7 @@ async function showVersionHistory() {
 async function executeSpecificVersion() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -908,7 +908,7 @@ async function executeSpecificVersion() {
 async function executeWithResponseCapture() {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.languageId !== 'prompd') {
-        vscode.window.showErrorMessage('Please open a .prompd file');
+        vscode.window.showErrorMessage('Please open a .prmd file');
         return;
     }
 
@@ -1787,7 +1787,7 @@ class PrompdWebviewProvider implements vscode.WebviewViewProvider {
             this.updateContent();
         });
 
-        // Update content when .prompd files are saved
+        // Update content when .prmd files are saved
         vscode.workspace.onDidSaveTextDocument((document) => {
             if (document.languageId === 'prompd') {
                 this.updateContent();
@@ -1804,7 +1804,7 @@ class PrompdWebviewProvider implements vscode.WebviewViewProvider {
     private async getHtmlForWebview(): Promise<string> {
         const editor = vscode.window.activeTextEditor;
         let parameters: any[] = [];
-        let fileName = 'No .prompd file open';
+        let fileName = 'No .prmd file open';
 
         if (editor && editor.document.languageId === 'prompd') {
             parameters = await extractParameters(editor.document.getText());
@@ -2152,7 +2152,7 @@ class PrompdWebviewProvider implements vscode.WebviewViewProvider {
             </div>
             <button class="play-button" onclick="executePrompt()" style="margin-bottom: 8px;">
                 <span class="play-icon">▶</span>
-                <span>Execute .prompd File</span>
+                <span>Execute .prmd File</span>
             </button>
             <div class="current-file">📄 ${escapeHtml(fileName)}</div>
         </div>
@@ -2207,7 +2207,7 @@ class PrompdWebviewProvider implements vscode.WebviewViewProvider {
     ` : `
         <div class="header-section">
             <div style="text-align: center; color: var(--vscode-descriptionForeground); padding: 16px;">
-                Open a .prompd file to get started
+                Open a .prmd file to get started
             </div>
         </div>
     `}
@@ -2362,7 +2362,7 @@ ${prompt}`;
 
         // Save to temp file with secure random name
         const randomId = randomBytes(16).toString('hex');
-        const tempUri = vscode.Uri.file(path.join(require('os').tmpdir(), `prompd-adhoc-${randomId}.prompd`));
+        const tempUri = vscode.Uri.file(path.join(require('os').tmpdir(), `prompd-adhoc-${randomId}.prmd`));
         await vscode.workspace.fs.writeFile(tempUri, Buffer.from(tempContent));
         
         await executeAndCaptureResponse(

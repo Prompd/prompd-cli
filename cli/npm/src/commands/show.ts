@@ -6,8 +6,8 @@ export function createShowCommand(): Command {
   const command = new Command('show');
   
   command
-    .description('Show the structure and parameters of a .prompd file')
-    .argument('<file>', 'Path to the .prompd file')
+    .description('Show the structure and parameters of a .prmd file')
+    .argument('<file>', 'Path to the .prmd file')
     .action(async (file: string) => {
       try {
         const parser = new PrompdParser();

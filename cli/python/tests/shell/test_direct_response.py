@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # Create a test intent data for file operation
     intent_data = {
         'intent': 'unclear',
-        'raw_input': 'move test-prompt.prompd to prompts'
+        'raw_input': 'move test-prompt.prmd to prompts'
     }
     
     print(f"Intent data: {intent_data}")
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     # Test confirmation
     confirm_intent_data = {
         'intent': 'unclear', 
-        'raw_input': 'yes, move test-prompt.prompd'
+        'raw_input': 'yes, move test-prompt.prmd'
     }
     
     print(f"Confirm intent data: {confirm_intent_data}")

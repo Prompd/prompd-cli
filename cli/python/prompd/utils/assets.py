@@ -3,10 +3,10 @@ from typing import Optional
 
 
 def read_prompt_asset(relative_path: str) -> Optional[str]:
-    """Read a bundled .prompd asset from the installed package.
+    """Read a bundled .prmd asset from the installed package.
 
     Args:
-        relative_path: Path relative to assets/prompts/, e.g. "cli/python/command-planner.prompd"
+        relative_path: Path relative to assets/prompts/, e.g. "cli/python/command-planner.prmd"
 
     Returns:
         The file content as a string if found, otherwise None.

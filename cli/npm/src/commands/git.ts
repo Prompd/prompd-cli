@@ -5,16 +5,16 @@ import { resolve } from 'path';
 export function createGitCommand(): Command {
   const cmd = new Command('git');
   
-  cmd.description('Git operations for .prompd files');
+  cmd.description('Git operations for .prmd files');
   
   // Add subcommand
   cmd
     .command('add <files...>')
-    .description('Add .prompd files to git staging area')
+    .description('Add .prmd files to git staging area')
     .action(async (files: string[]) => {
       for (const file of files) {
-        if (!file.endsWith('.prompd')) {
-          console.warn(`Warning: Skipping non-.prompd file: ${file}`);
+        if (!file.endsWith('.prmd')) {
+          console.warn(`Warning: Skipping non-.prmd file: ${file}`);
           continue;
         }
         
@@ -30,7 +30,7 @@ export function createGitCommand(): Command {
   // Commit subcommand
   cmd
     .command('commit')
-    .description('Commit staged .prompd files')
+    .description('Commit staged .prmd files')
     .requiredOption('-m, --message <message>', 'Commit message')
     .action(async (options: any) => {
       try {
@@ -44,13 +44,13 @@ export function createGitCommand(): Command {
   // Status subcommand
   cmd
     .command('status')
-    .description('Show git status for .prompd files')
+    .description('Show git status for .prmd files')
     .action(async () => {
       try {
         const output = await execGitCommand(['status', '--porcelain']);
-        console.log('Git status for .prompd files:');
+        console.log('Git status for .prmd files:');
         
-        const lines = output.split('\\n').filter(line => line.includes('.prompd') && line.trim());
+        const lines = output.split('\\n').filter(line => line.includes('.prmd') && line.trim());
         let found = false;
         
         for (const line of lines) {
@@ -67,7 +67,7 @@ export function createGitCommand(): Command {
         }
         
         if (!found) {
-          console.log('  No .prompd file changes');
+          console.log('  No .prmd file changes');
         }
       } catch (error) {
         console.error(`Error checking git status: ${error}`);
@@ -77,10 +77,10 @@ export function createGitCommand(): Command {
   // Checkout subcommand
   cmd
     .command('checkout <file> <version>')
-    .description('Checkout a specific version of a .prompd file')
+    .description('Checkout a specific version of a .prmd file')
     .action(async (file: string, version: string) => {
-      if (!file.endsWith('.prompd')) {
-        console.error(`Error: ${file} is not a .prompd file`);
+      if (!file.endsWith('.prmd')) {
+        console.error(`Error: ${file} is not a .prmd file`);
         process.exit(1);
       }
       
@@ -88,7 +88,7 @@ export function createGitCommand(): Command {
         // Try semantic version tag first
         let versionRef = version;
         if (isValidSemver(version)) {
-          const baseName = file.split('/').pop()?.replace('.prompd', '') || 'file';
+          const baseName = file.split('/').pop()?.replace('.prmd', '') || 'file';
           const tagName = `${baseName}-v${version}`;
           
           // Check if tag exists
@@ -116,12 +116,12 @@ export function createGitCommand(): Command {
   // Remove subcommand
   cmd
     .command('remove <files...>')
-    .description('Remove .prompd files from git tracking')
+    .description('Remove .prmd files from git tracking')
     .option('--cached', 'Remove from index but keep in working directory')
     .action(async (files: string[], options: any) => {
       for (const file of files) {
-        if (!file.endsWith('.prompd')) {
-          console.warn(`Warning: Skipping non-.prompd file: ${file}`);
+        if (!file.endsWith('.prmd')) {
+          console.warn(`Warning: Skipping non-.prmd file: ${file}`);
           continue;
         }
         

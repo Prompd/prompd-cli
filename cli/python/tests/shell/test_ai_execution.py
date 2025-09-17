@@ -19,9 +19,9 @@ if __name__ == "__main__":
     
     # Test file operation requests
     test_queries = [
-        "can you move ./test-prompt.prompd to ./prompts",
-        "move test-prompt.prompd to prompts",
-        "please move ./test-prompt.prompd to ./prompts/"
+        "can you move ./test-prompt.prmd to ./prompts",
+        "move test-prompt.prmd to prompts",
+        "please move ./test-prompt.prmd to ./prompts/"
     ]
     
     for query in test_queries:

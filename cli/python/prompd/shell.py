@@ -60,7 +60,7 @@ class ConversationalAssistant:
 
         # 2. Obvious compile commands (simple patterns only)
         # "compile filename" or "compile filename params"
-        compile_match = re.match(r'^compile\s+([a-zA-Z0-9_.-]+(?:\.prompd)?)\s*(.*)$', user_input)
+        compile_match = re.match(r'^compile\s+([a-zA-Z0-9_.-]+(?:\.prmd)?)\s*(.*)$', user_input)
         if compile_match:
             filename = compile_match.group(1).strip()
             params = compile_match.group(2).strip() if compile_match.group(2) else None
@@ -80,7 +80,7 @@ class ConversationalAssistant:
 
         # 3. Obvious show commands
         # "show filename"
-        show_match = re.match(r'^show\s+([a-zA-Z0-9_.-]+(?:\.prompd)?)$', user_input)
+        show_match = re.match(r'^show\s+([a-zA-Z0-9_.-]+(?:\.prmd)?)$', user_input)
         if show_match:
             return {
                 'intent': 'show',
@@ -173,7 +173,7 @@ class ConversationalAssistant:
 
         if intent == 'explain_prompd':
             return (
-                "A .prompd file defines a prompt with YAML frontmatter (metadata, parameters) "
+                "A .prmd file defines a prompt with YAML frontmatter (metadata, parameters) "
                 "and Markdown sections (e.g., System, Context, User, Response). The CLI compiles it "
                 "to provider‑specific formats or runs it against an LLM, honoring roles and parameters."
             )
@@ -276,7 +276,7 @@ class ConversationalAssistant:
         
         # Check for questions about compilation ability  
         if any(word in user_input_lower for word in ['can compile', 'is compilable', 'able to compile']):
-            return "Yes! I can compile .prompd files. Try: 'compile test-prompt' or 'list' to see available files."
+            return "Yes! I can compile .prmd files. Try: 'compile test-prompt' or 'list' to see available files."
         
         # Check for unclear parameter syntax
         if 'app_name' in user_input_lower and '=' not in user_input_lower:
@@ -343,7 +343,7 @@ class ConversationalAssistant:
         return f"I'm not sure what you mean by '{user_input}'. Try asking me to compile, show, list files, or use 'help' to see available commands!"
     
     def try_ai_providers(self, user_input: str, shell_instance=None) -> str:
-        """Try AI providers for response using prompd-assistant.prompd"""
+        """Try AI providers for response using prompd-assistant.prmd"""
         try:
             # Use PrompDExecutor with the dedicated assistant prompt
             from .executor import PrompDExecutor
@@ -354,7 +354,7 @@ class ConversationalAssistant:
             
             # Get the assistant prompt path
             assets_dir = Path(__file__).parent / "assets" / "prompts" / "cli" / "python"
-            assistant_prompt = assets_dir / "prompd-assistant.prompd"
+            assistant_prompt = assets_dir / "prompd-assistant.prmd"
             
             if not assistant_prompt.exists():
                 # Fallback to simple system prompt if file doesn't exist
@@ -371,7 +371,7 @@ class ConversationalAssistant:
             
             if shell_instance:
                 try:
-                    context['files'] = [f.name for f in shell_instance.current_dir.glob('*.prompd')] + [f.name for f in shell_instance.current_dir.glob('*.pdpkg')]
+                    context['files'] = [f.name for f in shell_instance.current_dir.glob('*.prmd')] + [f.name for f in shell_instance.current_dir.glob('*.pdpkg')]
                 except:
                     pass
             
@@ -446,7 +446,7 @@ class ConversationalAssistant:
                             model = getattr(config, 'default_model', None) or 'gpt-3.5-turbo'
                             request = LLMRequest(
                                 messages=[
-                                    LLMMessage(role=MessageRole.SYSTEM, content="You are Prompd Assistant. Help with .prompd files and CLI commands. Be concise."),
+                                    LLMMessage(role=MessageRole.SYSTEM, content="You are Prompd Assistant. Help with .prmd files and CLI commands. Be concise."),
                                     LLMMessage(role=MessageRole.USER, content=user_input)
                                 ],
                                 model=model,
@@ -473,7 +473,7 @@ class ConversationalAssistant:
                             model = getattr(config, 'default_model', None) or 'claude-3-haiku-20240307'
                             request = LLMRequest(
                                 messages=[
-                                    LLMMessage(role=MessageRole.USER, content=f"You are Prompd Assistant. Help with .prompd files and CLI commands. Be concise.\n\nUser: {user_input}")
+                                    LLMMessage(role=MessageRole.USER, content=f"You are Prompd Assistant. Help with .prmd files and CLI commands. Be concise.\n\nUser: {user_input}")
                                 ],
                                 model=model,
                                 max_tokens=1000,
@@ -549,7 +549,7 @@ class ConversationalAssistant:
                 except Exception as e:
                     return f"ERROR: Failed to move file: {str(e)}"
         
-        return "I can help with file operations! Try: 'move ./test-prompt.prompd to ./prompts'"
+        return "I can help with file operations! Try: 'move ./test-prompt.prmd to ./prompts'"
     
     def handle_file_operations_with_confirmation(self, user_input: str, shell_instance) -> str:
         """Handle file operations with confirmation for safety"""
@@ -591,7 +591,7 @@ class ConversationalAssistant:
                        f"To confirm, type: 'yes, move {source_path.name}'\n"
                        f"To cancel, type: 'no' or anything else")
         
-        return "I can help with file operations! Try: 'move ./test-prompt.prompd to ./prompts'"
+        return "I can help with file operations! Try: 'move ./test-prompt.prmd to ./prompts'"
     
     def handle_complex_file_operations(self, user_input: str, shell_instance) -> str:
         """Handle complex file operations like mkdir + move"""
@@ -739,12 +739,12 @@ class ConversationalAssistant:
         from pathlib import Path
         
         try:
-            # Extract topic from filename (remove .prompd extension)
-            if filename.endswith('.prompd'):
-                topic_id = filename[:-7]  # Remove .prompd
+            # Extract topic from filename (remove .prmd extension)
+            if filename.endswith('.prmd'):
+                topic_id = filename[:-7]  # Remove .prmd
             else:
                 topic_id = filename
-                filename = f"{filename}.prompd"
+                filename = f"{filename}.prmd"
             
             # Convert filename to readable topic
             topic = topic_id.replace('-', ' ').replace('_', ' ')
@@ -810,22 +810,22 @@ Please provide helpful guidance on {topic}.
         if not topic:
             topic = "general purpose"
         
-        # Detect explicit filename: "named steves[.prompd]" or "name steves[.prompd]"
-        filename_match = re.search(r"name(?:d)?\s+([A-Za-z0-9_.-]+)(?:\.prompd)?", user_input.lower())
+        # Detect explicit filename: "named steves[.prmd]" or "name steves[.prmd]"
+        filename_match = re.search(r"name(?:d)?\s+([A-Za-z0-9_.-]+)(?:\.prmd)?", user_input.lower())
         if filename_match:
             base = filename_match.group(1)
-            filename = base if base.endswith('.prompd') else f"{base}.prompd"
+            filename = base if base.endswith('.prmd') else f"{base}.prmd"
             prompt_id = filename[:-7]
         else:
-            # Also support: "create a prompd steves.prompd"
-            file_inline = re.search(r"create.*?prompd\s+([A-Za-z0-9_.-]+)(?:\.prompd)?", user_input.lower())
+            # Also support: "create a prompd steves.prmd"
+            file_inline = re.search(r"create.*?prompd\s+([A-Za-z0-9_.-]+)(?:\.prmd)?", user_input.lower())
             if file_inline:
                 base = file_inline.group(1)
-                filename = base if base.endswith('.prompd') else f"{base}.prompd"
+                filename = base if base.endswith('.prmd') else f"{base}.prmd"
                 prompt_id = filename[:-7]
             else:
                 prompt_id = topic.replace(' ', '-').replace('_', '-').lower()
-                filename = f"{prompt_id}.prompd"
+                filename = f"{prompt_id}.prmd"
 
         prompt_name = prompt_id.replace('-', ' ').replace('_', ' ').title()
 
@@ -1025,15 +1025,15 @@ Please provide helpful guidance on {topic}.
         pattern = pattern.lower()
         matches = []
         
-        # Look for .prompd files
-        for file in directory.glob("*.prompd"):
+        # Look for .prmd files
+        for file in directory.glob("*.prmd"):
             if (pattern in file.name.lower() or 
                 pattern in file.stem.lower() or
                 pattern.replace(' ', '-') in file.name.lower()):
                 matches.append(file)
         
         # Also check subdirectories for composable packages
-        for subdir in directory.glob("**/prompts/*.prompd"):
+        for subdir in directory.glob("**/prompts/*.prmd"):
             if (pattern in subdir.name.lower() or 
                 pattern in subdir.stem.lower()):
                 matches.append(subdir)
@@ -1044,7 +1044,7 @@ Please provide helpful guidance on {topic}.
         """Suggest helpful next actions based on context"""
         suggestions = []
         
-        prompd_files = list(shell_instance.current_dir.glob("*.prompd"))
+        prompd_files = list(shell_instance.current_dir.glob("*.prmd"))
         pdpkg_files = list(shell_instance.current_dir.glob("*.pdpkg"))
         
         if prompd_files:
@@ -1231,9 +1231,9 @@ class PrompdShell:
                                     name += '/'
                                 
                                 # For commands that work with specific file types
-                                if command in ['compile', 'show'] and not name.endswith(('.prompd', '/')):
+                                if command in ['compile', 'show'] and not name.endswith(('.prmd', '/')):
                                     continue
-                                elif command == 'validate' and not name.endswith(('.prompd', '.pdpkg', '/')):
+                                elif command == 'validate' and not name.endswith(('.prmd', '.pdpkg', '/')):
                                     continue
                                 elif command == 'cat' and path.is_dir():
                                     matches.append(name)
@@ -1463,7 +1463,7 @@ class PrompdShell:
                             action = ' '.join(parts)
                     actions.append(action)
                 elif isinstance(action, dict):
-                    # Convert {"command": "compile", "file": "test.prompd"} to "compile test.prompd"
+                    # Convert {"command": "compile", "file": "test.prmd"} to "compile test.prmd"
                     if 'command' in action and 'file' in action:
                         actions.append(f"{action['command']} {action['file']}")
                     else:
@@ -1547,7 +1547,7 @@ class PrompdShell:
         self.console.print(Panel(welcome_text, border_style="blue"))
         
         # Show quick status
-        prompd_count = len(list(self.current_dir.glob("*.prompd")))
+        prompd_count = len(list(self.current_dir.glob("*.prmd")))
         package_count = len(list(self.current_dir.glob("*.pdpkg")))
         
         if prompd_count or package_count:
@@ -1841,11 +1841,11 @@ class PrompdShell:
         """Return close filename matches for a given pattern (stems and names)."""
         import difflib
         names = []
-        for p in self.current_dir.glob('*.prompd'):
+        for p in self.current_dir.glob('*.prmd'):
             if not p.name.startswith('.'):
                 names.append(p.name)
                 names.append(p.stem)
-        for p in self.current_dir.glob('**/prompts/*.prompd'):
+        for p in self.current_dir.glob('**/prompts/*.prmd'):
             if not p.name.startswith('.'):
                 names.append(p.name)
                 names.append(p.stem)
@@ -1857,17 +1857,17 @@ class PrompdShell:
         out = []
         seen = set()
         for m in matches:
-            base = m if m.endswith('.prompd') else f"{m}.prompd"
+            base = m if m.endswith('.prmd') else f"{m}.prmd"
             if base not in seen:
                 out.append(base)
                 seen.add(base)
         return out
 
     def list_prompts_brief(self, limit: int = 10):
-        """Show a concise list of .prompd files in the current directory (no directories)."""
-        prompd_files = [p for p in self.current_dir.glob('*.prompd') if not p.name.startswith('.')]
+        """Show a concise list of .prmd files in the current directory (no directories)."""
+        prompd_files = [p for p in self.current_dir.glob('*.prmd') if not p.name.startswith('.')]
         if not prompd_files:
-            self.console.print("[yellow]No .prompd files found in this directory[/yellow]")
+            self.console.print("[yellow]No .prmd files found in this directory[/yellow]")
             self.console.print(f"[dim]Current directory: {self.current_dir}[/dim]")
             return
         self.console.print(f"[cyan]Prompts in {self.current_dir}[/cyan]")
@@ -1936,13 +1936,13 @@ class PrompdShell:
         table.add_column("Example", style="yellow", width=25)
         
         commands = [
-            ("compile", "Compile .prompd files with parameters", "compile my-prompt.prompd"),
-            ("show", "Show prompt structure and info", "show security-audit.prompd"),
+            ("compile", "Compile .prmd files with parameters", "compile my-prompt.prmd"),
+            ("show", "Show prompt structure and info", "show security-audit.prmd"),
             ("validate", "Validate prompts and packages", "validate my-package.pdpkg"),
             ("list", "List local files and directories", "list"),
             ("cd", "Change directory", "cd prompts"),
-            ("cat", "Display file contents", "cat my-prompt.prompd"),
-            ("open", "Open file with system default app", "open my-prompt.prompd"),
+            ("cat", "Display file contents", "cat my-prompt.prmd"),
+            ("open", "Open file with system default app", "open my-prompt.prmd"),
             ("provider", "Show/switch AI provider", "provider openai"),
             ("search", "Search registry for packages", "search security"),
             ("install", "Install packages from registry", "install @security/audit"),
@@ -1979,10 +1979,10 @@ class PrompdShell:
             self.console.print(f"  • [dim]{example}[/dim]")
 
     def plan_with_llm(self, user_input: str):
-        """Use packaged planner .prompd to propose safe commands. Returns dict or None."""
+        """Use packaged planner .prmd to propose safe commands. Returns dict or None."""
         try:
             from .utils.assets import read_prompt_asset
-            planner_text = read_prompt_asset("cli/python/command-planner.prompd")
+            planner_text = read_prompt_asset("cli/python/command-planner.prmd")
             if not planner_text:
                 return None
             import tempfile, asyncio, json
@@ -1990,11 +1990,11 @@ class PrompdShell:
             from .executor import PrompDExecutor
             from .config import PrompDConfig
             # Write temp planner file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.prompd', delete=False, encoding='utf-8') as tmp:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.prmd', delete=False, encoding='utf-8') as tmp:
                 tmp.write(planner_text)
                 planner_path = Path(tmp.name)
             # Build params
-            files = [p.name for p in self.current_dir.glob('*.prompd')] + [p.name for p in self.current_dir.glob('*.pdpkg')]
+            files = [p.name for p in self.current_dir.glob('*.prmd')] + [p.name for p in self.current_dir.glob('*.pdpkg')]
             allowed = ["compile","show","validate","list","provider_status","provider_switch","mkdir","create_file","move","copy"]
             cli_params = [
                 f"user_input={user_input}",
@@ -2023,10 +2023,10 @@ class PrompdShell:
             return None
 
     def plan_with_llm_and_usage(self, user_input: str):
-        """Use packaged planner .prompd to propose safe commands. Returns {'plan': dict, 'usage': dict} or None."""
+        """Use packaged planner .prmd to propose safe commands. Returns {'plan': dict, 'usage': dict} or None."""
         try:
             from .utils.assets import read_prompt_asset
-            planner_text = read_prompt_asset("cli/python/command-planner.prompd")
+            planner_text = read_prompt_asset("cli/python/command-planner.prmd")
             if not planner_text:
                 return None
             import tempfile, asyncio, json
@@ -2034,11 +2034,11 @@ class PrompdShell:
             from .executor import PrompDExecutor
             from .config import PrompDConfig
             # Write temp planner file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.prompd', delete=False, encoding='utf-8') as tmp:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.prmd', delete=False, encoding='utf-8') as tmp:
                 tmp.write(planner_text)
                 planner_path = Path(tmp.name)
             # Build params
-            files = [p.name for p in self.current_dir.glob('*.prompd')] + [p.name for p in self.current_dir.glob('*.pdpkg')]
+            files = [p.name for p in self.current_dir.glob('*.prmd')] + [p.name for p in self.current_dir.glob('*.pdpkg')]
             allowed = ["compile","show","validate","list","provider_status","provider_switch","mkdir","create_file","move","copy"]
             cli_params = [
                 f"user_input={user_input}",
@@ -2128,10 +2128,10 @@ class PrompdShell:
         table.add_row("Mode", "Chat Mode" if self.chat_mode else "Command Mode")
         
         # Count local files
-        prompd_files = list(self.current_dir.glob("*.prompd"))
+        prompd_files = list(self.current_dir.glob("*.prmd"))
         pdpkg_files = list(self.current_dir.glob("*.pdpkg"))
         
-        table.add_row("Local .prompd files", str(len(prompd_files)))
+        table.add_row("Local .prmd files", str(len(prompd_files)))
         table.add_row("Local .pdpkg files", str(len(pdpkg_files)))
         
         # Show recent files
@@ -2180,9 +2180,9 @@ class PrompdShell:
         if args:
             file_path = args[0]
         else:
-            prompd_files = list(self.current_dir.glob("*.prompd"))
+            prompd_files = list(self.current_dir.glob("*.prmd"))
             if not prompd_files:
-                self.console.print("[yellow]No .prompd files found[/yellow]")
+                self.console.print("[yellow]No .prmd files found[/yellow]")
                 return
             
             self.console.print(f"[cyan]Found {len(prompd_files)} prompt files[/cyan]")
@@ -2218,7 +2218,7 @@ class PrompdShell:
         else:
             self.console.print(f"[red]File not found: {file_path}[/red]")
             # Show helpful suggestions
-            similar_files = list(self.current_dir.glob(f"*{Path(file_path).stem}*.prompd"))
+            similar_files = list(self.current_dir.glob(f"*{Path(file_path).stem}*.prmd"))
             if similar_files:
                 self.console.print("[yellow]Did you mean:[/yellow]")
                 for f in similar_files[:3]:
@@ -2269,7 +2269,7 @@ class PrompdShell:
             return
         
         try:
-            if path.suffix == '.prompd':
+            if path.suffix == '.prmd':
                 parser = PrompdParser()
                 parser.parse_file(str(path))
                 self.console.print(f"[green]SUCCESS: {path.name} is valid[/green]")
@@ -2283,12 +2283,12 @@ class PrompdShell:
     
     def interactive_list(self):
         """List local files and directories"""
-        prompd_files = list(self.current_dir.glob("*.prompd"))
+        prompd_files = list(self.current_dir.glob("*.prmd"))
         pdpkg_files = list(self.current_dir.glob("*.pdpkg"))
         directories = [d for d in self.current_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
         other_files = [f for f in self.current_dir.iterdir() 
                       if f.is_file() and not f.name.startswith('.') 
-                      and not f.suffix in ['.prompd', '.pdpkg']]
+                      and not f.suffix in ['.prmd', '.pdpkg']]
         
         if not any([prompd_files, pdpkg_files, directories, other_files]):
             self.console.print("[yellow]Directory is empty[/yellow]")
@@ -2420,8 +2420,8 @@ class PrompdShell:
             self.console.print(f"[cyan]File: {file_path.name}[/cyan] [dim]({file_path.stat().st_size} bytes)[/dim]")
             self.console.print("[dim]" + "-" * 50 + "[/dim]")
             
-            # Display content with syntax highlighting for .prompd files
-            if file_path.suffix == '.prompd':
+            # Display content with syntax highlighting for .prmd files
+            if file_path.suffix == '.prmd':
                 # Split YAML frontmatter from content
                 lines = content.split('\n')
                 if len(lines) > 0 and lines[0].strip() == '---':
@@ -2767,7 +2767,7 @@ class PrompdShell:
         else:
             self.console.print(f"[red]File not found: {file_path}[/red]")
             # Show helpful suggestions
-            similar_files = list(self.current_dir.glob(f"*{Path(file_path).stem}*.prompd"))
+            similar_files = list(self.current_dir.glob(f"*{Path(file_path).stem}*.prmd"))
             if similar_files:
                 self.console.print("[yellow]Did you mean:[/yellow]")
                 for f in similar_files[:3]:

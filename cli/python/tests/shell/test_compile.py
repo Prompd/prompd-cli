@@ -14,8 +14,8 @@ if __name__ == "__main__":
     shell = PrompdShell()
     
     # Test the compile command directly
-    print("\nTesting compile command with test-prompt.prompd:")
-    shell.execute_command("compile test-prompt.prompd")
+    print("\nTesting compile command with test-prompt.prmd:")
+    shell.execute_command("compile test-prompt.prmd")
     
-    print("\nTesting compile command with ./test-prompt.prompd:")
-    shell.execute_command("compile ./test-prompt.prompd")
+    print("\nTesting compile command with ./test-prompt.prmd:")
+    shell.execute_command("compile ./test-prompt.prmd")

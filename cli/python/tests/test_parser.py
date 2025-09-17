@@ -16,7 +16,7 @@ class TestPrompdParser:
         self.parser = PrompdParser()
     
     def test_parse_basic_file(self):
-        """Test parsing a basic .prompd file."""
+        """Test parsing a basic .prmd file."""
         content = """---
 name: test-prompt
 description: A test prompt
@@ -32,7 +32,7 @@ parameters:
 Please discuss: {topic}
 """
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.prompd', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.prmd', delete=False) as f:
             f.write(content)
             f.flush()
             temp_file_path = Path(f.name)

@@ -22,7 +22,7 @@ if __name__ == "__main__":
         
         # Test open command
         ("Open command help", "open"),
-        ("Open existing file", "open cooking-recipes.prompd"),
+        ("Open existing file", "open cooking-recipes.prmd"),
         
         # Test that dir still suggests list
         ("Dir suggestion", "dir"),

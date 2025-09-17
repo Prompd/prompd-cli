@@ -21,17 +21,17 @@ pip install -e .
 ## Usage
 
 ```bash
-# Validate a .prompd file
-prompd validate example.prompd
+# Validate a .prmd file
+prompd validate example.prmd
 
 # List available files
 prompd list prompts/
 
 # Show file structure
-prompd show example.prompd
+prompd show example.prmd
 
 # Execute with LLM
-prompd execute example.prompd --provider openai --model gpt-4 -p name=Alice
+prompd execute example.prmd --provider openai --model gpt-4 -p name=Alice
 
 # Provider management
 prompd provider list
@@ -42,8 +42,8 @@ prompd git status
 prompd git commit -m "Update prompts"
 
 # Version management
-prompd version bump example.prompd minor
-prompd version history example.prompd
+prompd version bump example.prmd minor
+prompd version history example.prmd
 ```
 
 ## Dependencies

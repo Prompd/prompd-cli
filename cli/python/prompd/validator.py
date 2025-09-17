@@ -11,17 +11,17 @@ from prompd.exceptions import ValidationError
 
 
 class PrompDValidator:
-    """Validator for .prompd files and parameters."""
+    """Validator for .prmd files and parameters."""
     
     def __init__(self):
         self.parser = PrompdParser()
     
     def validate_file(self, file_path: Path) -> List[Dict[str, Any]]:
         """
-        Validate a .prompd file structure and content.
+        Validate a .prmd file structure and content.
         
         Args:
-            file_path: Path to .prompd file
+            file_path: Path to .prmd file
             
         Returns:
             List of validation issues (empty if valid)
@@ -79,7 +79,7 @@ class PrompDValidator:
             self._validate_parameter_value(name, value, var_def)
     
     def _validate_metadata(self, metadata) -> List[Dict[str, Any]]:
-        """Validate .prompd metadata structure."""
+        """Validate .prmd metadata structure."""
         issues = []
         
         # ID field is now required

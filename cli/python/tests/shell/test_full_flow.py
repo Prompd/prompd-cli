@@ -14,7 +14,7 @@ if __name__ == "__main__":
     shell = PrompdShell()
     
     # Simulate chat input with parameters
-    test_input = 'compile test-prompt.prompd for a React app app_name="MyReactApp"'
+    test_input = 'compile test-prompt.prmd for a React app app_name="MyReactApp"'
     print(f"\nSimulating chat input: {test_input}")
     
     shell.handle_chat_input(test_input)

@@ -18,13 +18,13 @@ if __name__ == "__main__":
     # Test compile commands with different parameter formats
     test_commands = [
         # Compile with spaces around equals
-        ("Compile with spaces around =", "compile master-prompt.prompd task_type = generate code"),
+        ("Compile with spaces around =", "compile master-prompt.prmd task_type = generate code"),
         
         # Compile without spaces
-        ("Compile without spaces", "compile master-prompt.prompd task_type=generate_code"),
+        ("Compile without spaces", "compile master-prompt.prmd task_type=generate_code"),
         
         # Compile with quoted values
-        ("Compile with quotes", "compile master-prompt.prompd task_type=\"generate code\""),
+        ("Compile with quotes", "compile master-prompt.prmd task_type=\"generate code\""),
         
         # Search registry patterns
         ("Search registry for security", "search registry for security"),

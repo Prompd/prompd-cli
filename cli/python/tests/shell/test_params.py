@@ -29,8 +29,8 @@ if __name__ == "__main__":
     # Test the chat handler directly
     print("\nTesting chat input parsing:")
     test_inputs = [
-        'compile test-prompt.prompd for a React app app_name="MyReactApp"',
-        'compile test-prompt.prompd with app_name="testing" language="Python"'
+        'compile test-prompt.prmd for a React app app_name="MyReactApp"',
+        'compile test-prompt.prmd with app_name="testing" language="Python"'
     ]
     
     for input_text in test_inputs:

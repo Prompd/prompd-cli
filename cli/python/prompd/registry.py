@@ -7,14 +7,49 @@ Integrates with registry.prompdhub.ai API endpoints.
 
 import json
 import os
+import re
 import requests
 import zipfile
 import tempfile
+import csv
+import io
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import yaml
 from dataclasses import dataclass
 from rich.progress import Progress, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn, TaskID
+from rich.console import Console
+
+# Binary file extraction imports (with graceful fallbacks)
+try:
+    from PyPDF2 import PdfReader
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+
+try:
+    from openpyxl import load_workbook
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+
+try:
+    from pptx import Presentation
+    PPTX_AVAILABLE = True
+except ImportError:
+    PPTX_AVAILABLE = False
+
+try:
+    from PIL import Image
+    IMAGE_AVAILABLE = True
+except ImportError:
+    IMAGE_AVAILABLE = False
 
 from .config import PrompDConfig
 from .parser import PrompdParser
@@ -159,12 +194,15 @@ class RegistryClient:
     def search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Search for packages in the registry."""
         try:
-            params = {'q': query, 'limit': limit}
-            response = self.session.get(f"{self.registry_url}/v1/packages", params=params)
+            # Use the packages endpoint with search parameter (from registry discovery)
+            search_url = self._get_endpoint_url('packages', '/packages')
+            params = {'search': query, 'limit': limit}
+            response = self.session.get(search_url, params=params)
             response.raise_for_status()
-            # Backend returns 'items' not 'packages'
+            # Backend returns 'packages' array directly
             result = response.json()
-            return result.get('items', result.get('packages', []))
+            packages = result.get('packages', [])
+            return packages
         except requests.exceptions.RequestException as e:
             raise Exception(f"Search failed: {e}")
     
@@ -192,7 +230,7 @@ class RegistryClient:
             raise Exception("Authentication required. Run 'prompd registry login' first.")
         
         if package_path.suffix != '.pdpkg':
-            raise Exception(f"Only .pdpkg package files are supported. Got: {package_path.suffix}. This is a package registry, not a .prompd file registry.")
+            raise Exception(f"Only .pdpkg package files are supported. Got: {package_path.suffix}. This is a package registry, not a .prmd file registry.")
         
         return self._publish_pdpkg(package_path)
     
@@ -215,13 +253,28 @@ class RegistryClient:
         except Exception:
             pass  # Use fallback
         
-        # Upload package
+        # Upload package using registry API (npm-compatible endpoint)
         try:
-            # Use the correct publish endpoint directly
-            publish_url = f"{self.registry_url}/v1/packages/publish"
+            # Use the package-specific endpoint from well-known registry config
+            if package_name.startswith('@') and '/' in package_name:
+                # Scoped package: @namespace/name
+                scope, name = package_name[1:].split('/', 1)
+                publish_url = self._get_endpoint_url(
+                    'scopedPublish',
+                    f"/packages/@{scope}/{name}",
+                    scope=scope,
+                    package=name
+                )
+            else:
+                # Unscoped package
+                publish_url = self._get_endpoint_url(
+                    'publish',
+                    f"/packages/{package_name}",
+                    package=package_name
+                )
             
             with open(package_path, 'rb') as f:
-                files = {'package': (package_path.name, f, 'application/zip')}
+                files = {'package': (package_path.name, f, 'application/octet-stream')}
                 
                 # Create a new session for this upload to avoid header conflicts
                 auth_header = self.session.headers.get('Authorization')
@@ -275,8 +328,8 @@ class RegistryClient:
             
             # Determine target path
             if package_info.get('type') == 'single':
-                # Single .prompd file
-                target_path = install_dir / f"{package_name.split('/')[-1]}.prompd"
+                # Single .prmd file
+                target_path = install_dir / f"{package_name.split('/')[-1]}.prmd"
                 file_mode = 'w'
                 encoding = 'utf-8'
             else:
@@ -345,16 +398,25 @@ def validate_pdpkg(package_path: Path):
         
         # Validate referenced files exist
         if 'files' in manifest:
-            for file_pattern in manifest['files'].get('prompts', []):
-                # Simple check - at least one .prompd file should exist
-                prompd_files = [f for f in zip_file.namelist() if f.endswith('.prompd')]
-                if not prompd_files:
-                    raise Exception("Package contains no .prompd files")
+            # Handle both dict format (categorized) and list format (simple array)
+            if isinstance(manifest['files'], dict):
+                for file_pattern in manifest['files'].get('prompts', []):
+                    if file_pattern not in zip_file.namelist():
+                        raise Exception(f"Referenced file not found in package: {file_pattern}")
+            elif isinstance(manifest['files'], list):
+                # Simple list of file paths
+                for file_pattern in manifest['files']:
+                    if file_pattern not in zip_file.namelist():
+                        raise Exception(f"Referenced file not found in package: {file_pattern}")
+        
+        # Simple check - at least one .prmd file should exist
+        prompd_files = [f for f in zip_file.namelist() if f.endswith('.prmd')]
+        if not prompd_files:
+            raise Exception("Package contains no .prmd files")
 
 
 def _is_valid_semver(version: str) -> bool:
     """Check if version follows semantic versioning format."""
-    import re
     semver_pattern = r'^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
     return re.match(semver_pattern, version) is not None
 
@@ -381,20 +443,428 @@ def _serialize_for_json(obj):
         return str(obj)
 
 
+def _extract_pdf_text(pdf_path: Path) -> str:
+    """Extract text from PDF file."""
+    if not PDF_AVAILABLE:
+        return f"[PDF Content from {pdf_path.name}]\n\nPDF extraction library not available. Install PyPDF2 to extract PDF content.\n"
+    
+    try:
+        reader = PdfReader(pdf_path)
+        text_content = []
+        
+        # Add metadata
+        text_content.append(f"[PDF Document: {pdf_path.name}]")
+        text_content.append(f"Pages: {len(reader.pages)}")
+        text_content.append("-" * 50)
+        
+        # Extract text from each page
+        for page_num, page in enumerate(reader.pages, 1):
+            page_text = page.extract_text().strip()
+            if page_text:
+                text_content.append(f"\n[Page {page_num}]")
+                text_content.append(page_text)
+        
+        return "\n".join(text_content)
+    except Exception as e:
+        return f"[PDF Content from {pdf_path.name}]\n\nError extracting PDF content: {str(e)}\n"
+
+
+def _extract_docx_text(docx_path: Path) -> str:
+    """Extract text from Word document."""
+    if not DOCX_AVAILABLE:
+        return f"[Word Document from {docx_path.name}]\n\nWord extraction library not available. Install python-docx to extract Word content.\n"
+    
+    try:
+        doc = Document(docx_path)
+        text_content = []
+        
+        # Add metadata
+        text_content.append(f"[Word Document: {docx_path.name}]")
+        text_content.append(f"Paragraphs: {len(doc.paragraphs)}")
+        text_content.append("-" * 50)
+        
+        # Extract paragraphs
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                text_content.append(paragraph.text.strip())
+        
+        # Extract tables
+        if doc.tables:
+            text_content.append("\n[Tables]")
+            for table_num, table in enumerate(doc.tables, 1):
+                text_content.append(f"\n[Table {table_num}]")
+                for row in table.rows:
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                    if row_text.strip():
+                        text_content.append(row_text)
+        
+        return "\n".join(text_content)
+    except Exception as e:
+        return f"[Word Document from {docx_path.name}]\n\nError extracting Word content: {str(e)}\n"
+
+
+def _extract_pptx_text(pptx_path: Path) -> str:
+    """Extract text from PowerPoint presentation."""
+    if not PPTX_AVAILABLE:
+        return f"[PowerPoint Presentation from {pptx_path.name}]\n\nPowerPoint extraction library not available. Install python-pptx to extract content.\n"
+    
+    try:
+        prs = Presentation(pptx_path)
+        text_content = []
+        
+        # Add metadata
+        text_content.append(f"[PowerPoint Presentation: {pptx_path.name}]")
+        text_content.append(f"Slides: {len(prs.slides)}")
+        text_content.append("-" * 50)
+        
+        # Extract text from each slide
+        for slide_num, slide in enumerate(prs.slides, 1):
+            text_content.append(f"\n[Slide {slide_num}]")
+            
+            # Extract text from shapes
+            slide_text = []
+            for shape in slide.shapes:
+                if hasattr(shape, 'text') and shape.text.strip():
+                    slide_text.append(shape.text.strip())
+            
+            if slide_text:
+                text_content.extend(slide_text)
+            else:
+                text_content.append("(No text content)")
+        
+        return "\n".join(text_content)
+    except Exception as e:
+        return f"[PowerPoint Presentation from {pptx_path.name}]\n\nError extracting PowerPoint content: {str(e)}\n"
+
+
+def _process_excel_file(xlsx_path: Path) -> List[Tuple[str, str]]:
+    """Process Excel file into multiple CSV files."""
+    if not EXCEL_AVAILABLE:
+        fallback_name = f"{xlsx_path.stem}.xlsx.txt"
+        fallback_content = f"[Excel Workbook from {xlsx_path.name}]\n\nExcel extraction library not available. Install openpyxl to extract Excel content.\n"
+        return [(fallback_name, fallback_content)]
+    
+    try:
+        workbook = load_workbook(xlsx_path, data_only=True)
+        results = []
+        
+        # Add summary file
+        summary_name = f"{xlsx_path.stem}-summary.txt"
+        summary_content = [
+            f"[Excel Workbook: {xlsx_path.name}]",
+            f"Sheets: {len(workbook.sheetnames)}",
+            f"Sheet names: {', '.join(workbook.sheetnames)}",
+            "-" * 50
+        ]
+        results.append((summary_name, "\n".join(summary_content)))
+        
+        # Process each worksheet
+        for sheet_name in workbook.sheetnames:
+            try:
+                worksheet = workbook[sheet_name]
+                
+                # Convert to CSV format
+                csv_content = io.StringIO()
+                csv_writer = csv.writer(csv_content)
+                
+                # Write header with sheet info
+                csv_writer.writerow([f"Sheet: {sheet_name}"])
+                csv_writer.writerow([])  # Empty row
+                
+                # Extract data
+                rows_written = 0
+                for row in worksheet.iter_rows(values_only=True):
+                    # Skip completely empty rows
+                    if any(cell is not None and str(cell).strip() for cell in row):
+                        # Convert None to empty string, preserve other values
+                        clean_row = [str(cell) if cell is not None else "" for cell in row]
+                        csv_writer.writerow(clean_row)
+                        rows_written += 1
+                
+                if rows_written > 0:
+                    csv_name = f"{xlsx_path.stem}-{sheet_name}.csv"
+                    results.append((csv_name, csv_content.getvalue()))
+                
+            except Exception as sheet_error:
+                error_name = f"{xlsx_path.stem}-{sheet_name}-error.txt"
+                error_content = f"Error extracting sheet '{sheet_name}': {str(sheet_error)}"
+                results.append((error_name, error_content))
+        
+        return results if results else [(f"{xlsx_path.stem}.xlsx.txt", "Empty Excel workbook")]
+        
+    except Exception as e:
+        fallback_name = f"{xlsx_path.stem}.xlsx.txt"
+        fallback_content = f"[Excel Workbook from {xlsx_path.name}]\n\nError extracting Excel content: {str(e)}\n"
+        return [(fallback_name, fallback_content)]
+
+
+def _extract_image_info(image_path: Path) -> str:
+    """Extract basic information from image files."""
+    if not IMAGE_AVAILABLE:
+        return f"[Image: {image_path.name}]\n\nImage processing library not available. Install Pillow to extract image metadata.\n"
+    
+    try:
+        with Image.open(image_path) as img:
+            info = [
+                f"[Image: {image_path.name}]",
+                f"Format: {img.format}",
+                f"Size: {img.size[0]}x{img.size[1]} pixels",
+                f"Mode: {img.mode}",
+            ]
+            
+            # Add EXIF data if available
+            if hasattr(img, '_getexif') and img._getexif():
+                info.append("EXIF data available")
+            
+            info.append("-" * 30)
+            info.append("Binary image data not extracted (preserved as image file)")
+            
+            return "\n".join(info)
+    except Exception as e:
+        return f"[Image: {image_path.name}]\n\nError reading image: {str(e)}\n"
+
+
+def _get_safe_archive_name(base_name: str, extension: str, used_names: set) -> str:
+    """Generate a safe archive name, handling conflicts."""
+    candidate = f"{base_name}{extension}"
+    
+    if candidate not in used_names:
+        used_names.add(candidate)
+        return candidate
+    
+    # Handle conflicts with pattern: filename-originalext.txt
+    original_ext = Path(base_name).suffix
+    if original_ext:
+        base_without_ext = Path(base_name).stem
+        candidate = f"{base_without_ext}-{original_ext[1:]}{extension}"
+    else:
+        counter = 1
+        while True:
+            candidate = f"{base_name}-{counter}{extension}"
+            if candidate not in used_names:
+                break
+            counter += 1
+    
+    used_names.add(candidate)
+    return candidate
+
+
+def _convert_file_for_package(file_path: Path, source_dir: Path, used_names: set, console: Console) -> List[Tuple[str, bytes]]:
+    """Convert a file to safe package format. Returns list of (archive_name, content) tuples."""
+    relative_path = file_path.relative_to(source_dir)
+    file_ext = file_path.suffix.lower()
+    
+    # Define file categories
+    SAFE_FILES = {'.prmd', '.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.tsv'}
+    SAFE_IMAGES = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'}
+    
+    PROGRAMMING_LANGS = {
+        '.js', '.ts', '.jsx', '.tsx', '.cs', '.cpp', '.cxx', '.cc', '.c', '.h', '.hpp',
+        '.py', '.go', '.java', '.php', '.rb', '.rs', '.swift', '.kt', '.scala', '.clj',
+        '.sh', '.bash', '.ps1', '.bat', '.cmd', '.vbs', '.lua', '.r', '.sql', '.pl', '.pm'
+    }
+    
+    MARKUP_CONFIG = {
+        '.html', '.htm', '.css', '.xml', '.scss', '.sass', '.less', '.styl',
+        '.vue', '.svelte', '.astro', '.toml', '.ini', '.cfg', '.conf', '.env'
+    }
+    
+    # Safe files - keep as-is
+    if file_ext in SAFE_FILES:
+        with open(file_path, 'rb') as f:
+            content = f.read()
+        archive_name = str(relative_path)
+        console.print(f"  [green]OK[/green] Keeping safe file: {archive_name}")
+        return [(archive_name, content)]
+    
+    # Safe images - keep as-is but extract metadata
+    if file_ext in SAFE_IMAGES:
+        with open(file_path, 'rb') as f:
+            content = f.read()
+        
+        results = []
+        # Keep original image
+        archive_name = str(relative_path)
+        results.append((archive_name, content))
+        console.print(f"  [green]OK[/green] Keeping image file: {archive_name}")
+        
+        # Add metadata file for images (except SVG which is text)
+        if file_ext != '.svg':
+            metadata_name = _get_safe_archive_name(str(relative_path), '.info.txt', used_names)
+            metadata_content = _extract_image_info(file_path)
+            results.append((metadata_name, metadata_content.encode('utf-8')))
+            console.print(f"  [blue]+[/blue] Extracted image metadata: {metadata_name}")
+        
+        return results
+    
+    # Programming languages and markup - convert to .ext.txt
+    if file_ext in PROGRAMMING_LANGS or file_ext in MARKUP_CONFIG:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Create header with file info
+            header = f"[Source File: {file_path.name}]\n"
+            header += f"Original Extension: {file_ext}\n"
+            header += f"Language/Type: {file_ext[1:].upper()}\n"
+            header += "-" * 50 + "\n\n"
+            
+            full_content = header + content
+            
+            archive_name = _get_safe_archive_name(str(relative_path), '.txt', used_names)
+            console.print(f"  [yellow]CONV[/yellow] Converted code file: {file_path.name} -> {archive_name}")
+            return [(archive_name, full_content.encode('utf-8'))]
+            
+        except UnicodeDecodeError:
+            # If can't read as text, treat as binary
+            pass
+    
+    # Binary file extraction
+    try:
+        if file_ext == '.pdf':
+            text_content = _extract_pdf_text(file_path)
+            archive_name = _get_safe_archive_name(str(relative_path), '.txt', used_names)
+            console.print(f"  [blue]PDF[/blue] Extracted PDF text: {file_path.name} -> {archive_name}")
+            return [(archive_name, text_content.encode('utf-8'))]
+        
+        elif file_ext == '.docx':
+            text_content = _extract_docx_text(file_path)
+            archive_name = _get_safe_archive_name(str(relative_path), '.txt', used_names)
+            console.print(f"  [blue]DOCX[/blue] Extracted Word text: {file_path.name} -> {archive_name}")
+            return [(archive_name, text_content.encode('utf-8'))]
+        
+        elif file_ext == '.pptx':
+            text_content = _extract_pptx_text(file_path)
+            archive_name = _get_safe_archive_name(str(relative_path), '.txt', used_names)
+            console.print(f"  [blue]PPTX[/blue] Extracted PowerPoint text: {file_path.name} -> {archive_name}")
+            return [(archive_name, text_content.encode('utf-8'))]
+        
+        elif file_ext == '.xlsx':
+            csv_files = _process_excel_file(file_path)
+            results = []
+            for csv_name, csv_content in csv_files:
+                # Ensure the CSV name is safe and unique
+                safe_csv_name = _get_safe_archive_name(csv_name, '', used_names)
+                results.append((safe_csv_name, csv_content.encode('utf-8')))
+            
+            console.print(f"  [blue]XLSX[/blue] Processed Excel file: {file_path.name} -> {len(results)} files")
+            return results
+        
+    except Exception as e:
+        console.print(f"  [red]WARN[/red] Failed to extract {file_path.name}: {str(e)}")
+    
+    # Fallback: convert unknown files to .ext.txt with binary info
+    try:
+        file_size = file_path.stat().st_size
+        
+        # Try to read as text first
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            header = f"[File: {file_path.name}]\n"
+            header += f"Extension: {file_ext}\n"
+            header += f"Size: {file_size} bytes\n"
+            header += "-" * 50 + "\n\n"
+            
+            full_content = header + content
+            archive_name = _get_safe_archive_name(str(relative_path), '.txt', used_names)
+            console.print(f"  [cyan]TEXT[/cyan] Converted unknown file: {file_path.name} -> {archive_name}")
+            return [(archive_name, full_content.encode('utf-8'))]
+            
+        except UnicodeDecodeError:
+            # Binary file - create info file instead
+            info_content = f"[Binary File: {file_path.name}]\n"
+            info_content += f"Extension: {file_ext}\n"
+            info_content += f"Size: {file_size} bytes\n"
+            info_content += f"Type: Binary/Unknown\n"
+            info_content += "-" * 50 + "\n"
+            info_content += "Binary content not extracted for security.\n"
+            info_content += "Original file type not supported for text extraction.\n"
+            
+            archive_name = _get_safe_archive_name(str(relative_path), '.info.txt', used_names)
+            console.print(f"  [magenta]INFO[/magenta] Created info file for binary: {file_path.name} -> {archive_name}")
+            return [(archive_name, info_content.encode('utf-8'))]
+            
+    except Exception as e:
+        # Last resort - error file
+        error_content = f"[Error Processing: {file_path.name}]\n"
+        error_content += f"Error: {str(e)}\n"
+        archive_name = _get_safe_archive_name(str(relative_path), '.error.txt', used_names)
+        console.print(f"  [red]ERR[/red] Error processing: {file_path.name} -> {archive_name}")
+        return [(archive_name, error_content.encode('utf-8'))]
+
+
 def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
-    """Create a .pdpkg package from a directory."""
+    """Create a .pdpkg package from a directory with universal file conversion."""
+    console = Console()
+    used_names = set()
+    conversion_stats = {
+        'safe_files': 0,
+        'converted_files': 0,
+        'extracted_files': 0,
+        'error_files': 0,
+        'total_files': 0
+    }
+    
+    console.print(f"\n[bold blue]Creating package with universal file support:[/bold blue] {output_path.name}")
+    
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         # Add manifest - ensure it's JSON serializable
         serialized_manifest = _serialize_for_json(manifest)
         zip_file.writestr('manifest.json', json.dumps(serialized_manifest, indent=2))
+        console.print("  [green]OK[/green] Added manifest.json")
         
-        # Add all files in source directory
+        # Process all files in source directory with intelligent conversion
         for root, dirs, files in os.walk(source_dir):
             for file in files:
                 # Skip .pdproj files - they're only for packaging metadata
                 if file.endswith('.pdproj'):
+                    console.print(f"  [dim]SKIP[/dim] Skipped build metadata: {file}")
                     continue
-                    
+                
+                conversion_stats['total_files'] += 1
                 file_path = Path(root) / file
-                arcname = file_path.relative_to(source_dir)
-                zip_file.write(file_path, arcname)
+                
+                try:
+                    # Convert file using universal conversion system
+                    converted_files = _convert_file_for_package(file_path, source_dir, used_names, console)
+                    
+                    # Add all converted files to the package
+                    for archive_name, content in converted_files:
+                        zip_file.writestr(archive_name, content)
+                        
+                        # Update statistics
+                        if len(converted_files) == 1 and archive_name == str(file_path.relative_to(source_dir)):
+                            conversion_stats['safe_files'] += 1
+                        elif archive_name.endswith('.error.txt'):
+                            conversion_stats['error_files'] += 1
+                        elif len(converted_files) > 1 or file_path.suffix.lower() in {'.pdf', '.docx', '.xlsx', '.pptx'}:
+                            conversion_stats['extracted_files'] += 1
+                        else:
+                            conversion_stats['converted_files'] += 1
+                
+                except Exception as e:
+                    # Handle unexpected errors during file processing
+                    error_name = f"{file}.error.txt"
+                    error_content = f"[Error Processing: {file}]\nUnexpected error: {str(e)}\n"
+                    zip_file.writestr(error_name, error_content.encode('utf-8'))
+                    conversion_stats['error_files'] += 1
+                    console.print(f"  [red]ERR[/red] Unexpected error processing: {file}")
+    
+    # Display conversion summary
+    console.print(f"\n[bold green]Package creation complete![/bold green]")
+    console.print(f"[cyan]Conversion Summary:[/cyan]")
+    console.print(f"  Safe files (kept as-is): {conversion_stats['safe_files']}")
+    console.print(f"  Code files (-> .txt): {conversion_stats['converted_files']}")  
+    console.print(f"  Binary extractions: {conversion_stats['extracted_files']}")
+    console.print(f"  Error files: {conversion_stats['error_files']}")
+    console.print(f"  Total files processed: {conversion_stats['total_files']}")
+    
+    # Show package security status
+    if conversion_stats['error_files'] == 0:
+        console.print(f"[bold green]OK Package is secure - no executable files present[/bold green]")
+    else:
+        console.print(f"[yellow]WARN {conversion_stats['error_files']} files had processing errors[/yellow]")
+    
+    console.print(f"[dim]Package saved: {output_path}[/dim]\n")

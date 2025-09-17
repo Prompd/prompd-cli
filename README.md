@@ -57,7 +57,7 @@ pip install -e "cli/python/[dev]"
 
 ### 1. Create a Prompd file
 
-Create a file `example.prompd`:
+Create a file `example.prmd`:
 
 ```yaml
 ---
@@ -96,22 +96,22 @@ Use warm, friendly language.
 
 ```bash
 # Execute with OpenAI
-prompd execute example.prompd --provider openai --model gpt-4 -p name=Alice -p style=formal
+prompd execute example.prmd --provider openai --model gpt-4 -p name=Alice -p style=formal
 
 # Execute with Anthropic
-prompd execute example.prompd --provider anthropic --model claude-3-opus -p name=Bob
+prompd execute example.prmd --provider anthropic --model claude-3-opus -p name=Bob
 
 # Add custom provider (Ollama, Groq, LM Studio, etc.)
 prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
 
 # Execute with custom provider
-prompd execute example.prompd --provider local-ollama --model llama3.2 -p name=Charlie
+prompd execute example.prmd --provider local-ollama --model llama3.2 -p name=Charlie
 
 # Validate the file
-prompd validate example.prompd
+prompd validate example.prmd
 
 # Bump version
-prompd version bump example.prompd minor
+prompd version bump example.prmd minor
 ```
 
 ## Core Commands
@@ -145,7 +145,7 @@ Options:
 ```
 
 ### `prompd git`
-Git operations for .prompd files.
+Git operations for .prmd files.
 
 ```bash
 prompd git add <files...>                        # Add to staging
@@ -182,13 +182,13 @@ prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
 ### Other Commands
 
 ```bash
-prompd list [--path DIR]        # List .prompd files
+prompd list [--path DIR]        # List .prmd files
 prompd show <file>              # Display file structure
 ```
 
 ## Prompd File Format
 
-A `.prompd` file combines YAML frontmatter with Markdown content:
+A `.prmd` file combines YAML frontmatter with Markdown content:
 
 ### YAML Frontmatter
 ```yaml
@@ -261,16 +261,16 @@ Execute or checkout specific versions of your prompts:
 
 ```bash
 # Execute version 1.2.3 without modifying files
-prompd execute prompt.prompd --provider openai --model gpt-4 --version 1.2.3
+prompd execute prompt.prmd --provider openai --model gpt-4 --version 1.2.3
 
 # Execute last committed version
-prompd execute prompt.prompd --provider openai --model gpt-4 --version HEAD
+prompd execute prompt.prmd --provider openai --model gpt-4 --version HEAD
 
 # Checkout version to working directory
-prompd git checkout prompt.prompd 1.2.3
+prompd git checkout prompt.prmd 1.2.3
 
 # Checkout to different file (preserve current)
-prompd git checkout prompt.prompd 1.2.3 -o prompt-v1.2.3.prompd
+prompd git checkout prompt.prmd 1.2.3 -o prompt-v1.2.3.prmd
 ```
 
 ## Features
@@ -311,9 +311,9 @@ Or create `~/.prompd/config.json`:
 Full documentation and examples are available in the GitHub repository:
 
 - [**GitHub Repository**](https://github.com/Logikbug/prompd-cli) - Source code and full documentation
-- [**Format Specification**](https://github.com/Logikbug/prompd-cli/blob/main/docs/FORMAT.md) - Complete .prompd file format
+- [**Format Specification**](https://github.com/Logikbug/prompd-cli/blob/main/docs/FORMAT.md) - Complete .prmd file format
 - [**CLI Reference**](https://github.com/Logikbug/prompd-cli/blob/main/docs/CLI.md) - All commands and options
-- [**Examples**](https://github.com/Logikbug/prompd-cli/tree/main/examples) - Sample .prompd files
+- [**Examples**](https://github.com/Logikbug/prompd-cli/tree/main/examples) - Sample .prmd files
 - [**VS Code Extension**](https://github.com/Logikbug/prompd-cli/tree/main/vscode-extension) - IDE integration
 
 > **Note**: If the repository is private, please request access or refer to the documentation included with your installation.

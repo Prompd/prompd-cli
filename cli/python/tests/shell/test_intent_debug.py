@@ -18,9 +18,9 @@ if __name__ == "__main__":
     assistant = ConversationalAssistant(console)
     
     test_inputs = [
-        "move test-prompt.prompd to prompts",
-        "can you move test-prompt.prompd to prompts", 
-        "yes, move test-prompt.prompd",
+        "move test-prompt.prmd to prompts",
+        "can you move test-prompt.prmd to prompts", 
+        "yes, move test-prompt.prmd",
         "tell me a joke"  # This should be unclear
     ]
     

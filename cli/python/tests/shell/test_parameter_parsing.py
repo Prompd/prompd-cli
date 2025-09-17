@@ -37,8 +37,8 @@ if __name__ == "__main__":
     
     # Test with actual file that exists
     test_commands = [
-        "compile prompds/master-prompt.prompd task_type = generate code",
-        "compile cooking-recipes.prompd",
+        "compile prompds/master-prompt.prmd task_type = generate code",
+        "compile cooking-recipes.prmd",
     ]
     
     for command in test_commands:

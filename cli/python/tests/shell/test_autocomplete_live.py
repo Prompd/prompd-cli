@@ -16,7 +16,7 @@ if __name__ == "__main__":
     print("  - Type 'com' and press TAB (should complete to 'compile')")
     print("  - Type 'co' and press TAB (should show 'compile')")
     print("  - Type 'pro' and press TAB (should complete to 'provider')")
-    print("  - Type 'cooking' and press TAB (should complete to 'cooking-recipes.prompd')")
+    print("  - Type 'cooking' and press TAB (should complete to 'cooking-recipes.prmd')")
     print("  - Type 'provider ' and then 'o' + TAB (should show 'openai' and 'ollama')")
     print()
     print("Type 'exit' to quit when done testing.")

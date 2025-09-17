@@ -85,13 +85,13 @@ export function createPackageCommand(): Command {
           process.exit(1);
         }
 
-        // Only accept .pdpkg files - packages are archives, not individual .prompd files
+        // Only accept .pdpkg files - packages are archives, not individual .prmd files
         if (!fullPath.endsWith('.pdpkg')) {
           console.error(chalk.red('❌ Invalid package format!'));
           console.error(chalk.gray(`   File: ${path.basename(filePath)}`));
           console.error(chalk.gray('   Expected: .pdpkg archive file'));
-          console.error(chalk.gray('   Note: .prompd files are individual prompts, not packages'));
-          console.error(chalk.gray('   Use \'prompd validate\' to validate individual .prompd files'));
+          console.error(chalk.gray('   Note: .prmd files are individual prompts, not packages'));
+          console.error(chalk.gray('   Use \'prompd validate\' to validate individual .prmd files'));
           process.exit(1);
         }
 
@@ -187,7 +187,7 @@ async function packageFromDirectory(
 
   // Create package with default exclusions
   const exclusions: PDProjExclusions = {
-    directories: ['.git', '.prompd', 'node_modules', '__pycache__'],
+    directories: ['.git', '.prmd', 'node_modules', '__pycache__'],
     patterns: ['*.log', '*.tmp', '*.cache', '.env*']
   };
 

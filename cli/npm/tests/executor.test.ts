@@ -87,7 +87,7 @@ describe('PrompdExecutor', () => {
         return mockRequest as any;
       });
       
-      const result = await executor.execute('test.prompd', { 
+      const result = await executor.execute('test.prmd', { 
         provider: 'openai',
         model: 'gpt-4',
         params: { topic: 'AI' }
@@ -131,7 +131,7 @@ describe('PrompdExecutor', () => {
       mockParser.parseFile.mockResolvedValue(mockPrompdFile);
       (executor as any).parser = mockParser;
       
-      await expect(executor.execute('test.prompd', { 
+      await expect(executor.execute('test.prmd', { 
         provider: 'openai',
         model: 'gpt-4',
         params: {}
@@ -175,7 +175,7 @@ describe('PrompdExecutor', () => {
         return mockRequest as any;
       });
       
-      const result = await executor.execute('test.prompd', { 
+      const result = await executor.execute('test.prmd', { 
         provider: 'openai',
         model: 'gpt-4',
         params: { topic: 'AI' }
@@ -224,7 +224,7 @@ describe('PrompdExecutor', () => {
         return mockRequest as any;
       });
       
-      const result = await executor.execute('test.prompd', { 
+      const result = await executor.execute('test.prmd', { 
         provider: 'anthropic',
         model: 'claude-3-5-haiku-20241022',
         params: { topic: 'AI' }

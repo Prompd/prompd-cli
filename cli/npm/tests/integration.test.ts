@@ -28,8 +28,8 @@ describe('Integration Tests', () => {
     }
   });
 
-  describe('End-to-end .prompd file processing', () => {
-    it('should parse, validate, and process a complete .prompd file', async () => {
+  describe('End-to-end .prmd file processing', () => {
+    it('should parse, validate, and process a complete .prmd file', async () => {
       const prompdContent = `---
 name: test-integration
 description: Integration test prompt
@@ -57,7 +57,7 @@ Include the following aspects:
 
 Thank you for analyzing {topic}!`;
 
-      const filePath = path.join(tempDir, 'test-integration.prompd');
+      const filePath = path.join(tempDir, 'test-integration.prmd');
       await fs.writeFile(filePath, prompdContent);
 
       // Test parsing
@@ -90,7 +90,7 @@ parameters:
 
 Content with {undefined_variable} and {param1}`;
 
-      const filePath = path.join(tempDir, 'invalid-test.prompd');
+      const filePath = path.join(tempDir, 'invalid-test.prmd');
       await fs.writeFile(filePath, invalidPrompdContent);
 
       const issues = await parser.validateFile(filePath);
@@ -158,7 +158,7 @@ customProviders:
   describe('File system operations', () => {
     it('should handle file paths with spaces and special characters', async () => {
       const specialDir = path.join(tempDir, 'special dir with spaces');
-      const specialFile = path.join(specialDir, 'test prompt-file.prompd');
+      const specialFile = path.join(specialDir, 'test prompt-file.prmd');
       
       await fs.ensureDir(specialDir);
       
@@ -179,7 +179,7 @@ This is a test with special file path.`;
     });
 
     it('should handle non-existent files gracefully', async () => {
-      const nonExistentFile = path.join(tempDir, 'does-not-exist.prompd');
+      const nonExistentFile = path.join(tempDir, 'does-not-exist.prmd');
 
       await expect(parser.parseFile(nonExistentFile))
         .rejects.toThrow();
@@ -195,7 +195,7 @@ Content with BOM`;
 
       // Add BOM to the content
       const contentWithBOM = '\ufeff' + prompdContent;
-      const filePath = path.join(tempDir, 'bom-test.prompd');
+      const filePath = path.join(tempDir, 'bom-test.prmd');
       await fs.writeFile(filePath, contentWithBOM, 'utf8');
 
       const prompdFile = await parser.parseFile(filePath);

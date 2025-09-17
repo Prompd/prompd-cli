@@ -1,7 +1,7 @@
 {
   "name": "prompd",
   "displayName": "Prompd",
-  "description": "Language support for Prompd (.prompd) files - structured prompt definitions for LLMs",
+  "description": "Language support for Prompd (.prmd) files - structured prompt definitions for LLMs",
   "version": "0.3.0",
   "publisher": "logikbug",
   "icon": "icons/prompd-icon.png",
@@ -30,7 +30,7 @@
   ],
   "activationEvents": [
     "onLanguage:prompd",
-    "workspaceContains:**/*.prompd",
+    "workspaceContains:**/*.prmd",
     "onCommand:prompd.execute",
     "onCommand:prompd.validate",
     "onCommand:prompd.gitAdd",
@@ -48,7 +48,7 @@
       {
         "id": "prompd",
         "aliases": ["Prompd", "prompd", "PMD"],
-        "extensions": [".prompd"],
+        "extensions": [".prmd"],
         "configuration": "./language-configuration.json",
         "icon": {
           "light": "./icons/prompd-icon.svg",
@@ -59,7 +59,7 @@
     "grammars": [
       {
         "language": "prompd",
-        "scopeName": "source.prompd",
+        "scopeName": "source.prmd",
         "path": "./syntaxes/prompd.tmLanguage.json"
       }
     ],
@@ -140,44 +140,44 @@
     "menus": {
       "editor/title": [
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.execute",
           "group": "navigation@1"
         },
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.validate",
           "group": "navigation@2"
         }
       ],
       "editor/context": [
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.execute",
           "group": "prompd@1"
         },
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.validate",
           "group": "prompd@2"
         },
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.executeVersion",
           "group": "prompd@3"
         },
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.versionHistory",
           "group": "prompd@4"
         },
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.gitAdd",
           "group": "prompd_git@1"
         },
         {
-          "when": "resourceExtname == .prompd",
+          "when": "resourceExtname == .prmd",
           "command": "prompd.gitCommit",
           "group": "prompd_git@2"
         }
@@ -188,7 +188,7 @@
         {
           "id": "prompdParameters",
           "name": "Parameters & Execution",
-          "when": "resourceExtname == .prompd || prompd:hasPrompdFiles",
+          "when": "resourceExtname == .prmd || prompd:hasPrompdFiles",
           "type": "webview"
         }
       ]
@@ -225,7 +225,7 @@
         "prompd.validateOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Validate .prompd files on save"
+          "description": "Validate .prmd files on save"
         },
         "prompd.showCodeLens": {
           "type": "boolean",

@@ -2,298 +2,332 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Important: Global Context
+## ⚡ Quick Start
 
-**FIRST:** Read the global coordination file at `C:\Users\sbake\.claude\CLAUDE.md` for current sprint priorities, team coordination, and strategic context before beginning any work.
+```bash
+# Install Python CLI globally (recommended first step)
+pip install prompd
+
+# Or install from source for development
+cd prompd-cli/cli/python
+pip install -e ".[dev,mcp]"
+
+# Validate installation with examples
+prompd --version
+prompd validate examples/basic/example.prmd
+
+# Try compilation (6-stage composable compiler)
+prompd compile examples/basic/example.prmd --to-markdown
+
+# Quick validation across all systems
+python cli/python/run_tests.py && cd cli/go && go test ./... && cd cli/npm && npm test
+```
 
 ## Project Overview
 
-Prompd is a structured format and CLI ecosystem for AI prompts. It provides universal LLM provider support, version control integration, and package management. The project has multiple implementations (Python, Go, Node.js) and a VS Code extension.
+Prompd is a revolutionary composable AI prompt ecosystem - the "npm for AI prompts". It provides:
+- Universal package management system for AI workflows
+- Multi-platform CLI implementations (Python, Go, Node.js)
+- VS Code extension with syntax highlighting and execution
+- Package registry with npm-compatible API
+- Composable prompt architecture with inheritance and package references
 
-## 🚨 CRITICAL: Architecture Rules
+## Repository Structure
 
-**BEFORE CREATING ANY FILES:**
-1. **NEVER create files in repository root** - Always use established directory structures
-2. **NEVER create standalone scripts** - Always extend existing CLI implementations  
-3. **ALWAYS check existing patterns** - Look at cli/python/, cli/go/, cli/npm/ structure first
-4. **EXTEND, DON'T REPLACE** - Add to existing validators, parsers, command handlers
-5. **MAINTAIN CLI PARITY** - If adding to one CLI, plan for others (Python, Go, Node.js)
+```
+prompd-cli/                         # Multi-platform CLI implementations
+├── cli/
+│   ├── python/                     # Full-featured CLI with 6-stage compiler
+│   ├── go/                         # Lightweight zero-dependency CLI
+│   └── npm/                        # TypeScript CLI with MCP support
+├── vscode-extension/               # VS Code language support
+├── examples/                       # Sample .prmd files demonstrating features
+├── dist/                          # Go build outputs (cross-platform binaries)
+└── build.bat / build.sh           # Cross-platform build scripts
+```
 
-**File Location Rules:**
-- CLI extensions: `cli/python/prompd/`, `cli/go/cmd/prompd/`, `cli/npm/src/`
-- Tests: Follow existing test directories in each CLI
-- Examples: `examples/` directory only
-- Documentation: `docs/` directory only
-
-## 🛠️ Development Commands
+## Build & Test Commands
 
 ### Python CLI
-
 ```bash
-# Install development environment
 cd cli/python
-pip install -e ".[dev]"
+pip install -e ".[dev,mcp]"         # Install with development extras
+python run_tests.py                 # Quick validation test
+pytest tests/                       # Full test suite
+pytest tests/test_parser.py -v     # Single test file
+black prompd/                       # Format code
+ruff check prompd/                  # Lint code
 
-# Quick validation test
-python run_tests.py
-
-# Full test suite
-pytest tests/
-
-# Code quality
-black prompd/
-ruff check prompd/
-
-# Build for PyPI
+# Build and publish to PyPI
 python -m build
-
-# Upload to PyPI (after version bump)
-python -m twine upload dist/prompd-0.3.0*
+python -m twine upload dist/*
 ```
 
 ### Go CLI
-
 ```bash
-# Build current platform
 cd cli/go
 go build -o prompd.exe ./cmd/prompd
-
-# Run tests
 go test ./...
+go test ./... -run TestValidateFile  # Specific test pattern
+./prompd.exe validate ../../examples/basic/example.prmd
 
-# Build all platforms (from repo root)
-./build.bat  # Windows
-./build.sh   # Unix
-
-# Test the build
-./prompd.exe validate ../../examples/basic/example.prompd
+# Cross-platform build
+../../build.bat                     # Windows - builds all platforms
+../../build.sh                      # Unix - builds all platforms
 ```
 
 ### Node.js CLI
-
 ```bash
 cd cli/npm
 npm install
 npm run build
 npm test
-npm run test:watch  # Development mode
-
-# Run specific test file
-npx jest tests/parser.test.ts
-npx jest tests/integration.test.ts
-
-# Run server for MCP integration
-npm run dev  # Uses ts-node for development
+npm run test:watch                  # Watch mode
+npx jest parser --verbose           # Specific test suite
+npm run dev                         # Development mode with ts-node
 ```
 
 ### VS Code Extension
-
 ```bash
 cd vscode-extension
 npm install
-npm run compile
-npm run watch  # Development mode
+npm run compile                     # Full compilation
+npm run watch                       # Watch mode for development
 ```
 
-## 📦 Package Management
+## Core CLI Commands
 
-### Package Commands (All CLIs)
+### Package Management (All CLIs)
 ```bash
 # Package operations
-prompd package create <directory> -o output.pdpkg
+prompd package create <dir> -o package.pdpkg
 prompd package validate <package.pdpkg>
 
-# Registry operations (npm-style top-level commands)
-prompd login                        # Interactive or token-based authentication
-prompd logout                       # Clear authentication
+# Registry operations (npm-style)
+prompd login                        # Interactive authentication
 prompd publish <package.pdpkg>      # Publish package
 prompd search <query>               # Search packages
-prompd install <package>@<version>  # Install package
-prompd versions <package>           # List package versions
-prompd registry info <package>      # Get detailed package info (only nested command)
-
-# Compilation system (composable architecture)
-prompd compile <file> --to-markdown
-prompd compile <file> --to-provider-json openai
-prompd compile @namespace/package@2.0.0 -p key=value
-prompd render <file> -p key=value   # Template rendering
+prompd install @namespace/package@version
+prompd versions <package>           # List versions
+prompd registry info <package>      # Package details
 ```
 
-### Package Format
-- `.pdpkg` files are ZIP archives containing:
-  - `manifest.json` - Package metadata
-  - Multiple `.prompd` files
-  - NO `.pdproj` files (excluded like .csproj from NuGet)
-
-### Composable Architecture Features
-- **Package References**: `@namespace/package@version` syntax for package composition
-- **Inheritance**: `inherits: base-template.prompd` for template inheritance
-- **Package Usage**: `using: [@security/audit@2.0.0, @utils/common]` with optional prefixes
-- **6-Stage Compilation**: Lexical → Dependency Resolution → Semantic → Asset Extraction → Template Processing → Code Generation
-- **Binary Asset Extraction**: Excel, Word, PDF, PowerPoint, Images, CSV, JSON, YAML files
-- **/.well-known/registry.json**: Package registry discovery protocol
-
-## 🔄 Version Management
-
-When releasing, update ALL version files:
-- `cli/python/pyproject.toml` (line 7)
-- `cli/python/prompd/__init__.py`
-- `cli/python/prompd/cli.py` 
-- `cli/go/cmd/prompd/main.go` (const VERSION)
-- `cli/npm/package.json` (line 3)
-- `vscode-extension/package.json` (line 5)
-
-## 🧪 Testing Requirements
-
-### Before Any Commit
+### Compilation & Execution
 ```bash
-# Python quick test
+# Compilation (composable architecture)
+prompd compile <file> --to-markdown -o output.md
+prompd compile <file> --to-provider-json openai
+prompd compile @namespace/package@version -p key=value
+
+# Execution
+prompd run <file> --provider openai --model gpt-4o -p key=value
+prompd run <file> --params-file params.json --meta:context ./src/
+```
+
+### Python-specific Features
+```bash
+# Interactive AI shell
+prompd shell                        # AI-powered conversational interface
+prompd chat                         # Direct chat mode
+
+# MCP server
+prompd mcp serve <file> --port 3333
+prompd mcp dockerize                # Generate Docker setup
+
+# Provider management
+prompd provider add <name> <url> <models...>
+prompd provider setkey <provider> <key>
+
+# Custom provider examples
+prompd provider add groq https://api.groq.com/openai/v1 llama-3.1-8b mixtral-8x7b
+prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+prompd provider add lm-studio http://localhost:1234/v1 local-model
+```
+
+## High-Level Architecture
+
+### 6-Stage Composable Compilation Pipeline
+1. **Lexical Analysis** - Parse .prmd files and extract metadata
+2. **Dependency Resolution** - Resolve package references via `/.well-known/registry.json`
+3. **Semantic Analysis** - Validate parameters and inheritance chains
+4. **Asset Extraction** - Extract from Excel, Word, PDF, PowerPoint, Images
+5. **Template Processing** - Process inheritance and composition
+6. **Code Generation** - Output to markdown/JSON formats
+
+### Package System
+- `.prmd` - Individual prompt files (YAML frontmatter + Markdown)
+- `.pdflow` - Workflow definitions
+- `.pdproj` - Project files (IDE only, excluded from packages)
+- `.pdpkg` - Distribution packages (ZIP archives with manifest.json)
+
+### Package Naming & References
+- **Package names**: `@namespace/package-name` (npm-style scoped packages)
+- **Package references**: `"@namespace/package@version"` (MUST be quoted in YAML)
+- **Inheritance syntax**:
+  - Local files: `inherits: "./base-template.prmd"`
+  - Packages: `inherits: "@prompd.io/core-patterns@2.0.0"` (quotes required)
+
+### Registry Architecture
+- **Discovery Protocol**: `/.well-known/registry.json` for package discovery
+- **NPM-Compatible API**: Standard package management endpoints
+- **Authentication**: JWT + API tokens
+- **Storage**: Package metadata and artifacts
+
+## Environment Configuration
+
+### CLI Configuration (`~/.prmd/config.yaml`)
+```yaml
+default_provider: openai
+default_model: gpt-4o
+api_keys:
+  openai: sk-...
+  anthropic: sk-ant-...
+registry:
+  default: prompdhub
+  registries:
+    prompdhub:
+      url: https://registry.prompdhub.ai
+      token: prompd_...
+```
+
+### Environment Variables
+```bash
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+PROMPD_REGISTRY_URL=http://localhost:4000
+PROMPD_DISABLE_REGISTRY_DISCOVERY=false
+```
+
+## Testing Requirements
+
+### Quick Validation Across All CLIs
+```bash
+# Python
 python cli/python/run_tests.py
 
-# Go build & test
-cd cli/go && go build -o prompd.exe ./cmd/prompd
-./prompd.exe validate ../../examples/basic/example.prompd
+# Go
+cd cli/go && go test ./...
 
-# Node.js tests
+# Node.js
 cd cli/npm && npm test
+
+# Core operations to verify
+prompd validate <file>
+prompd package create/validate
+prompd compile <file> --to-markdown
 ```
 
-### Core Operations to Test
-- `prompd validate <file>`
-- `prompd list <directory>`
-- `prompd show <file>`
-- `prompd package create/validate`
-- Registry operations (if backend running)
-
-## 🏗️ CLI Architecture
-
-### 🏆 **PRODUCTION READY: Complete "npm for AI prompts" ecosystem** 🏆
-
-**Python CLI (Full-featured)** ✅ **100% COMPLETE**
-- Complete LLM provider support with execute/run commands
-- 6-stage composable compilation pipeline with binary asset extraction
-- Complete registry integration with npm-style commands (login, publish, search, install, versions)
-- Git integration & version management 
-- Package creation & validation
-- Provider management (custom endpoints)
-
-**Go CLI (Lightweight - Zero Dependencies)** ✅ **Core Operations Complete**
-- All core operations (validate, list, show, execute, render)
-- Package operations (create, validate) 
-- Registry operations (login, logout, publish, search, install, info, versions)
-- Zero external dependencies (only yaml.v3)
-
-**Node.js CLI (Developer-focused)** ✅ **~75% COMPLETE** 
-- TypeScript implementation with execute command
-- MCP (Model Context Protocol) support
-- Package & registry operations
-- Express server capabilities
-
-### Registry Command Restructuring ✅ **COMPLETE**
-Modern npm-style command structure implemented:
-- `prompd login` / `prompd logout` - First-class authentication commands
-- `prompd publish`, `prompd search`, `prompd install`, `prompd versions` - Top-level package operations
-- `prompd registry info` - Only remaining nested command for detailed package information
-
-### Interactive AI Shell ✅ **BREAKTHROUGH FEATURE**
-Claude Code-style conversational interface for Prompd development:
-- **Natural Language Processing**: "compile my security audit for Node.js app" → intelligent command extraction
-- **Multi-Provider AI**: OpenAI → Anthropic fallback for conversational responses
-- **Rich Shell Features**: Tab completion, file operations, directory navigation
-- **Chat Mode**: `/exit`, `/clear`, conversation history, typing indicators
-- **Provider Management**: Built-in AI provider switching and status checking
-
-## 🔐 Security Standards
-
-**2025-08-27: Production Security Achieved**
-- ✅ Command injection protection (spawn with validation)
-- ✅ ZIP slip protection (path traversal checks)
-- ✅ Input sanitization across all CLIs
-- Maintain these standards in all new code
-
-## 📋 Command Patterns
-
-### Interactive Shell (NEW!)
+### Single Test Execution
 ```bash
-# Start the AI-powered shell
-prompd shell
+# Python - Run specific test files
+cd cli/python && pytest tests/test_parser.py -v
+cd cli/python && pytest tests/test_validator.py::test_specific_function -v
 
-# Natural language commands in shell:
-> compile my security audit for Node.js app
-> show me what's in that API prompt  
-> chat   # Enter conversational mode
-> /exit  # Return to shell commands
-> provider openai  # Switch AI provider
+# Go - Run tests with specific patterns
+cd cli/go && go test ./... -run TestValidateFile
+
+# Node.js - Run specific test suites
+cd cli/npm && npx jest parser --verbose
+cd cli/npm && npx jest --testNamePattern="should validate parameters"
 ```
 
-### Provider Management (Python/Node.js)
-```bash
-prompd provider add <name> <url> <models...> [--api-key KEY]
-prompd provider list
-prompd provider show <name>
-prompd provider remove <name>
-```
+## Security Standards
+- Command injection protection (validated spawn)
+- ZIP slip protection (path traversal checks)
+- Input sanitization across all CLIs
+- Secrets excluded from packages (.env*, keys)
 
-### Git Integration (Python/Node.js)
-```bash
-prompd git add <files...>
-prompd git commit -m "message"
-prompd git checkout <file> <version>
-prompd version bump <file> <major|minor|patch>
-prompd version history <file>
-```
+## Version Management
 
-### Execution (Python/Node.js)
-```bash
-prompd execute <file> --provider <provider> --model <model> -p key=value
-prompd execute <file> --version <version>  # Execute specific version
-```
+When releasing, update versions in:
+- `cli/python/pyproject.toml`
+- `cli/go/cmd/prompd/main.go`
+- `cli/npm/package.json`
+- `vscode-extension/package.json`
 
-## 🎯 Common Development Tasks
+## Multi-CLI Strategy
 
-### Adding New Commands
-1. Implement in Python first (`cli/python/prompd/cli.py`)
-2. Port core functionality to Go (`cli/go/cmd/prompd/main.go`)
-3. Port to Node.js with TypeScript (`cli/npm/src/index.ts`)
-4. Maintain consistent command syntax
+### Architecture Overview
+- **Python CLI**: Full-featured with AI shell, MCP server, complete compilation pipeline
+- **Go CLI**: Zero-dependency lightweight version for containers/CI/CD
+- **Node.js CLI**: Developer-focused with MCP integration and TypeScript support
+- All CLIs maintain feature parity for core operations (validate, package, registry)
 
-### Extending Package Validation
-- Python: `cli/python/prompd/package_validator.py`
-- Go: `cli/go/cmd/prompd/package.go`
-- Node.js: `cli/npm/src/commands/package.ts`
+### Command Parsing Strategy
+Each CLI uses different argument parsing approaches:
+- **Python**: Click framework with decorators for command definition
+- **Go**: Manual `os.Args` parsing with switch statements for performance
+- **Node.js**: Commander.js with modular command files in `src/commands/`
 
-### Working with Registry
-- Backend: `http://localhost:4000`
-- Frontend: `http://localhost:5173`
-- API tokens stored in `~/.prompd/config.json`
+### Package Validation Architecture
+The `.pdpkg` validation follows identical logic across all CLIs but with different implementations:
+- **Python**: `package_validator.py` with comprehensive ZIP handling
+- **Go**: `package.go` with minimal dependencies (only `yaml.v3`)
+- **Node.js**: `package.ts` using archiver/unzipper libraries
 
-## 📐 File Format Standards
+### Registry Integration Pattern
+All CLIs share the same REST API contract but handle authentication differently:
+- **Python**: Stores tokens in `~/.prmd/config.json` with `httpx` client
+- **Go**: Minimal HTTP client with manual JSON marshaling
+- **Node.js**: Axios client with JWT token management
 
-- `.prompd` - Prompt files (YAML frontmatter + Markdown)
+## Key Implementation Files
+
+**Python CLI**
+- `cli/python/prompd/compiler.py` - 6-stage compilation pipeline
+- `cli/python/prompd/package_resolver.py` - Registry discovery
+- `cli/python/prompd/shell.py` - Interactive AI shell
+
+**Go CLI**
+- `cli/go/cmd/prompd/main.go` - Main entry point
+- `cli/go/cmd/prompd/package.go` - Package operations
+
+**Node.js CLI**
+- `cli/npm/src/index.ts` - Command dispatcher
+- `cli/npm/src/commands/package.ts` - Package management
+- `cli/npm/src/mcp/server.ts` - MCP integration
+
+**VS Code Extension**
+- `vscode-extension/src/extension.ts` - Main extension entry
+- `vscode-extension/package.json` - Language and command definitions
+
+## Composable Package Architecture
+
+### Revolutionary Features
+- **World's first composable AI prompt system** with package inheritance
+- **Package References**: Use `"@namespace/package@version"` syntax (quotes required in YAML)
+- **Binary Asset Extraction**: Direct support for Excel, Word, PDF, PowerPoint, Images, CSV, JSON, YAML
+- **6-Stage Compilation Pipeline**: Full transformation from source to provider-specific JSON/markdown
+- **Registry Discovery**: Uses `/.well-known/registry.json` standard for package resolution
+
+### Package Development Workflow
+- Test with examples in `examples/` directory
+- Validate package structure before publishing
+- Use `prompd package validate` across all CLIs
+- Check manifest.json format and content integrity
+
+## Common Issues & Solutions
+
+### Build Issues
+- **Go build fails**: Ensure Go 1.20+ is installed and `go.mod` is valid
+- **Python import errors**: Ensure development install with `pip install -e ".[dev,mcp]"`
+- **Node.js TypeScript errors**: Run `npm run build` for full rebuild
+- **Extension not loading**: Check VS Code extension development mode
+
+### Package Validation
+- Ensure manifest.json present in .pdpkg
+- Verify semantic versioning (x.y.z)
+- Check for path traversal attempts
+- Exclude .pdproj files from packages
+
+## Quick Reference
+
+### File Formats
+- `.prmd` - Prompt files (YAML frontmatter + Markdown) - **NEW FORMAT**
+- `.prompd` - Legacy prompt files (deprecated, use .prmd)
 - `.pdflow` - Workflow definitions
 - `.pdproj` - Project files (IDE only, never in packages)
 - `.pdpkg` - Distribution packages (ZIP archives)
-
-## ⚡ Quick Reference
-
-### Repository Structure
-```
-prompd-cli/
-├── cli/
-│   ├── python/     # Full-featured CLI
-│   ├── go/         # Lightweight CLI  
-│   └── npm/        # TypeScript CLI
-├── vscode-extension/
-├── examples/
-├── docs/
-└── dist/           # Go build outputs
-```
-
-### Key Files
-- Format spec: `docs/FORMAT.md`
-- CLI reference: `docs/CLI.md`
-- Provider docs: `docs/PROVIDERS.md`
-- Component system: `docs/COMPONENT-SYSTEM.md`
 
 ### Environment Variables
 ```bash
@@ -302,75 +336,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 PROMPD_REGISTRY_URL=http://localhost:4000
 ```
 
-## 🔍 Single Test Execution
-
-### Running Individual Tests
-```bash
-# Python - Run specific test file
-cd cli/python && pytest tests/test_parser.py -v
-cd cli/python && pytest tests/test_validator.py::test_specific_function -v
-
-# Go - Run tests with specific pattern
-cd cli/go && go test ./... -run TestValidateFile
-
-# Node.js - Run specific test suites
-cd cli/npm && npx jest parser --verbose
-cd cli/npm && npx jest --testNamePattern="should validate parameters"
-
-# Quick smoke test across all CLIs
-python cli/python/run_tests.py && cd cli/go && go test ./... && cd cli/npm && npm test
-```
-
-## 🧬 Architecture Deep Dive
-
-### Command Parsing Strategy
-Each CLI uses different argument parsing approaches:
-- **Python**: Click framework with decorators for command definition
-- **Go**: Manual `os.Args` parsing with switch statements for performance
-- **Node.js**: Commander.js with modular command files in `src/commands/`
-
-### Composable Compilation Pipeline (6-Stage Architecture)
-The Python CLI implements a complete composable compilation system:
-1. **Lexical Analysis**: Parse .prompd files and extract metadata
-2. **Dependency Resolution**: Resolve package references with /.well-known/registry.json discovery
-3. **Semantic Analysis**: Validate parameters, dependencies, and inheritance chains
-4. **Asset Extraction**: Extract content from binary files (Excel, Word, PDF, PowerPoint, Images)
-5. **Template Processing**: Process inheritance, merge content, handle using: prefixes
-6. **Code Generation**: Generate output in various formats (markdown, OpenAI JSON, Anthropic JSON)
-
-Key files:
-- **Python**: `cli/python/prompd/compiler.py` - Full 6-stage pipeline with binary extraction
-- **Package Resolver**: `cli/python/prompd/package_resolver.py` - Registry discovery and caching
-
-### Package Validation Architecture
-The `.pdpkg` validation follows identical logic across all CLIs but with different implementations:
-- **Python**: `package_validator.py` with comprehensive ZIP handling 
-- **Go**: `package.go` with minimal dependencies (only `yaml.v3`)
-- **Node.js**: `package.ts` using archiver/unzipper libraries
-
-### Registry Integration Pattern
-All CLIs share the same REST API contract but handle authentication differently:
-- **Python**: Stores tokens in `~/.prompd/config.json` with `httpx` client
-- **Go**: Minimal HTTP client with manual JSON marshaling  
-- **Node.js**: Axios client with JWT token management
-
-### Interactive Shell Architecture
-The conversational AI shell (`cli/python/prompd/shell.py`) implements:
-- **Natural Language Processing**: Intent recognition with regex patterns and parameter extraction
-- **AI Provider Integration**: Multi-provider fallback system (OpenAI → Anthropic) with async execution
-- **Rich Console Interface**: Rich library integration with autocompletion, syntax highlighting, and interactive prompts
-- **File Operations**: Advanced file management with confirmation workflows and context awareness
-- **Chat System**: Conversation history, typing indicators, and command suggestions
-
-### Security Implementation Locations
-Command injection and ZIP slip protections are implemented in:
-- **Python**: `cli/python/prompd/package_validator.py:235-244`
-- **Go**: `cli/go/cmd/prompd/package.go:383-390` 
-- **Node.js**: `cli/npm/src/commands/package.ts:302-311`
-
-## 📝 Important Notes
-
-- **PyPI releases are permanent** - Test thoroughly before publishing
-- **Maintain backward compatibility** - Don't break existing workflows
-- **Follow established patterns** - Check existing code before implementing
-- **Security first** - Validate all inputs, sanitize paths, protect secrets
+### Cross-Platform Builds
+- Windows: `build.bat` - Creates binaries for all platforms
+- Unix: `build.sh` - Creates binaries for all platforms
+- Output: `dist/prompd-{platform}-{arch}[.exe]`
+- Zero dependencies - standalone binaries can run anywhere

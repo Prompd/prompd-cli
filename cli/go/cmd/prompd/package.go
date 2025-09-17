@@ -64,7 +64,7 @@ func handlePackage() {
 func printPackageUsage() {
 	fmt.Println(`Package Commands:
   prompd package create <source>       Create a .pdpkg from .pdproj file or directory
-  prompd package validate <file>       Validate a .prompd or .pdpkg package
+  prompd package validate <file>       Validate a .prmd or .pdpkg package
   
 Examples:
   prompd package create project.pdproj
@@ -131,13 +131,13 @@ func handlePackageValidate() {
 		os.Exit(1)
 	}
 
-	// Only accept .pdpkg files - packages are archives, not individual .prompd files
+	// Only accept .pdpkg files - packages are archives, not individual .prmd files
 	if !strings.HasSuffix(filePath, ".pdpkg") {
 		fmt.Printf("❌ Invalid package format!\n")
 		fmt.Printf("   File: %s\n", filepath.Base(filePath))
 		fmt.Printf("   Expected: .pdpkg archive file\n")
-		fmt.Printf("   Note: .prompd files are individual prompts, not packages\n")
-		fmt.Printf("   Use 'prompd validate' to validate individual .prompd files\n")
+		fmt.Printf("   Note: .prmd files are individual prompts, not packages\n")
+		fmt.Printf("   Use 'prompd validate' to validate individual .prmd files\n")
 		os.Exit(1)
 	}
 
@@ -251,7 +251,7 @@ func packageFromDirectory(sourceDir string, args []string) error {
 
 	// Create package with default exclusions
 	exclusions := PDProjExclusions{
-		Directories: []string{".git", ".prompd", "node_modules", "__pycache__"},
+		Directories: []string{".git", ".prmd", "node_modules", "__pycache__"},
 		Patterns:    []string{"*.log", "*.tmp", "*.cache", ".env*"},
 	}
 

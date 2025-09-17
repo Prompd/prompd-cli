@@ -9,8 +9,8 @@ export function createRunCommand(): Command {
   const command = new Command('run');
   
   command
-    .description('Run a .prompd file with an LLM provider')
-    .argument('<file>', 'Path to the .prompd file')
+    .description('Run a .prmd file with an LLM provider')
+    .argument('<file>', 'Path to the .prmd file')
     .option('--provider <provider>', 'LLM provider (openai, anthropic, ollama)')
     .option('--model <model>', 'Model name')
     .option('-p, --param <param>', 'Parameter in format key=value', (value, previous: Record<string, string>) => {

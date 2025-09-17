@@ -129,7 +129,7 @@ def test_config_loading():
     config = PrompDConfig.load()
     
     # Check default values
-    assert config.config_dir == Path.home() / ".prompd"
+    assert config.config_dir == Path.home() / ".prmd"
     assert config.timeout == 30
     assert config.max_retries == 3
     assert isinstance(config.api_keys, dict)
@@ -137,7 +137,7 @@ def test_config_loading():
 
 
 def test_file_parsing_with_temp_file():
-    """Test parsing actual .prompd file."""
+    """Test parsing actual .prmd file."""
     parser = PrompdParser()
     
     content = """---
@@ -154,7 +154,7 @@ parameters:
 Please write about {subject}. Make it informative and engaging."""
     
     # Create temp file and test parsing
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.prompd', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.prmd', delete=False) as f:
         f.write(content)
         f.flush()
         temp_path = Path(f.name)

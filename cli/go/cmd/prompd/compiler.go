@@ -182,8 +182,8 @@ func (s *DependencyResolutionStage) Process(ctx *CompilationContext) error {
 
 	// Process 'inherits' field
 	if inherits, exists := ctx.Metadata["inherits"].(string); exists {
-		// Check if it's a local file path (contains .prompd or starts with . or /)
-		if strings.Contains(inherits, ".prompd") || strings.HasPrefix(inherits, "./") || strings.HasPrefix(inherits, "../") || strings.HasPrefix(inherits, "/") {
+		// Check if it's a local file path (contains .prmd or starts with . or /)
+		if strings.Contains(inherits, ".prmd") || strings.HasPrefix(inherits, "./") || strings.HasPrefix(inherits, "../") || strings.HasPrefix(inherits, "/") {
 			// Local file path - resolve relative to source file
 			var sourceDir string
 			if ctx.SourceFile != "" {
@@ -419,15 +419,15 @@ func (s *TemplateProcessingStage) Process(ctx *CompilationContext) error {
 						// Try to load the file from the package
 						possibleFiles := []string{
 							filepath.Join(packagePath, resourcePath),
-							filepath.Join(packagePath, resourcePath+".prompd"),
+							filepath.Join(packagePath, resourcePath+".prmd"),
 							filepath.Join(packagePath, resourcePath+".md"),
 							filepath.Join(packagePath, resourcePath+".txt"),
 						}
 						
 						for _, filePath := range possibleFiles {
 							if data, err := os.ReadFile(filePath); err == nil {
-								// If it's a .prompd file, parse and extract content
-								if strings.HasSuffix(filePath, ".prompd") {
+								// If it's a .prmd file, parse and extract content
+								if strings.HasSuffix(filePath, ".prmd") {
 									if parsed, err := parsePrompdFile(filePath); err == nil {
 										return parsed.Content
 									}
@@ -453,15 +453,15 @@ func (s *TemplateProcessingStage) Process(ctx *CompilationContext) error {
 		var parentFile string
 		
 		// Check if it's a direct file path or a package directory
-		if filepath.Ext(inheritsPath) == ".prompd" {
+		if filepath.Ext(inheritsPath) == ".prmd" {
 			// Direct file path
 			parentFile = inheritsPath
 		} else {
-			// Package directory - find main .prompd file
-			matches, _ := filepath.Glob(filepath.Join(inheritsPath, "*.prompd"))
+			// Package directory - find main .prmd file
+			matches, _ := filepath.Glob(filepath.Join(inheritsPath, "*.prmd"))
 			
 			for _, file := range matches {
-				if filepath.Base(file) == "main.prompd" {
+				if filepath.Base(file) == "main.prmd" {
 					parentFile = file
 					break
 				}
