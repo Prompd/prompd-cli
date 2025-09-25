@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from prompd.models import PrompdFile, PrompdMetadata, ParameterDefinition
 from prompd.exceptions import ParseError
+from prompd.section_override_processor import SectionOverrideProcessor, SectionInfo
 
 
 class PrompdParser:
@@ -16,6 +17,7 @@ class PrompdParser:
     
     def __init__(self):
         self.section_pattern = re.compile(r'^# (.+)$', re.MULTILINE)
+        self.section_processor = SectionOverrideProcessor()
     
     def parse_file(self, file_path: Path) -> PrompdFile:
         """
@@ -408,3 +410,93 @@ class PrompdParser:
         conditional_vars = re.findall(r'\{%-?\s*if\s+([a-zA-Z_][a-zA-Z0-9_]*)', content)
         
         return set(simple_vars + nested_vars + conditional_vars)
+
+    def extract_sections_with_info(self, content: str) -> Dict[str, SectionInfo]:
+        """
+        Extract detailed section information from markdown content.
+
+        Args:
+            content: Markdown content to parse
+
+        Returns:
+            Dictionary mapping section IDs to SectionInfo objects
+
+        Raises:
+            ParseError: If content cannot be parsed or section IDs are malformed
+        """
+        return self.section_processor.extract_sections(content)
+
+    def extract_sections_from_file(self, file_path: Path) -> Dict[str, SectionInfo]:
+        """
+        Extract sections from a .prmd file.
+
+        Args:
+            file_path: Path to .prmd file
+
+        Returns:
+            Dictionary mapping section IDs to SectionInfo objects
+
+        Raises:
+            ParseError: If file cannot be parsed or contains invalid sections
+        """
+        try:
+            parsed_file = self.parse_file(file_path)
+            if parsed_file.content:
+                return self.extract_sections_with_info(parsed_file.content)
+            else:
+                return {}
+        except Exception as e:
+            raise ParseError(f"Failed to extract sections from {file_path}: {e}")
+
+    def get_section_summary(self, file_path: Path) -> List[Tuple[str, str, int]]:
+        """
+        Get a summary of sections in a .prmd file for display purposes.
+
+        Args:
+            file_path: Path to .prmd file
+
+        Returns:
+            List of tuples (section_id, heading_text, content_length)
+
+        Raises:
+            ParseError: If file cannot be parsed
+        """
+        sections = self.extract_sections_from_file(file_path)
+        return self.section_processor.get_section_summary(sections)
+
+    def validate_overrides_against_parent(
+        self,
+        child_file: Path,
+        parent_file: Path
+    ) -> List[str]:
+        """
+        Validate override section IDs in child file against parent template.
+
+        Args:
+            child_file: Path to child template file
+            parent_file: Path to parent template file
+
+        Returns:
+            List of validation warning messages (empty if all valid)
+
+        Raises:
+            ParseError: If files cannot be parsed
+        """
+        try:
+            # Parse child file to get overrides
+            child_parsed = self.parse_file(child_file)
+            overrides = child_parsed.metadata.override if child_parsed.metadata else {}
+
+            if not overrides:
+                return []  # No overrides to validate
+
+            # Extract parent sections
+            parent_sections = self.extract_sections_from_file(parent_file)
+
+            # Validate overrides
+            return self.section_processor.validate_overrides_against_parent(
+                overrides, parent_sections
+            )
+
+        except Exception as e:
+            raise ParseError(f"Failed to validate overrides: {e}")

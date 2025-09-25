@@ -4,7 +4,7 @@
 import sys
 from pathlib import Path
 from prompd.models import ParameterDefinition, ParameterType, PrompdMetadata
-from prompd.validator import PrompDValidator
+from prompd.validator import PrompdValidator
 from prompd.parser import PrompdParser
 
 def test_models():
@@ -38,7 +38,7 @@ def test_validator():
     """Test basic validator functionality."""
     print("Testing validator...")
     
-    validator = PrompDValidator()
+    validator = PrompdValidator()
     
     # Test version validation
     valid_issues = validator._validate_version("1.2.3")

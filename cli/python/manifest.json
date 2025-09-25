@@ -1,9 +1,0 @@
-{
-  "name": "python",
-  "version": "1.0.0",
-  "description": "",
-  "dependencies": {
-    "@prompd.io/security-toolkit": "1.0.1"
-  },
-  "devDependencies": {}
-}

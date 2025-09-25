@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from .parser import PrompdParser
-from .validator import PrompDValidator
+from .validator import PrompdValidator
 
 
 def _serialize_for_validation(obj):
@@ -54,7 +54,7 @@ class PackageValidator:
     
     def __init__(self):
         self.parser = PrompdParser()
-        self.prmd_validator = PrompDValidator()
+        self.prmd_validator = PrompdValidator()
     
     def validate_prompd_package(self, file_path: Path) -> ValidationResult:
         """Validate a single .prmd file as a package."""

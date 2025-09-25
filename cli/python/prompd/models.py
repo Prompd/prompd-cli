@@ -122,7 +122,8 @@ class PrompdMetadata(BaseModel):
     # Composable architecture fields
     using: List[Union[str, UsingPackage]] = Field(default_factory=list)
     inherits: Optional[str] = None
-    
+    override: Dict[str, Optional[str]] = Field(default_factory=dict)
+
     # Content references
     system: Optional[Union[str, List[str]]] = None
     assistant: Optional[Union[str, List[str]]] = None
@@ -136,6 +137,49 @@ class PrompdMetadata(BaseModel):
         """Validate id follows kebab-case convention."""
         if v and not re.match(r'^[a-z0-9-]+$', v):
             raise ValueError(f"ID must use kebab-case (lowercase letters, numbers, hyphens): {v}")
+        return v
+
+    @field_validator('override')
+    @classmethod
+    def validate_override(cls, v):
+        """
+        Validate override field format and section IDs.
+
+        Args:
+            v: Dictionary of section_id -> file_path mappings
+
+        Returns:
+            Validated override dictionary
+
+        Raises:
+            ValueError: If override format is invalid
+        """
+        if not isinstance(v, dict):
+            raise ValueError("Override field must be a dictionary mapping section IDs to file paths")
+
+        for section_id, override_path in v.items():
+            # Validate section ID format (kebab-case)
+            if not isinstance(section_id, str):
+                raise ValueError(f"Override section ID must be a string, got {type(section_id).__name__}: {section_id}")
+
+            if not re.match(r'^[a-z0-9-]+$', section_id):
+                raise ValueError(f"Override section ID must use kebab-case (lowercase letters, numbers, hyphens): {section_id}")
+
+            # Validate override path (can be None for removal, or string for file path)
+            if override_path is not None:
+                if not isinstance(override_path, str):
+                    raise ValueError(f"Override path must be a string or null, got {type(override_path).__name__}: {override_path}")
+
+                # Validate path format (basic sanity check)
+                if not override_path.strip():
+                    raise ValueError(f"Override path cannot be empty for section '{section_id}'")
+
+                # Check for obvious path issues
+                invalid_chars = ['<', '>', '"', '|', '\0']
+                for char in invalid_chars:
+                    if char in override_path:
+                        raise ValueError(f"Override path contains invalid character '{char}' for section '{section_id}': {override_path}")
+
         return v
     
     def model_post_init(self, __context):

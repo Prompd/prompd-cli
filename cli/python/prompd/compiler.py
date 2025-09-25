@@ -15,7 +15,8 @@ from enum import Enum
 
 from .models import PrompdFile, PrompdMetadata
 from .parser import PrompdParser
-from .exceptions import PrompDError
+from .exceptions import PrompdError
+from .section_override_processor import SectionOverrideProcessor
 
 
 class CompilationStage(str, Enum):
@@ -324,13 +325,20 @@ class SemanticAnalysisStage(CompilerStage):
     """Validate parameters and references."""
     
     def process(self, context: CompilationContext) -> None:
-        """Validate semantic correctness of the prompt."""
+        """Validate semantic correctness of the prompt and merge default values."""
         if not context.metadata:
             return
-        
-        # Validate required parameters are defined
+
+        # Merge default parameter values and validate required parameters
         if context.metadata.parameters:
             for param in context.metadata.parameters:
+                # Add default value if parameter not provided
+                if param.name not in context.parameters and param.default is not None:
+                    context.parameters[param.name] = param.default
+                    if context.verbose:
+                        print(f"Using default value for parameter '{param.name}': {param.default}")
+
+                # Validate required parameters
                 if param.required and param.name not in context.parameters:
                     context.warnings.append(f"Required parameter '{param.name}' not provided")
     
@@ -439,8 +447,99 @@ class FileValidationStage(CompilerStage):
 
 
 class TemplateProcessingStage(CompilerStage):
-    """Process Handlebars-style templates and package references."""
-    
+    """Process Handlebars-style templates, package references, and section overrides."""
+
+    def __init__(self):
+        """Initialize the template processing stage."""
+        self.section_processor = SectionOverrideProcessor()
+
+    def _convert_handlebars_to_jinja2(self, content: str) -> str:
+        """Convert common Handlebars syntax to Jinja2 syntax for broader compatibility."""
+        import re
+
+        # Convert {{#if condition}} to {% if condition %}
+        content = re.sub(r'\{\{#if\s+([^}]+)\}\}', r'{% if \1 %}', content)
+
+        # Convert {{#unless condition}} to {% if not condition %}
+        content = re.sub(r'\{\{#unless\s+([^}]+)\}\}', r'{% if not \1 %}', content)
+
+        # Convert {{#each items}} to {% for item in items %}
+        content = re.sub(r'\{\{#each\s+([^}]+)\}\}', r'{% for item in \1 %}', content)
+
+        # Convert {{/if}}, {{/unless}}, {{/each}} to {% endif %}, {% endfor %}
+        content = re.sub(r'\{\{/(if|unless)\}\}', r'{% endif %}', content)
+        content = re.sub(r'\{\{/each\}\}', r'{% endfor %}', content)
+
+        # Handle {{#switch}} and {{#case}} - convert to if/elif chain
+        # This is complex, so we'll do a more sophisticated conversion
+
+        # First, convert {{#switch var}} to set the switch variable
+        switch_pattern = r'\{\{#switch\s+([^}]+)\}\}'
+        content = re.sub(switch_pattern, r'{% set _switch_var = \1 %}', content)
+
+        # Convert {{#case "value"}} to {% if _switch_var == "value" %}
+        # Handle quoted cases first, then unquoted
+        case_pattern_quoted = r'\{\{#case\s+"([^"]+)"\}\}'
+        content = re.sub(case_pattern_quoted, r'{% if _switch_var == "\1" %}', content)
+
+        # Handle unquoted cases (but not if they were already converted)
+        case_pattern_unquoted = r'\{\{#case\s+([^}"]+)\}\}'
+        content = re.sub(case_pattern_unquoted, r'{% if _switch_var == \1 %}', content)
+
+        # Convert {{#default}} to {% else %}
+        content = re.sub(r'\{\{#default\}\}', r'{% else %}', content)
+
+        # Convert {{/case}} to {% endif %} - but be careful with nesting
+        content = re.sub(r'\{\{/case\}\}', r'{% endif %}', content)
+
+        # Convert {{/switch}} to empty (the last case's endif handles it)
+        content = re.sub(r'\{\{/switch\}\}', '', content)
+
+        return content
+
+    def _enhanced_simple_substitution(self, content: str, parameters: dict) -> str:
+        """Enhanced simple substitution that handles nested object properties."""
+        import re
+
+        def replace_nested(match):
+            """Replace nested property references like {obj.prop}."""
+            full_path = match.group(1)
+
+            # Split the path (e.g., "meeting_info.title" -> ["meeting_info", "title"])
+            parts = full_path.split('.')
+
+            # Start with the root parameter
+            value = parameters.get(parts[0])
+            if value is None:
+                return f"[Missing: {full_path}]"
+
+            # Navigate through nested properties
+            try:
+                for part in parts[1:]:
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    else:
+                        # If it's not a dict, try to get the attribute (for objects)
+                        value = getattr(value, part, None)
+
+                    if value is None:
+                        return f"[Missing: {full_path}]"
+
+                return str(value)
+            except (AttributeError, KeyError, TypeError):
+                return f"[Missing: {full_path}]"
+
+        # Handle nested properties like {obj.prop} or {obj.nested.prop}
+        content = re.sub(r'\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}', replace_nested, content)
+
+        # Handle simple properties like {variable}
+        for key, value in parameters.items():
+            if not isinstance(value, (dict, list)):  # Don't substitute complex objects directly
+                placeholder = f"{{{key}}}"
+                content = content.replace(placeholder, str(value))
+
+        return content
+
     def process(self, context: CompilationContext) -> None:
         """Process template variables, conditionals, and package references."""
         if not context.content:
@@ -505,7 +604,7 @@ class TemplateProcessingStage(CompilerStage):
                         
                         content = pattern.sub(replace_ref, content)
         
-        # Process inheritance - load and merge parent content
+        # Process inheritance with section-aware override support
         if 'inherits' in context.dependencies:
             parent_path = context.dependencies['inherits']
 
@@ -524,31 +623,77 @@ class TemplateProcessingStage(CompilerStage):
                 elif parent_path_obj.is_dir():
                     # Package directory - find main .prmd file
                     prompd_files = list(parent_path_obj.glob('*.prmd'))
-                
+
                     if prompd_files:
-                        # Use the first .prmd file or look for main.prmd  
+                        # Use the first .prmd file or look for main.prmd
                         for f in prompd_files:
                             if f.name == 'main.prmd':
                                 parent_file = f
                                 break
                         if not parent_file:
                             parent_file = prompd_files[0]
-                    
-                
+
+
                 if parent_file:
                     # Parse parent file
                     parent_data = parser.parse_file(parent_file)
 
-                    # Merge parent content with child content (parent sections first)
-                    if parent_data.content:
-                        if context.content:
-                            # Combine parent content + child content
-                            context.content = parent_data.content + "\n\n" + context.content
+                    # Get overrides from child metadata
+                    overrides = {}
+                    if context.metadata and hasattr(context.metadata, 'override'):
+                        overrides = context.metadata.override or {}
+
+                    # Process content with section-aware merging
+                    if parent_data.content or context.content:
+                        if overrides:
+                            # Section-aware override processing
+                            try:
+                                # Extract sections from parent and child
+                                parent_sections = {}
+                                child_sections = {}
+
+                                if parent_data.content:
+                                    parent_sections = self.section_processor.extract_sections(parent_data.content)
+
+                                if context.content:
+                                    child_sections = self.section_processor.extract_sections(context.content)
+
+                                # Determine base directory for resolving override files
+                                base_dir = context.source_file.parent if context.source_file else Path.cwd()
+
+                                # Apply overrides and merge content
+                                merged_content = self.section_processor.apply_overrides(
+                                    parent_sections=parent_sections,
+                                    child_sections=child_sections,
+                                    overrides=overrides,
+                                    base_dir=base_dir,
+                                    verbose=context.verbose
+                                )
+
+                                context.content = merged_content
+                                content = context.content
+
+                                if context.verbose:
+                                    print(f"Applied {len(overrides)} section overrides from parent: {parent_path}")
+
+                            except Exception as e:
+                                # Fallback to simple concatenation on error
+                                context.warnings.append(f"Section override processing failed, using simple inheritance: {e}")
+                                if parent_data.content:
+                                    if context.content:
+                                        context.content = parent_data.content + "\n\n" + context.content
+                                    else:
+                                        context.content = parent_data.content
+                                    content = context.content
                         else:
-                            # Use parent content if child has no content
-                            context.content = parent_data.content
-                        content = context.content
-                    
+                            # No overrides - use simple concatenation (backward compatibility)
+                            if parent_data.content:
+                                if context.content:
+                                    context.content = parent_data.content + "\n\n" + context.content
+                                else:
+                                    context.content = parent_data.content
+                                content = context.content
+
                     # Merge parent parameters (child parameters override)
                     if parent_data.metadata and parent_data.metadata.parameters:
                         for parent_param in parent_data.metadata.parameters:
@@ -559,28 +704,54 @@ class TemplateProcessingStage(CompilerStage):
                                     if child_param.name == parent_param.name:
                                         param_exists = True
                                         break
-                            
+
                             if not param_exists:
                                 # Add parent parameter to child
                                 if context.metadata and hasattr(context.metadata, 'parameters'):
                                     if context.metadata.parameters is None:
                                         context.metadata.parameters = []
                                     context.metadata.parameters.append(parent_param)
-                    
+
                     if context.verbose:
                         print(f"Template inherits from: {parent_path} (loaded {parent_file.name})")
-                        
+
             except Exception as e:
                 context.warnings.append(f"Failed to process inheritance from {parent_path}: {e}")
                 if context.verbose:
                     print(f"Warning: Could not inherit from {parent_path}: {e}")
         
-        # Process variable substitution  
+        # Process templates with both Handlebars/Jinja2 control structures and variable substitution
         if content:
-            for key, value in context.parameters.items():
-                placeholder = f"{{{{{key}}}}}"  # {{variable}} - double braces for handlebars-style templates
-                content = content.replace(placeholder, str(value))
-        
+            try:
+                from jinja2 import Environment, Template, TemplateSyntaxError
+
+                # First, try to convert Handlebars syntax to Jinja2 for broader compatibility
+                converted_content = self._convert_handlebars_to_jinja2(content)
+                if converted_content != content and context.verbose:
+                    context.warnings.append("Converted Handlebars syntax to Jinja2 for processing")
+
+                # Configure Jinja2 to use single braces for variables
+                env = Environment(
+                    variable_start_string='{',
+                    variable_end_string='}',
+                    block_start_string='{%',
+                    block_end_string='%}',
+                    comment_start_string='{#',
+                    comment_end_string='#}'
+                )
+
+                # Create template and render with parameters
+                template = env.from_string(converted_content)
+                content = template.render(**context.parameters)
+            except TemplateSyntaxError as e:
+                # If Jinja2 fails, fall back to enhanced simple substitution
+                context.warnings.append(f"Jinja2 template error, using simple substitution: {e}")
+                content = self._enhanced_simple_substitution(content, context.parameters)
+            except Exception as e:
+                # For any other error, use simple substitution
+                context.warnings.append(f"Template processing error, using simple substitution: {e}")
+                content = self._enhanced_simple_substitution(content, context.parameters)
+
         context.content = content
     
     def get_name(self) -> str:
@@ -619,7 +790,8 @@ class CodeGenerationStage(CompilerStage):
                 metadata=context.metadata,
                 content=context.content,
                 contexts=context.contexts,
-                parameters=context.parameters
+                parameters=context.parameters,
+                verbose=context.verbose
             )
             context.compiled_result = formatter.format(compiled)
         except Exception as e:
@@ -636,6 +808,7 @@ class CompiledPrompt:
     content: Optional[str]
     contexts: List[str]
     parameters: Dict[str, Any]
+    verbose: bool = False  # Controls metadata inclusion in output
 
 
 class OutputFormatter(Protocol):
@@ -658,16 +831,16 @@ class MarkdownFormatter:
     def format(self, compiled: CompiledPrompt) -> str:
         """Format as human-readable markdown."""
         output = []
-        
-        # Add metadata as YAML frontmatter comment
-        if compiled.metadata:
+
+        # Add metadata as YAML frontmatter comment (only in verbose mode)
+        if compiled.verbose and compiled.metadata:
             output.append("<!-- PROMPD METADATA")
             # Create clean dictionary with string representations
             clean_metadata = self._clean_metadata_for_display(compiled.metadata.dict())
             output.append(yaml.dump(clean_metadata, default_flow_style=False))
             output.append("-->")
             output.append("")
-        
+
         # Add extracted contexts as sections
         if compiled.contexts:
             output.append("# Extracted Context Files")
@@ -675,13 +848,14 @@ class MarkdownFormatter:
             for ctx in compiled.contexts:
                 output.append(ctx)
                 output.append("")
-        
-        # Add main content
+
+        # Add main content (clean output without "Main Prompt Content" header by default)
         if compiled.content:
-            output.append("# Main Prompt Content")
-            output.append("")
+            if compiled.verbose:
+                output.append("# Main Prompt Content")
+                output.append("")
             output.append(compiled.content)
-        
+
         return "\n".join(output)
     
     def _clean_metadata_for_display(self, metadata_dict):
@@ -822,11 +996,11 @@ class CompilerPipeline:
                 # Find the main .prmd file in the package
                 prompd_files = list(package_path.glob('**/*.prmd'))
                 if not prompd_files:
-                    raise PrompDError(f"No .prmd files found in package: {source}")
+                    raise PrompdError(f"No .prmd files found in package: {source}")
                 # Use the first .prmd file found (or could be specified in manifest)
                 source_path = prompd_files[0]
             except Exception as e:
-                raise PrompDError(f"Failed to resolve package {source}: {e}")
+                raise PrompdError(f"Failed to resolve package {source}: {e}")
         else:
             source_path = Path(source) if isinstance(source, str) else source
         
@@ -873,7 +1047,7 @@ class PrompdCompiler:
             Compiled content as string or bytes
             
         Raises:
-            PrompDError: If compilation fails
+            PrompdError: If compilation fails
         """
         context = self.pipeline.execute(
             source,
@@ -883,7 +1057,7 @@ class PrompdCompiler:
         )
         
         if context.errors:
-            raise PrompDError(f"Compilation failed: {', '.join(context.errors)}")
+            raise PrompdError(f"Compilation failed: {', '.join(context.errors)}")
         
         if context.warnings:
             for warning in context.warnings:

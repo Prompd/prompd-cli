@@ -14,7 +14,7 @@ from prompd.exceptions import ConfigurationError
 
 
 @dataclass
-class PrompDConfig:
+class PrompdConfig:
     """Global configuration for prompd."""
     
     # Default paths
@@ -45,9 +45,41 @@ class PrompDConfig:
     
     def __post_init__(self):
         self.config_file = self.config_dir / "config.yaml"
+
+    @property
+    def registries(self) -> Dict[str, Dict[str, Any]]:
+        """Get registries configuration."""
+        return self.registry.get('registries', {})
+
+    @property
+    def default_registry(self) -> Optional[str]:
+        """Get default registry name."""
+        return self.registry.get('default')
+
+    @default_registry.setter
+    def default_registry(self, value: Optional[str]):
+        """Set default registry name."""
+        if 'registries' not in self.registry:
+            self.registry['registries'] = {}
+        self.registry['default'] = value
+
+    def add_registry(self, name: str, url: str, api_key: Optional[str] = None):
+        """Add a registry configuration."""
+        if 'registries' not in self.registry:
+            self.registry['registries'] = {}
+        self.registry['registries'][name] = {'url': url}
+        if api_key:
+            self.registry['registries'][name]['api_key'] = api_key
+
+    def remove_registry(self, name: str):
+        """Remove a registry configuration."""
+        if 'registries' in self.registry and name in self.registry['registries']:
+            del self.registry['registries'][name]
+            if self.registry.get('default') == name:
+                self.registry['default'] = None
     
     @classmethod
-    def load(cls) -> "PrompDConfig":
+    def load(cls) -> "PrompdConfig":
         """Load configuration from files and environment."""
         config = cls()
         
@@ -126,23 +158,29 @@ class PrompDConfig:
         env_var = f"{provider.upper()}_API_KEY"
         return os.getenv(env_var)
     
-    def get_registry_token(self) -> Optional[str]:
-        """Get registry API token."""
+    def get_registry_api_key(self) -> Optional[str]:
+        """Get registry API key."""
         # 1. Check dedicated registry section first
+        if 'api_key' in self.registry:
+            return self.registry['api_key']
+
+        # 2. Fallback to legacy token field (for backwards compatibility)
         if 'token' in self.registry:
             return self.registry['token']
-        
-        # 2. Fallback to legacy prompd key in api_keys (for backwards compatibility)
+
+        # 3. Fallback to legacy prompd key in api_keys (for backwards compatibility)
         if 'prompd' in self.api_keys:
             return self.api_keys['prompd']
-        
-        # 3. Environment variable fallback
+
+        # 4. Environment variable fallback
         return os.getenv('PROMPD_API_TOKEN')
-    
-    def set_registry_token(self, token: str):
-        """Set registry API token."""
-        self.registry['token'] = token
-        # Remove from api_keys if it exists there (cleanup)
+
+    def set_registry_api_key(self, api_key: str):
+        """Set registry API key."""
+        self.registry['api_key'] = api_key
+        # Remove legacy fields if they exist (cleanup)
+        if 'token' in self.registry:
+            del self.registry['token']
         if 'prompd' in self.api_keys:
             del self.api_keys['prompd']
     
@@ -187,7 +225,7 @@ class PrompDConfig:
         if 'prompdhub' not in self.registry['registries']:
             self.registry['registries']['prompdhub'] = {
                 'url': 'https://registry.prompdhub.ai',
-                'token': None,
+                'api_key': None,
                 'username': None
             }
         
@@ -198,7 +236,15 @@ class PrompDConfig:
     def migrate_legacy_config(self):
         """Migrate old single-registry config to new multi-registry structure."""
         needs_save = False
-        
+
+        # Migrate 'token' to 'api_key' in all registries
+        if 'registries' in self.registry:
+            for registry_name, registry_config in self.registry['registries'].items():
+                if 'token' in registry_config and 'api_key' not in registry_config:
+                    registry_config['api_key'] = registry_config['token']
+                    del registry_config['token']
+                    needs_save = True
+
         # Check for legacy prompd token in api_keys
         if 'prompd' in self.api_keys:
             legacy_token = self.api_keys['prompd']
@@ -207,9 +253,9 @@ class PrompDConfig:
             if 'registries' not in self.registry:
                 self.registry['registries'] = {}
             
-            # If prompdhub doesn't have a token yet, use the legacy one
-            if 'prompdhub' in self.registry['registries'] and not self.registry['registries']['prompdhub'].get('token'):
-                self.registry['registries']['prompdhub']['token'] = legacy_token
+            # If prompdhub doesn't have an api_key yet, use the legacy one
+            if 'prompdhub' in self.registry['registries'] and not self.registry['registries']['prompdhub'].get('api_key'):
+                self.registry['registries']['prompdhub']['api_key'] = legacy_token
                 needs_save = True
             
             # Remove from api_keys
@@ -238,7 +284,7 @@ class PrompDConfig:
                 if registry_name not in self.registry['registries']:
                     self.registry['registries'][registry_name] = {
                         'url': old_url,
-                        'token': old_data.get('api_token'),
+                        'api_key': old_data.get('api_token'),
                         'username': old_data.get('username')
                     }
                     needs_save = True
@@ -304,8 +350,8 @@ class PrompDConfig:
 class ParameterManager:
     """Manages parameter resolution with precedence hierarchy."""
     
-    def __init__(self, config: Optional[PrompDConfig] = None):
-        self.config = config or PrompDConfig.load()
+    def __init__(self, config: Optional[PrompdConfig] = None):
+        self.config = config or PrompdConfig.load()
     
     def resolve_parameters(
         self,

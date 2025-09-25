@@ -20,8 +20,8 @@ from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 import networkx as nx
 
-from .package_resolver import PackageReference, PackageResolver, PrompDError
-from .exceptions import PrompDError
+from .package_resolver import PackageReference, PackageResolver, PrompdError
+from .exceptions import PrompdError
 
 
 @dataclass
@@ -172,7 +172,7 @@ class DependencyResolver:
             Dict mapping package names to resolved dependency nodes
             
         Raises:
-            PrompDError: On resolution conflicts or circular dependencies
+            PrompdError: On resolution conflicts or circular dependencies
         """
         # Clear previous resolution state
         self.graph.clear()
@@ -195,7 +195,7 @@ class DependencyResolver:
         # Check for circular dependencies
         if not nx.is_directed_acyclic_graph(self.graph):
             cycles = list(nx.simple_cycles(self.graph))
-            raise PrompDError(f"Circular dependencies detected: {cycles}")
+            raise PrompdError(f"Circular dependencies detected: {cycles}")
         
         # Generate topological order for installation
         self.resolution_order = list(nx.topological_sort(self.graph))
@@ -210,7 +210,7 @@ class DependencyResolver:
                           include_peer: bool = False) -> DependencyNode:
         """Recursively resolve package dependencies."""
         if depth > self.max_depth:
-            raise PrompDError(f"Maximum dependency depth ({self.max_depth}) exceeded")
+            raise PrompdError(f"Maximum dependency depth ({self.max_depth}) exceeded")
         
         package_name = package_ref.to_string().split('@')[0]
         
@@ -220,7 +220,7 @@ class DependencyResolver:
             
             # Check version compatibility
             if not self._is_version_compatible(package_ref, existing_node):
-                raise PrompDError(
+                raise PrompdError(
                     f"Version conflict for {package_name}: "
                     f"requested {package_ref.version}, "
                     f"but {existing_node.resolved_version} already resolved"

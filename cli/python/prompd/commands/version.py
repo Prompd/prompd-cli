@@ -11,7 +11,7 @@ from rich.table import Table
 from rich.panel import Panel
 
 from ..parser import PrompdParser
-from ..exceptions import PrompDError
+from ..exceptions import PrompdError
 from ..security import validate_git_file_path, validate_git_message, validate_version_string, SecurityError
 from .git_ops import _git_commit_and_tag, _get_git_tags
 
@@ -270,12 +270,12 @@ def _update_version_in_file(file_path: Path, new_version: str):
     content = file_path.read_text(encoding='utf-8')
     
     if not content.startswith('---'):
-        raise PrompDError("File does not have YAML frontmatter")
+        raise PrompdError("File does not have YAML frontmatter")
     
     # Find end of frontmatter
     yaml_end = content.find('\n---\n', 3)
     if yaml_end == -1:
-        raise PrompDError("Invalid YAML frontmatter")
+        raise PrompdError("Invalid YAML frontmatter")
     
     frontmatter = content[3:yaml_end]
     markdown_content = content[yaml_end + 4:]

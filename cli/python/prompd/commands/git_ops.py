@@ -8,7 +8,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from ..exceptions import PrompDError
+from ..exceptions import PrompdError
 from ..security import validate_git_file_path, validate_git_message, validate_version_string, SecurityError
 
 console = Console()

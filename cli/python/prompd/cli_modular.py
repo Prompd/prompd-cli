@@ -32,14 +32,14 @@ def cli():
 @click.option("--version-only", is_flag=True, help="Only validate version format")
 def validate(file, verbose, git, version_only):
     """Validate a .prmd file syntax and structure."""
-    from prompd.validator import PrompDValidator
+    from prompd.validator import PrompdValidator
     from prompd.exceptions import ValidationError
     from pathlib import Path
     import sys
     
     try:
         file_path = Path(file)
-        validator = PrompDValidator()
+        validator = PrompdValidator()
         
         if version_only:
             # Only check version consistency
@@ -264,10 +264,10 @@ def providers():
     """List available LLM providers and their models."""
     console.print("[dim]Note: Use 'prompd provider list' for more detailed view[/dim]\n")
     
-    from prompd.config import PrompDConfig
+    from prompd.config import PrompdConfig
     from rich.table import Table
     
-    config = PrompDConfig.load()
+    config = PrompdConfig.load()
     
     # Built-in providers
     builtin_providers = {

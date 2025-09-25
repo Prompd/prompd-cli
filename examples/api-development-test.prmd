@@ -1,0 +1,73 @@
+---
+name: API Development Assistant
+description: Generate complete API endpoints with validation and documentation
+version: 1.0.1
+parameters:
+  - name: endpoint_name
+    type: string
+    required: true
+    description: Name of the API endpoint (e.g. User Management)
+  - name: http_method
+    type: string
+    default: POST
+    description: HTTP method for the endpoint
+  - name: framework
+    type: string
+    default: express
+    description: Web framework to use
+  - name: auth_required
+    type: boolean
+    default: true
+    description: Whether authentication is required
+  - name: validation_level
+    type: string
+    default: strict
+    description: Input validation level
+---
+
+# {endpoint_name} API Endpoint
+
+## Endpoint Specification
+- **Method**: {http_method}
+- **Framework**: {framework}
+- **Authentication**: {{#if auth_required}}Required{{/if}}{{#unless auth_required}}Optional{{/unless}}
+- **Validation**: {validation_level}
+
+## Implementation Requirements
+
+### 1. Route Definition
+```{{#switch framework}}{{#case "express"}}javascript{{/case}}{{#case "fastify"}}javascript{{/case}}{{#case "flask"}}python{{/case}}{{#case "django"}}python{{/case}}{{#case "gin"}}go{{/case}}{{/switch}}
+// Route implementation for {framework}
+```
+
+### 2. Input Validation
+{{#switch validation_level}}
+{{#case "enterprise"}}
+- Schema validation with detailed error messages
+- Rate limiting and request throttling
+- Input sanitization and XSS protection
+- SQL injection prevention
+- CORS configuration
+{{/case}}
+{{#case "strict"}}
+- Schema validation with error messages
+- Input sanitization
+- Basic rate limiting
+{{/case}}
+{{#case "basic"}}
+- Required field validation
+- Type checking
+{{/case}}
+{{/switch}}
+
+### 3. Authentication & Authorization
+{{#if auth_required}}
+- JWT token validation
+- Role-based access control
+- Session management
+- Secure headers
+{{/if}}
+{{#unless auth_required}}
+- Public endpoint (no auth required)
+- Optional user context
+{{/unless}}

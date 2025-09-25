@@ -5,16 +5,16 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from prompd.executor import PrompDExecutor
+from prompd.executor import PrompdExecutor
 from prompd.parser import PrompdParser
 from prompd.models import PrompdMetadata, ParameterDefinition
-from prompd.config import PrompDConfig
-from prompd.exceptions import PrompDError
+from prompd.config import PrompdConfig
+from prompd.exceptions import PrompdError
 
 
 def test_executor_initialization():
-    """Test PrompDExecutor initialization."""
-    executor = PrompDExecutor()
+    """Test PrompdExecutor initialization."""
+    executor = PrompdExecutor()
     assert executor.config is not None
     assert executor.parser is not None
     assert executor.param_manager is not None
@@ -126,7 +126,7 @@ Items: {items}"""
 
 def test_config_loading():
     """Test configuration loading."""
-    config = PrompDConfig.load()
+    config = PrompdConfig.load()
     
     # Check default values
     assert config.config_dir == Path.home() / ".prmd"
@@ -177,7 +177,7 @@ Please write about {subject}. Make it informative and engaging."""
 
 def test_parameter_manager_initialization():
     """Test ParameterManager functionality through executor."""
-    executor = PrompDExecutor()
+    executor = PrompdExecutor()
     
     # Test parameter resolution capabilities exist
     assert hasattr(executor.param_manager, 'resolve_parameters')
@@ -198,7 +198,7 @@ def test_parameter_manager_initialization():
 
 def test_jinja_environment_setup():
     """Test that executor has proper Jinja2 environment setup."""
-    executor = PrompDExecutor()
+    executor = PrompdExecutor()
     
     # Check that Jinja2 environment is configured
     assert hasattr(executor, 'jinja_env')
@@ -212,7 +212,7 @@ def test_jinja_environment_setup():
 
 def test_custom_providers_loading():
     """Test custom provider loading functionality."""
-    executor = PrompDExecutor()
+    executor = PrompdExecutor()
     
     # The _load_custom_providers method should exist and be called during init
     assert hasattr(executor, '_load_custom_providers')

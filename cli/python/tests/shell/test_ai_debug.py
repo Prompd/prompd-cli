@@ -11,18 +11,18 @@ if __name__ == "__main__":
     print("Debugging AI Execution...")
     
     try:
-        from prompd.executor import PrompDExecutor
-        from prompd.config import PrompDConfig
+        from prompd.executor import PrompdExecutor
+        from prompd.config import PrompdConfig
         
         # Create executor
-        executor = PrompDExecutor()
+        executor = PrompdExecutor()
         
         # Get available providers
         providers = executor.get_available_providers()
         print(f"Available providers: {providers}")
         
         # Check API keys
-        config = PrompDConfig.load()
+        config = PrompdConfig.load()
         for provider in providers:
             api_key = config.get_api_key(provider)
             print(f"{provider}: {'API key set' if api_key else 'No API key'}")

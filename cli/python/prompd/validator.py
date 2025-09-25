@@ -10,7 +10,7 @@ from prompd.parser import PrompdParser
 from prompd.exceptions import ValidationError
 
 
-class PrompDValidator:
+class PrompdValidator:
     """Validator for .prmd files and parameters."""
     
     def __init__(self):

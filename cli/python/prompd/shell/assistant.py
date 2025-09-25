@@ -332,15 +332,15 @@ class ConversationalAssistant:
     def try_ai_providers(self, user_input: str, shell_instance=None) -> str:
         """Try AI providers for response using prompd-assistant.prmd"""
         try:
-            # Use PrompDExecutor with the dedicated assistant prompt
-            from .executor import PrompDExecutor
+            # Use PrompdExecutor with the dedicated assistant prompt
+            from ..executor import PrompdExecutor
             from pathlib import Path
             import tempfile
             import os
             import asyncio
             
             # Get the assistant prompt path
-            assets_dir = Path(__file__).parent / "assets" / "prompts" / "cli" / "python"
+            assets_dir = Path(__file__).parent.parent / "assets" / "prompts" / "cli" / "python"
             assistant_prompt = assets_dir / "prompd-assistant.prmd"
             
             if not assistant_prompt.exists():
@@ -368,7 +368,7 @@ class ConversationalAssistant:
                 conversation_history = shell_instance.conversation_history[-3:]  # Last 3 messages
             
             # Execute the assistant prompt
-            executor = PrompDExecutor()
+            executor = PrompdExecutor()
             
             # Convert parameters to CLI format
             cli_params = []
@@ -394,7 +394,7 @@ class ConversationalAssistant:
         except Exception as e:
             # Fallback to direct provider calls if prompd execution fails
             if shell_instance:
-                shell_instance.console.print(f"[dim]Debug: PrompDExecutor failed: {e}[/dim]")
+                shell_instance.console.print(f"[dim]Debug: PrompdExecutor failed: {e}[/dim]")
             pass
             
         return self.try_ai_providers_fallback(user_input, shell_instance)
@@ -403,14 +403,14 @@ class ConversationalAssistant:
         """Fallback AI provider method with simple system prompt"""
         try:
             import asyncio
-            from .config import PrompDConfig
+            from ..config import PrompdConfig
             from .providers.openai import OpenAIProvider
             from .providers.anthropic import AnthropicProvider
             from .providers.base import ProviderConfig
             from .models import LLMRequest, LLMMessage, MessageRole
             
             # Get configuration
-            config = PrompDConfig.load()
+            config = PrompdConfig.load()
             
             async def get_response():
                 # Determine preferred order: default provider first, then others with keys

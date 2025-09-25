@@ -8,17 +8,17 @@ from jinja2 import Environment, Template, TemplateSyntaxError
 
 from prompd.models import ExecutionContext, PrompdFile, LLMRequest, LLMResponse
 from prompd.parser import PrompdParser
-from prompd.config import PrompDConfig, ParameterManager
+from prompd.config import PrompdConfig, ParameterManager
 from prompd.providers import registry, ProviderConfig
 from prompd.providers.custom import CustomProvider
-from prompd.exceptions import PrompDError, ProviderError, ConfigurationError, SubstitutionError
+from prompd.exceptions import PrompdError, ProviderError, ConfigurationError, SubstitutionError
 
 
-class PrompDExecutor:
+class PrompdExecutor:
     """Main execution engine for prompd files."""
     
-    def __init__(self, config: Optional[PrompDConfig] = None):
-        self.config = config or PrompDConfig.load()
+    def __init__(self, config: Optional[PrompdConfig] = None):
+        self.config = config or PrompdConfig.load()
         self.parser = PrompdParser()
         self.param_manager = ParameterManager(self.config)
         
@@ -82,7 +82,7 @@ class PrompDExecutor:
             LLM response
             
         Raises:
-            PrompDError: If execution fails
+            PrompdError: If execution fails
         """
         try:
             # Parse prompd file
@@ -181,9 +181,9 @@ class PrompDExecutor:
                         "response": None
                     }
                 else:
-                    raise PrompDError("Compiled output contains no messages")
+                    raise PrompdError("Compiled output contains no messages")
             except (json.JSONDecodeError, KeyError) as e:
-                raise PrompDError(f"Failed to parse compiled output: {e}")
+                raise PrompdError(f"Failed to parse compiled output: {e}")
             
             # Create execution context
             context = ExecutionContext(
@@ -199,10 +199,10 @@ class PrompDExecutor:
             return await self._execute_with_provider(context, substituted_content)
             
         except Exception as e:
-            if isinstance(e, PrompDError):
+            if isinstance(e, PrompdError):
                 raise
             else:
-                raise PrompDError(f"Execution failed: {e}")
+                raise PrompdError(f"Execution failed: {e}")
 
     def _resolve_custom_value(self, raw: str, base_file: Path) -> str:
         """Resolve a custom override value which may be a file path or inline text."""
@@ -409,7 +409,7 @@ async def execute_prompd(
     Returns:
         LLM response
     """
-    executor = PrompDExecutor()
+    executor = PrompdExecutor()
     return await executor.execute(
         prompd_file=Path(file_path),
         provider=provider,

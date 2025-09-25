@@ -30,7 +30,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 # Use cryptography for secure hashing
 
-from .exceptions import PrompDError
+from .exceptions import PrompdError
 
 
 class PackageReference(BaseModel):
@@ -162,7 +162,7 @@ class RegistryInfo:
                     capabilities=data.get('capabilities', {})
                 )
         except Exception as e:
-            raise PrompDError(f"Failed to discover registry at {base_url}: {e}")
+            raise PrompdError(f"Failed to discover registry at {base_url}: {e}")
 
 
 @dataclass
@@ -187,11 +187,11 @@ class ProjectConfig:
 
 
 class PackageLock:
-    """Manages .prmd/lock.json for reproducible builds."""
-    
+    """Manages .prompd/lock.json for reproducible builds."""
+
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        self.lock_file = project_root / '.prmd' / 'lock.json'
+        self.lock_file = project_root / '.prompd' / 'lock.json'
         self._lock_data: Dict[str, PackageLockEntry] = {}
         self._loaded = False
     
@@ -292,7 +292,7 @@ class PackageLock:
                     temp_file.unlink()
                 except OSError:
                     pass
-            raise PrompDError(f"Failed to save package lock file: {e}") from e
+            raise PrompdError(f"Failed to save package lock file: {e}") from e
     
     def remove_package(self, package_ref: PackageReference):
         """Remove package from lock file."""
@@ -332,7 +332,7 @@ class BasePackageCache:
         """Get path to cached package directory."""
         package_dir = self.get_package_dir(package_ref)
         if not self.is_cached(package_ref):
-            raise PrompDError(f"Package not cached: {package_ref.to_string()}")
+            raise PrompdError(f"Package not cached: {package_ref.to_string()}")
         return package_dir
     
     def cache_package(self, package_ref: PackageReference, package_data: bytes) -> Path:
@@ -349,7 +349,7 @@ class BasePackageCache:
         
         # Validate package size first (prevent DoS)
         if len(package_data) > 100 * 1024 * 1024:  # 100MB limit
-            raise PrompDError(f"Package too large: {len(package_data)} bytes (max 100MB)")
+            raise PrompdError(f"Package too large: {len(package_data)} bytes (max 100MB)")
         
         try:
             # Step 1: Clean up any existing temp directory
@@ -379,7 +379,7 @@ class BasePackageCache:
                         self._extract_zip_safely(zip_file, temp_dir)
                         
                 except (zipfile.BadZipFile, Exception) as e:
-                    raise PrompDError(f"Invalid or unsafe package archive for {package_ref.to_string()}: {e}")
+                    raise PrompdError(f"Invalid or unsafe package archive for {package_ref.to_string()}: {e}")
             finally:
                 # Clean up temp file - now safe because file is properly closed
                 if temp_zip_path and os.path.exists(temp_zip_path):
@@ -419,7 +419,7 @@ class BasePackageCache:
                     shutil.rmtree(temp_dir)
                 except OSError:
                     pass  # Best effort cleanup
-            raise PrompDError(f"Failed to cache package {package_ref.to_string()}: {e}") from e
+            raise PrompdError(f"Failed to cache package {package_ref.to_string()}: {e}") from e
     
     def _validate_zip_contents_secure(self, zip_file: zipfile.ZipFile):
         """Enhanced ZIP validation using battle-tested security patterns."""
@@ -429,23 +429,23 @@ class BasePackageCache:
         for member in zip_file.namelist():
             # Security: Enhanced path validation with cryptographic entropy check
             if not self._is_safe_path_enhanced(member):
-                raise PrompDError(f"Unsafe path in package: {member}")
+                raise PrompdError(f"Unsafe path in package: {member}")
             
             # Get file info
             try:
                 file_info = zip_file.getinfo(member)
             except KeyError:
-                raise PrompDError(f"Invalid file in package: {member}")
+                raise PrompdError(f"Invalid file in package: {member}")
             
             # Check for ZIP bomb protection with ratio analysis
             if file_info.file_size > 50 * 1024 * 1024:  # 50MB per file
-                raise PrompDError(f"File too large: {member} ({file_info.file_size} bytes)")
+                raise PrompdError(f"File too large: {member} ({file_info.file_size} bytes)")
             
             # ZIP bomb protection: check compression ratio
             if file_info.compress_size > 0:
                 ratio = file_info.file_size / file_info.compress_size
                 if ratio > 1000:  # Suspicious compression ratio
-                    raise PrompDError(f"Suspicious compression ratio in file: {member}")
+                    raise PrompdError(f"Suspicious compression ratio in file: {member}")
             
             total_size += file_info.file_size
             file_count += 1
@@ -456,23 +456,23 @@ class BasePackageCache:
                     # Use cryptographic hash to validate path integrity
                     path_hash = self._hash_path(member)
                     if len(path_hash) == 0:  # Invalid hash indicates problematic path
-                        raise PrompDError(f"Path integrity check failed: {member}")
+                        raise PrompdError(f"Path integrity check failed: {member}")
                 except Exception as e:
-                    raise PrompDError(f"Path validation failed for {member}: {e}")
+                    raise PrompdError(f"Path validation failed for {member}: {e}")
         
         # Enhanced limits validation
         if total_size > 200 * 1024 * 1024:  # 200MB total
-            raise PrompDError(f"Package too large: {total_size} bytes (max 200MB)")
+            raise PrompdError(f"Package too large: {total_size} bytes (max 200MB)")
         
         if file_count > 1000:  # Max 1000 files
-            raise PrompDError(f"Too many files in package: {file_count} (max 1000)")
+            raise PrompdError(f"Too many files in package: {file_count} (max 1000)")
     
     def _extract_zip_safely(self, zip_file: zipfile.ZipFile, target_dir: Path):
         """Safely extract ZIP with path traversal protection."""
         for member in zip_file.namelist():
             # Double-check path safety during extraction
             if not self._is_safe_path_enhanced(member):
-                raise PrompDError(f"Unsafe path detected during extraction: {member}")
+                raise PrompdError(f"Unsafe path detected during extraction: {member}")
             
             # Resolve target path safely
             target_path = target_dir / member
@@ -482,9 +482,9 @@ class BasePackageCache:
                 resolved_target = target_path.resolve()
                 resolved_base = target_dir.resolve()
                 if not str(resolved_target).startswith(str(resolved_base)):
-                    raise PrompDError(f"Path traversal attempt: {member}")
+                    raise PrompdError(f"Path traversal attempt: {member}")
             except (ValueError, OSError) as e:
-                raise PrompDError(f"Path resolution failed for {member}: {e}")
+                raise PrompdError(f"Path resolution failed for {member}: {e}")
             
             # Extract the member
             if member.endswith('/'):
@@ -539,19 +539,19 @@ class BasePackageCache:
         # Must have manifest.json
         manifest_file = package_dir / 'manifest.json'
         if not manifest_file.exists():
-            raise PrompDError(f"Package missing manifest.json: {package_ref.to_string()}")
+            raise PrompdError(f"Package missing manifest.json: {package_ref.to_string()}")
         
         try:
             with open(manifest_file, 'r', encoding='utf-8') as f:
                 manifest = json.load(f)
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise PrompDError(f"Invalid manifest.json: {e}")
+            raise PrompdError(f"Invalid manifest.json: {e}")
         
         # Validate manifest structure
         required_fields = ['name', 'version']
         for field in required_fields:
             if field not in manifest:
-                raise PrompDError(f"Manifest missing required field: {field}")
+                raise PrompdError(f"Manifest missing required field: {field}")
         
         # Validate that manifest matches package reference
         # Construct expected package ID from namespace and name
@@ -563,7 +563,7 @@ class BasePackageCache:
         # Check 'id' field first (package identifier), fallback to 'name' for compatibility
         manifest_id = manifest.get('id', manifest.get('name', ''))
         if manifest_id != expected_id:
-            raise PrompDError(f"Package ID mismatch: expected {expected_id}, got {manifest_id}")
+            raise PrompdError(f"Package ID mismatch: expected {expected_id}, got {manifest_id}")
     
     def _calculate_package_integrity(self, package_dir: Path) -> str:
         """Calculate SHA256 hash of all package files for integrity checking using cryptography library."""
@@ -681,14 +681,12 @@ class ProjectPackageCache(BasePackageCache):
 
 
 class GlobalPackageCache(BasePackageCache):
-    """Global user package cache (~/.cache/prompd/)."""
-    
+    """Global user package cache (~/.prompd/cache/)."""
+
     def __init__(self):
-        if os.name == 'nt':  # Windows
-            cache_dir = Path.home() / 'AppData' / 'Local' / 'prompd' / 'cache'
-        else:  # Unix-like
-            cache_dir = Path.home() / '.cache' / 'prompd'
-        
+        # Use consistent ~/.prompd/cache/ across all platforms
+        cache_dir = Path.home() / '.prompd' / 'cache'
+
         super().__init__(cache_dir)
 
 
@@ -854,7 +852,7 @@ class PackageResolver:
                 print(f"Warning: Failed to download from {registry_url}: {e}")
                 continue
         
-        raise PrompDError(f"Package not found in any registry: {package_reference}")
+        raise PrompdError(f"Package not found in any registry: {package_reference}")
     
     def uninstall_package(self, package_reference: str, force_global: bool = False) -> bool:
         """
@@ -934,12 +932,12 @@ class PackageResolver:
                 if versions:
                     version = max(versions.keys())
                 else:
-                    raise PrompDError(f"No versions found for {package_ref.name}")
+                    raise PrompdError(f"No versions found for {package_ref.name}")
             else:
                 version = package_ref.version
             
             if not version or version not in versions:
-                raise PrompDError(f"Version {package_ref.version} not found for {package_ref.name}")
+                raise PrompdError(f"Version {package_ref.version} not found for {package_ref.name}")
             
             version_info = versions[version]
             
@@ -992,13 +990,13 @@ class PackageResolver:
         """Load package manifest.json."""
         manifest_file = package_path / 'manifest.json'
         if not manifest_file.exists():
-            raise PrompDError(f"Package manifest not found: {manifest_file}")
+            raise PrompdError(f"Package manifest not found: {manifest_file}")
         
         try:
             with open(manifest_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
-            raise PrompDError(f"Invalid package manifest: {e}")
+            raise PrompdError(f"Invalid package manifest: {e}")
     
     def resolve_dependencies(self, package_path: Path) -> Dict[str, Path]:
         """Resolve all dependencies for a package."""

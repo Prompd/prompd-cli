@@ -4,10 +4,10 @@ import os
 import re
 from pathlib import Path
 from typing import Union
-from .exceptions import PrompDError
+from .exceptions import PrompdError
 
 
-class SecurityError(PrompDError):
+class SecurityError(PrompdError):
     """Raised when security validation fails."""
     pass
 

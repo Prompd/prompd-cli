@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ..registry import RegistryClient, validate_pdpkg
-from ..exceptions import PrompDError
+from ..exceptions import PrompdError
 from ..security import validate_file_path, SecurityError
 
 console = Console()

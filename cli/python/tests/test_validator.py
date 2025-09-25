@@ -3,16 +3,16 @@
 import pytest
 from pathlib import Path
 import tempfile
-from prompd.validator import PrompDValidator
+from prompd.validator import PrompdValidator
 from prompd.exceptions import ValidationError
 
 
-class TestPrompDValidator:
-    """Test PrompDValidator functionality."""
+class TestPrompdValidator:
+    """Test PrompdValidator functionality."""
     
     def setup_method(self):
         """Set up test fixtures."""
-        self.validator = PrompDValidator()
+        self.validator = PrompdValidator()
     
     def test_validate_version_format(self):
         """Test semantic version validation."""
@@ -43,7 +43,7 @@ class TestPrompDValidator:
 
 def test_validate_parameter_types():
     """Test validation of parameter types."""
-    validator = PrompDValidator()
+    validator = PrompdValidator()
     
     metadata = {
         "name": "test",
@@ -70,7 +70,7 @@ def test_validate_parameter_types():
 
 def test_validate_parameter_range():
     """Test validation of numeric ranges."""
-    validator = PrompDValidator()
+    validator = PrompdValidator()
     
     metadata = {
         "name": "test",
@@ -93,7 +93,7 @@ def test_validate_parameter_range():
 
 def test_validate_parameter_pattern():
     """Test validation of string patterns."""
-    validator = PrompDValidator()
+    validator = PrompdValidator()
     
     metadata = {
         "name": "test",
@@ -112,7 +112,7 @@ def test_validate_parameter_pattern():
 
 def test_validate_metadata():
     """Test validation of PMD metadata."""
-    validator = PrompDValidator()
+    validator = PrompdValidator()
     
     # Valid metadata
     from prompd.models import PrompdMetadata

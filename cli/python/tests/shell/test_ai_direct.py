@@ -7,20 +7,20 @@ import os
 # Add the prompd module to path
 sys.path.insert(0, r'C:\git\github\Logikbug\prompd-cli\cli\python')
 
-from prompd.executor import PrompDExecutor
-from prompd.config import PrompDConfig
+from prompd.executor import PrompdExecutor
+from prompd.config import PrompdConfig
 
 if __name__ == "__main__":
     print("Testing Direct AI Execution...")
     
     try:
         # Get config
-        config = PrompDConfig()
+        config = PrompdConfig()
         providers = config.get_providers()
         print(f"Available providers: {list(providers.keys()) if providers else 'None'}")
         
         # Create executor
-        executor = PrompDExecutor()
+        executor = PrompdExecutor()
         
         # Test prompt
         test_prompt = """You are a helpful assistant. 

@@ -15,16 +15,10 @@ from rich.panel import Panel
 # Heavy modules like executor, registry, compiler are imported only when needed
 from prompd import __version__ as PROMPD_VERSION
 from prompd.exceptions import PrompdError
-from prompd.commands.config import config
 
 # Configure console with proper encoding handling for Windows
-import platform
 try:
-    if platform.system() == "Windows":
-        # Force UTF-8 encoding on Windows to handle all characters properly
-        console = Console(file=sys.stdout, legacy_windows=True, width=120, force_terminal=True)
-    else:
-        console = Console(file=sys.stdout, force_terminal=True, width=120)
+    console = Console(file=sys.stdout, force_terminal=True, width=120)
 except:
     # Fallback to basic console if Rich fails
     console = Console(file=sys.stdout, legacy_windows=True, width=120)
@@ -35,10 +29,6 @@ except:
 def cli():
     """Prompd - CLI for structured prompt definitions."""
     pass
-
-
-# Register the config command
-cli.add_command(config)
 
 
 def _run_impl(ctx, file: Path, provider: Optional[str], model: Optional[str], param: tuple, param_file: tuple, 
@@ -376,19 +366,14 @@ def validate(file: Path, verbose: bool, git: bool, version_only: bool, check_ove
 
 
 @cli.command("list")
-@click.option("--path", "-p", type=click.Path(exists=True, path_type=Path),
+@click.option("--path", "-p", type=click.Path(exists=True, path_type=Path), 
               default=Path("."), help="Directory to search for .prmd files")
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed information")
-@click.option("--recursive", "-r", is_flag=True, help="Search recursively in subdirectories")
-def list_prompts(path: Path, detailed: bool, recursive: bool):
+def list_prompts(path: Path, detailed: bool):
     """List available .prmd files."""
     try:
         from prompd.parser import PrompdParser
-        # Use recursive glob only if --recursive is specified
-        if recursive:
-            prompd_files = list(Path(path).glob("**/*.prmd"))
-        else:
-            prompd_files = list(Path(path).glob("*.prmd"))
+        prompd_files = list(Path(path).glob("**/*.prmd"))
         
         if not prompd_files:
             console.print(f"No .prmd files found in {path}")
@@ -573,7 +558,7 @@ def chat_command():
 @click.option("--to-markdown", is_flag=True, help="Shorthand for --to markdown")
 @click.option("--to-provider-json", type=click.Choice(["openai", "anthropic"]), help="Shorthand for --to provider-json <provider>")
 @click.option("-p", "--param", multiple=True, help="Parameter in format key=value (repeat for multiple)")
-@click.option("-f", "--params-file", type=click.Path(exists=True, path_type=Path), multiple=True, help="Load parameters from JSON file (repeatable)")
+@click.option("--params-file", type=click.Path(exists=True, path_type=Path), multiple=True, help="Load parameters from JSON file (repeatable)")
 @click.option("-o", "--output", type=click.Path(), help="Write compiled output to file")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.pass_context
@@ -666,33 +651,12 @@ def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_
                     sys.exit(1)
 
         if param:
-            import json
             for kv in param:
                 if '=' not in kv:
                     console.print(f"[red]Invalid parameter:[/red] {kv}. Use key=value")
                     sys.exit(1)
                 k, v = kv.split('=', 1)
-
-                # Try to parse as JSON for complex objects, fallback to string
-                try:
-                    # If it looks like JSON (starts with { or [), try parsing it
-                    if v.strip().startswith(('{', '[')):
-                        parameters[k] = json.loads(v)
-                    # Handle boolean values
-                    elif v.lower() in ('true', 'false'):
-                        parameters[k] = v.lower() == 'true'
-                    # Handle numeric values
-                    elif v.isdigit() or (v.replace('.', '').replace('-', '').isdigit() and v.count('.') <= 1):
-                        if '.' in v:
-                            parameters[k] = float(v)
-                        else:
-                            parameters[k] = int(v)
-                    # Default to string
-                    else:
-                        parameters[k] = v
-                except json.JSONDecodeError:
-                    # If JSON parsing fails, treat as string
-                    parameters[k] = v
+                parameters[k] = v
 
         # Resolve requested output format, supporting legacy + shorthand forms
         if to_markdown:
@@ -717,7 +681,7 @@ def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_
 
         if verbose:
             try:
-                console.print(f"[dim]Compiling {source} -> {output_format} with params: {list(parameters.keys())}[/dim]")
+                console.print(f"[dim]Compiling {source} → {output_format} with params: {list(parameters.keys())}[/dim]")
             except Exception:
                 pass
 
@@ -748,20 +712,220 @@ def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_
 
 
 
-# Removed provider commands - moved to prompd.commands.config
+@provider.command("list")
+def list_providers():
+    """List available LLM providers and their models."""
+    try:
+        from prompd.config import PrompdConfig
+        from prompd.executor import PrompdExecutor
+        config = PrompdConfig.load()
+        executor = PrompdExecutor()
+        available_providers = executor.get_available_providers()
+        
+        if not available_providers:
+            console.print("[yellow]No providers available[/yellow]")
+            return
+        
+        for provider_name in available_providers:
+            models = executor.get_provider_models(provider_name)
+            
+            # Check if it's a custom provider
+            is_custom = provider_name in config.custom_providers
+            provider_type = "Custom" if is_custom else "Built-in"
+            
+            console.print(Panel(
+                f"[bold]{provider_name}[/bold] ({provider_type})\n"
+                f"Models: {', '.join(models[:5])}"
+                f"{' ...' if len(models) > 5 else ''}",
+                title="Provider",
+                border_style="green" if is_custom else "blue"
+            ))
+            
+    except Exception as e:
+        console.print(f"[red]Error listing providers:[/red] {e}")
+        sys.exit(1)
 
-# Old provider commands removed (lines 715-918)
-# All provider functionality now available via:
-# - prompd config provider list
-# - prompd config provider add
-# - prompd config provider remove
-# - prompd config provider setkey
-# - prompd config providers (alias)
+
+@provider.command("add")
+@click.argument("name")
+@click.argument("base_url")
+@click.argument("models", nargs=-1, required=True)
+@click.option("--api-key", help="API key for the provider")
+@click.option("--type", "provider_type", default="openai-compatible", 
+              type=click.Choice(["openai-compatible"]), help="Provider type")
+def add_provider(name: str, base_url: str, models: tuple, api_key: Optional[str], provider_type: str):
+    """Add a custom LLM provider.
+
+    NAME: Provider name (e.g., 'local-ollama')
+    BASE_URL: API endpoint URL (e.g., 'http://localhost:11434/v1')
+    MODELS: Space-separated list of model names
+    """
+    try:
+        from prompd.config import PrompdConfig
+        config = PrompdConfig.load()
+        
+        # Check if provider already exists
+        if name in config.custom_providers:
+            console.print(f"[yellow]Provider '{name}' already exists. Use 'prompd provider remove {name}' first.[/yellow]")
+            return
+        
+        # Add the provider
+        config.add_custom_provider(
+            name=name,
+            base_url=base_url,
+            models=list(models),
+            api_key=api_key,
+            provider_type=provider_type
+        )
+        
+        # Save config
+        config.save()
+        
+        console.print(f"[green]OK[/green] Added custom provider '{name}'")
+        console.print(f"  Base URL: {base_url}")
+        console.print(f"  Models: {', '.join(models)}")
+        if api_key:
+            console.print(f"  API Key: {'*' * (len(api_key) - 4)}{api_key[-4:]}")
+        
+    except Exception as e:
+        console.print(f"[red]Error adding provider:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("remove")
+@click.argument("name")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def remove_provider(name: str, yes: bool):
+    """Remove a custom LLM provider."""
+    try:
+        from prompd.config import PrompdConfig
+        config = PrompdConfig.load()
+        
+        if name not in config.custom_providers:
+            console.print(f"[red]Provider '{name}' not found[/red]")
+            sys.exit(1)
+        
+        if not yes:
+            provider_info = config.custom_providers[name]
+            console.print(f"About to remove provider: [bold]{name}[/bold]")
+            console.print(f"  Base URL: {provider_info.get('base_url')}")
+            console.print(f"  Models: {', '.join(provider_info.get('models', []))}")
+            
+            if not click.confirm("Are you sure?"):
+                console.print("Cancelled.")
+                return
+        
+        # Remove the provider
+        config.remove_custom_provider(name)
+        config.save()
+        
+        console.print(f"[green]OK[/green] Removed provider '{name}'")
+        
+    except Exception as e:
+        console.print(f"[red]Error removing provider:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("show")
+@click.argument("name")
+def show_provider(name: str):
+    """Show details for a specific provider."""
+    try:
+        from prompd.config import PrompdConfig
+        from prompd.executor import PrompdExecutor
+        config = PrompdConfig.load()
+        executor = PrompdExecutor()
+        
+        # Check if it's a custom provider
+        if name in config.custom_providers:
+            provider_info = config.custom_providers[name]
+            console.print(Panel(
+                f"[bold cyan]{name}[/bold cyan] (Custom Provider)\n\n"
+                f"[bold]Base URL:[/bold] {provider_info['base_url']}\n"
+                f"[bold]Type:[/bold] {provider_info.get('type', 'openai-compatible')}\n"
+                f"[bold]Enabled:[/bold] {provider_info.get('enabled', True)}\n"
+                f"[bold]API Key:[/bold] {'Set' if provider_info.get('api_key') else 'Not set'}\n\n"
+                f"[bold]Models:[/bold]\n" + 
+                '\n'.join(f"  • {model}" for model in provider_info.get('models', [])),
+                border_style="green"
+            ))
+        else:
+            # Check if it's a built-in provider
+            available_providers = executor.get_available_providers()
+            if name not in available_providers:
+                console.print(f"[red]Provider '{name}' not found[/red]")
+                sys.exit(1)
+            
+            models = executor.get_provider_models(name)
+            has_api_key = bool(config.get_api_key(name))
+            
+            console.print(Panel(
+                f"[bold cyan]{name}[/bold cyan] (Built-in Provider)\n\n"
+                f"[bold]API Key:[/bold] {'Set' if has_api_key else 'Not set'}\n\n"
+                f"[bold]Models:[/bold]\n" + 
+                '\n'.join(f"  • {model}" for model in models[:10]) +
+                (f"\n  ... and {len(models) - 10} more" if len(models) > 10 else ""),
+                border_style="blue"
+            ))
+        
+    except Exception as e:
+        console.print(f"[red]Error showing provider:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("setkey")
+@click.argument("provider_name")
+@click.argument("api_key")
+def set_api_key(provider_name: str, api_key: str):
+    """Set API key for a provider."""
+    try:
+        from prompd.config import PrompdConfig
+        config = PrompdConfig.load()
+        
+        # Set the API key
+        if not hasattr(config, 'api_keys') or config.api_keys is None:
+            config.api_keys = {}
+        
+        config.api_keys[provider_name] = api_key
+        config.save()
+        
+        console.print(f"[green]Success:[/green] API key set for {provider_name}")
+        
+    except Exception as e:
+        console.print(f"[red]Error setting API key:[/red] {e}")
+        sys.exit(1)
+
+
+@provider.command("removekey")
+@click.argument("provider_name")
+def remove_api_key(provider_name: str):
+    """Remove API key for a provider."""
+    try:
+        from prompd.config import PrompdConfig
+        config = PrompdConfig.load()
+        
+        if hasattr(config, 'api_keys') and config.api_keys and provider_name in config.api_keys:
+            del config.api_keys[provider_name]
+            config.save()
+            console.print(f"[green]Success:[/green] API key removed for {provider_name}")
+        else:
+            console.print(f"[yellow]No API key configured for {provider_name}[/yellow]")
+        
+    except Exception as e:
+        console.print(f"[red]Error removing API key:[/red] {e}")
+        sys.exit(1)
+
 
 # Keep the old providers command for backward compatibility
-# All provider functionality moved to prompd.commands.config
-
-# Legacy providers command removed - use 'prompd config provider list' or 'prompd config providers'
+@cli.command()
+def providers():
+    """List available LLM providers and their models."""
+    console.print("[dim]Note: Use 'prompd provider list' for more detailed view[/dim]\n")
+    
+    # Call the new command
+    from click.testing import CliRunner
+    runner = CliRunner()
+    runner.invoke(list_providers)
 
 
 @cli.command()
@@ -814,7 +978,7 @@ def show(file: Path, sections: bool, verbose: bool):
         if content_info:
             console.print(f"\n[bold]Content Structure:[/bold]")
             for info in content_info:
-                console.print(f"  -{info}")
+                console.print(f"  • {info}")
         
         # Handle sections display
         if sections:
@@ -858,7 +1022,7 @@ def show(file: Path, sections: bool, verbose: bool):
             if prompd.sections:
                 console.print(f"\n[bold]Available Sections:[/bold]")
                 for section_name in prompd.sections:
-                    console.print(f"  -#{section_name}")
+                    console.print(f"  • #{section_name}")
 
             # Show inheritance information if present
             if metadata and hasattr(metadata, 'inherits') and metadata.inherits:
@@ -869,9 +1033,9 @@ def show(file: Path, sections: bool, verbose: bool):
                     console.print(f"\n[bold]Section Overrides:[/bold]")
                     for section_id, override_path in metadata.override.items():
                         if override_path is None:
-                            console.print(f"  -[red]{section_id}[/red]: [removed]")
+                            console.print(f"  • [red]{section_id}[/red]: [removed]")
                         else:
-                            console.print(f"  -[cyan]{section_id}[/cyan]: {override_path}")
+                            console.print(f"  • [cyan]{section_id}[/cyan]: {override_path}")
 
         if metadata.requires:
             console.print(f"\n[bold]Requirements:[/bold] {', '.join(metadata.requires)}")
@@ -1218,7 +1382,7 @@ def version_diff(file: Path, version1: str, version2: Optional[str]):
             return
         
         syntax = Syntax(diff_output, "diff", theme="monokai", line_numbers=True)
-        console.print(Panel(syntax, title=f"Diff: {version1} -> {version2}"))
+        console.print(Panel(syntax, title=f"Diff: {version1} → {version2}"))
         
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -1423,19 +1587,19 @@ def _git_diff_versions(file_path: Path, version1: str, version2: str) -> str:
 # ================================================================================
 
 @cli.command()
-@click.option('-k', '--api-key', help='API key for authentication')
-@click.option('-u', '--username', help='Username for credential authentication')
+@click.option('--token', help='API token for authentication')
+@click.option('--username', help='Username for credential authentication')  
 @click.option('--password', help='Password for credential authentication')
 @click.option('--registry', help='Registry to login to')
-def login(api_key: Optional[str], username: Optional[str], password: Optional[str], registry: Optional[str]):
+def login(token: Optional[str], username: Optional[str], password: Optional[str], registry: Optional[str]):
     """Login to package registry."""
     try:
         from .registry import RegistryClient
         
         client = RegistryClient(registry_name=registry)
-
-        if api_key:
-            result = client.login_with_token(api_key)
+        
+        if token:
+            result = client.login_with_token(token)
         elif username and password:
             result = client.login_with_credentials(username, password)
         else:
@@ -1472,12 +1636,11 @@ def logout(registry: Optional[str]):
 @cli.command()
 @click.argument('packages', nargs=-1, required=False)
 @click.option('-g', '--global', 'global_install', is_flag=True, help='Install packages globally')
-@click.option('--save', is_flag=True, default=True, help='Save to dependencies (default behavior)')
-@click.option('--save-dev', is_flag=True, help='Save to development dependencies')
+@click.option('--dev', is_flag=True, help='Add to development dependencies')
 @click.option('--registry', help='Registry to install from')
-def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, registry: Optional[str]):
+def install(packages: tuple, global_install: bool, dev: bool, registry: Optional[str]):
     """Install packages from registry.
-
+    
     Without arguments: installs all dependencies from manifest.json
     With arguments: installs specified packages and updates manifest.json
     """
@@ -1489,10 +1652,7 @@ def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, r
         from rich.progress import Progress, TaskID
         from rich.table import Table
         from rich.live import Live
-
-        # Determine dependency type - save_dev takes precedence over save
-        dev = save_dev
-
+        
         manifest_path = Path.cwd() / 'manifest.json'
         
         # If no packages specified, install from manifest.json
@@ -1649,7 +1809,7 @@ def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, r
         else:
             # Single package installation
             package_ref = packages[0]
-            console.print(f"Installing {package_ref} {'globally' if global_install else 'locally'}...")
+            console.print(f"Installing {package_ref}{'globally' if global_install else 'locally'}...")
             
             # Parse package reference to get name and version
             if '@' in package_ref and not package_ref.startswith('@'):
@@ -1688,7 +1848,7 @@ def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, r
         if not global_install:
             with open(manifest_path, 'w', encoding='utf-8') as f:
                 json.dump(manifest, f, indent=2)
-            console.print(f"\n[dim]Updated manifest.json and .prompd/lock.json[/dim]")
+            console.print(f"\n[dim]Updated manifest.json and .prmd/lock.json[/dim]")
         
     except Exception as e:
         console.print(f"[red]Installation failed:[/red] {e}")
@@ -1698,8 +1858,8 @@ def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, r
 @cli.command()
 @click.argument('packages', nargs=-1, required=True)
 @click.option('-g', '--global', 'global_uninstall', is_flag=True, help='Uninstall packages globally')
-@click.option('--save-dev', is_flag=True, help='Remove from development dependencies')
-def uninstall(packages: tuple, global_uninstall: bool, save_dev: bool):
+@click.option('--dev', is_flag=True, help='Remove from development dependencies')
+def uninstall(packages: tuple, global_uninstall: bool, dev: bool):
     """Uninstall packages."""
     try:
         from .package_resolver import PackageResolver
@@ -1727,7 +1887,7 @@ def uninstall(packages: tuple, global_uninstall: bool, save_dev: bool):
                 removed = resolver.uninstall_package(matching[0].to_string(), force_global=True)
             else:
                 # Local uninstall with dependency management
-                resolver.remove_dependency(package_name, dev=save_dev, global_uninstall=False)
+                resolver.remove_dependency(package_name, dev=dev, global_uninstall=False)
                 removed = True
             
             if removed:
@@ -1742,7 +1902,7 @@ def uninstall(packages: tuple, global_uninstall: bool, save_dev: bool):
 
 @cli.command()
 @click.argument('query', required=True)
-@click.option('-l', '--limit', default=20, help='Maximum number of results')
+@click.option('--limit', default=20, help='Maximum number of results')
 @click.option('--registry', help='Registry to search in')
 def search(query: str, limit: int, registry: Optional[str]):
     """Search packages in registry."""
@@ -1767,17 +1927,11 @@ def search(query: str, limit: int, registry: Optional[str]):
         for pkg in results:
             # Use fullName (includes scope) or fallback to name
             package_name = pkg.get('fullName', pkg.get('name', 'Unknown'))
-
-            # Try multiple version field names from registry response
-            version = (pkg.get('latestVersion') or
-                      pkg.get('latest_version') or
-                      pkg.get('version') or
-                      pkg.get('currentVersion') or
-                      'Unknown')
-
+            # Use latestVersion (backend field) not latest_version
+            version = pkg.get('latestVersion', pkg.get('latest_version', 'Unknown'))
             # Use downloads30d (backend field) or fallback to downloads
             downloads = pkg.get('downloads30d', pkg.get('downloads', 0))
-
+            
             table.add_row(
                 package_name,
                 version,
@@ -1796,60 +1950,18 @@ def search(query: str, limit: int, registry: Optional[str]):
 @click.argument('package_file', type=click.Path(exists=True, path_type=Path))
 @click.option('--registry', help='Registry to publish to')
 @click.option('-ns', '--namespace', help='Namespace to publish to (overrides current namespace context)')
-@click.option('-n', '--dry-run', is_flag=True, help='Show what would be published without actually doing it')
+@click.option('--dry-run', is_flag=True, help='Show what would be published without actually doing it')
 def publish(package_file: Path, registry: Optional[str], namespace: Optional[str], dry_run: bool):
     """Publish package to registry."""
     try:
-        import zipfile
-        import json
         from .registry import RegistryClient
-
+        
         if dry_run:
             console.print(f"[yellow]DRY RUN: Would publish {package_file}[/yellow]")
             return
-
-        # Extract package information from manifest before upload
-        package_name = "unknown"
-        package_version = "unknown"
-        try:
-            with zipfile.ZipFile(package_file, 'r') as zf:
-                if 'manifest.json' in zf.namelist():
-                    # Ensure proper encoding handling
-                    manifest_bytes = zf.read('manifest.json')
-                    manifest_text = manifest_bytes.decode('utf-8', errors='replace')
-                    manifest_data = json.loads(manifest_text)
-                    package_name = manifest_data.get('id', manifest_data.get('name', 'unknown'))
-                    package_version = manifest_data.get('version', 'unknown')
-
-                    # If namespace is provided and package doesn't have a scope, add it
-                    if namespace and not package_name.startswith('@'):
-                        package_name = f"{namespace}/{package_name}"
-        except Exception as e:
-            # Silently fall back to unknown values if parsing fails
-            pass
-
-        console.print(f"[blue]Publishing {package_name}@{package_version}...[/blue]")
-        console.print(f"[dim]Package: {package_file}[/dim]")
-
+        
         client = RegistryClient(registry_name=registry)
-
-        # Show registry info
-        console.print(f"[dim]Registry: {client.registry_name} ({client.registry_url})[/dim]")
-
-        # Show current namespace context
-        current_ns = client.get_current_namespace()
-        if namespace:
-            console.print(f"[dim]Namespace: {namespace} (override)[/dim]")
-        elif current_ns:
-            console.print(f"[dim]Namespace: {current_ns} (current)[/dim]")
-        else:
-            console.print(f"[dim]Namespace: none (will use package scope or registry default)[/dim]")
-
-        # Add upload progress
-        file_size = package_file.stat().st_size
-        console.print(f"[dim]Size: {file_size:,} bytes[/dim]")
-        console.print("[yellow]Uploading...[/yellow]")
-
+        
         # Handle namespace specification
         if namespace:
             # Override current namespace context for this publish
@@ -1857,18 +1969,15 @@ def publish(package_file: Path, registry: Optional[str], namespace: Optional[str
         else:
             # Use current namespace context or default behavior
             result = client.publish_package(package_file)
-
-        # Extract actual published info from registry response or use our pre-extracted values
-        published_name = result.get('package', {}).get('fullName') or result.get('name') or package_name
-        published_version = result.get('package', {}).get('version') or result.get('version') or package_version
-
-        console.print(f"[green]SUCCESS[/green] Published {published_name}@{published_version}")
+        
+        package_info = result.get('package', {})
+        package_name = package_info.get('fullName', 'Unknown')
+        package_version = package_info.get('version', 'Unknown')
+        console.print(f"[green]SUCCESS[/green] Published {package_name}@{package_version}")
         console.print(f"  Registry: {client.registry_name}")
         if 'package_url' in result:
             console.print(f"  URL: {result['package_url']}")
-        elif 'url' in result:
-            console.print(f"  URL: {result['url']}")
-
+        
     except Exception as e:
         console.print(f"[red]Publish failed:[/red] {e}")
         sys.exit(1)
@@ -1891,40 +2000,6 @@ def ns():
     pass
 
 
-# Add commands to ns group that delegate to namespace commands
-@ns.command('list')
-@click.option('--registry', help='Registry to query')
-@click.option('--show-permissions', '-p', is_flag=True, help='Show detailed permissions for each namespace')
-def ns_list(registry: Optional[str], show_permissions: bool):
-    """List accessible namespaces."""
-    return namespace_list(registry, show_permissions)
-
-
-@ns.command('current')
-@click.option('--registry', help='Registry to query')
-def ns_current(registry: Optional[str]):
-    """Show current namespace context."""
-    # Call the actual namespace_current function directly
-    return namespace_current(registry)
-
-
-@ns.command('use')
-@click.argument('namespace_name')
-@click.option('--registry', help='Registry to use')
-def ns_use(namespace_name: str, registry: Optional[str]):
-    """Switch to a different namespace context."""
-    return namespace_use(namespace_name, registry)
-
-
-@ns.command('create')
-@click.argument('namespace_name')
-@click.option('--registry', help='Registry to use')
-@click.option('--description', help='Namespace description')
-def ns_create(namespace_name: str, registry: Optional[str], description: Optional[str]):
-    """Create a new namespace."""
-    return namespace_create(namespace_name, registry, description)
-
-
 @namespace.command('list')
 @click.option('--registry', help='Registry to query')
 @click.option('--show-permissions', '-p', is_flag=True, help='Show detailed permissions for each namespace')
@@ -1939,8 +2014,8 @@ def namespace_list(registry: Optional[str], show_permissions: bool):
         if not namespaces:
             console.print("[yellow]No namespaces available[/yellow]")
             console.print("\nTo get started:")
-            console.print("-Free users can publish to @public automatically")
-            console.print("-Create a team namespace: [cyan]prompd namespace create @my-company[/cyan]")
+            console.print("• Free users can publish to @public automatically")
+            console.print("• Create a team namespace: [cyan]prompd namespace create @my-company[/cyan]")
             return
         
         # Get current namespace context
@@ -2045,9 +2120,19 @@ def namespace_use(namespace_name: str, registry: Optional[str]):
             namespace_name = '@' + namespace_name
         
         client = RegistryClient(registry_name=registry)
-
-        # Just set the namespace context
-        # In a real system, the registry will validate access when you try to publish
+        
+        # Validate user has access to this namespace
+        namespaces = client.list_user_namespaces()
+        available_names = [ns['name'] for ns in namespaces]
+        
+        if namespace_name not in available_names:
+            console.print(f"[red]Error:[/red] You don't have access to namespace [cyan]{namespace_name}[/cyan]")
+            console.print("\nAvailable namespaces:")
+            for name in available_names:
+                console.print(f"  • {name}")
+            sys.exit(1)
+        
+        # Set the namespace context
         client.set_current_namespace(namespace_name)
         
         console.print(f"[green]Success:[/green] Switched to namespace [cyan]{namespace_name}[/cyan]")
@@ -2228,34 +2313,34 @@ def list_cache(global_only: bool, local_only: bool):
         sys.exit(1)
 
 
-@cache.command('clear')
-@click.option('--global', 'clear_global', is_flag=True, help='Clear global cache')
-@click.option('--local', 'clear_local', is_flag=True, help='Clear local cache')
-@click.option('--all', 'clear_all', is_flag=True, help='Clear both caches')
-def clear_cache(clear_global: bool, clear_local: bool, clear_all: bool):
-    """Clear package cache."""
+@cache.command('clean')
+@click.option('--global', 'clean_global', is_flag=True, help='Clean global cache')
+@click.option('--local', 'clean_local', is_flag=True, help='Clean local cache')
+@click.option('--all', 'clean_all', is_flag=True, help='Clean both caches')
+def clean_cache(clean_global: bool, clean_local: bool, clean_all: bool):
+    """Clean package cache."""
     try:
         from .package_resolver import PackageResolver
         
         resolver = PackageResolver()
         
-        if clear_all:
-            clear_global = clear_local = True
-        elif not clear_global and not clear_local:
-            clear_local = True  # Default to local
-
-        resolver.clear_cache(clear_global=clear_global, clear_local=clear_local)
-
-        cleared = []
-        if clear_local:
-            cleared.append("local")
-        if clear_global:
-            cleared.append("global")
-
-        console.print(f"[green]Success:[/green] Cleared {' and '.join(cleared)} cache(s)")
-
+        if clean_all:
+            clean_global = clean_local = True
+        elif not clean_global and not clean_local:
+            clean_local = True  # Default to local
+        
+        resolver.clear_cache(clear_global=clean_global, clear_local=clean_local)
+        
+        cleaned = []
+        if clean_local:
+            cleaned.append("local")
+        if clean_global:
+            cleaned.append("global")
+        
+        console.print(f"[green]Success:[/green] Cleaned {' and '.join(cleaned)} cache(s)")
+        
     except Exception as e:
-        console.print(f"[red]Failed to clear cache:[/red] {e}")
+        console.print(f"[red]Failed to clean cache:[/red] {e}")
         sys.exit(1)
 
 
@@ -2406,7 +2491,7 @@ def install_dependencies(package: str, save: bool, save_dev: bool, target: Optio
         
         # Generate lock file
         lock_data = resolver.generate_lock_file()
-        lock_file = Path.cwd() / '.prompd' / 'lock.json'
+        lock_file = Path.cwd() / '.prmd' / 'lock.json'
         lock_file.parent.mkdir(parents=True, exist_ok=True)
         
         with open(lock_file, 'w') as f:
@@ -2489,7 +2574,7 @@ def update_dependencies(dry_run: bool, latest: bool):
         # Show updates
         console.print("\n[bold]Available updates:[/bold]")
         for update in updates:
-            console.print(f"  {update['package']}: {update['current']} -> {update['new']}")
+            console.print(f"  {update['package']}: {update['current']} → {update['new']}")
         
         if not dry_run:
             # Apply updates
@@ -2519,45 +2604,52 @@ def package():
 @package.command('create')
 @click.argument('source', type=click.Path(exists=True, path_type=Path))
 @click.argument('output_path', type=click.Path(path_type=Path), required=False)
-@click.option('-n', '--name', help='Package name (overrides manifest.json)')
-@click.option('-V', '--version', help='Package version (overrides manifest.json)')
-@click.option('-d', '--description', help='Package description (overrides manifest.json)')
-@click.option('-a', '--author', help='Package author (overrides manifest.json)')
+@click.option('--name', help='Package name (overrides .pdproj)')
+@click.option('--version', help='Package version (overrides .pdproj)')
+@click.option('--description', help='Package description (overrides .pdproj)')
+@click.option('--author', help='Package author (overrides .pdproj)')
 def package_create(source: Path, output_path: Optional[Path], name: Optional[str], version: Optional[str], description: Optional[str], author: Optional[str]):
-    """Create a .pdpkg package from a directory. Uses manifest.json if present, smart defaults otherwise."""
+    """Create a .pdpkg package from a directory or .pdproj file."""
     try:
         from prompd.registry import create_pdpkg, validate_pdpkg
-        # Source must be a directory (no longer support .pdproj files)
-        if not source.is_dir():
-            console.print("[red]ERROR[/red] Source must be a directory")
-            sys.exit(1)
-
-        source_dir = source
-
-        # Check for existing manifest.json in the directory
-        manifest_path = source_dir / 'manifest.json'
-        manifest_data = {}
-
-        if manifest_path.exists():
-            # Load existing manifest.json
-            try:
-                import json
-                with open(manifest_path, 'r', encoding='utf-8') as f:
-                    manifest_data = json.load(f)
-                console.print(f"[dim]Found existing manifest.json[/dim]")
-            except (json.JSONDecodeError, Exception) as e:
-                console.print(f"[yellow]Warning: Could not read manifest.json: {e}[/yellow]")
-                manifest_data = {}
-
-        # Generate smart defaults with CLI overrides taking precedence
-        proj_name = name or manifest_data.get('name', source_dir.name.lower().replace(' ', '-').replace('_', '-'))
-        proj_version = version or manifest_data.get('version', '1.0.0')
-        proj_description = description or manifest_data.get('description', f'Package created from {source_dir.name}')
-        proj_author = author or manifest_data.get('author', 'unknown')
-
-        # Default output path
-        if not output_path:
-            output_path = source_dir / f"{proj_name}-{proj_version}.pdpkg"
+        # Check if source is a .pdproj file
+        if source.suffix == '.pdproj':
+            # Parse .pdproj file as YAML (no frontmatter in .pdproj files)
+            import yaml
+            with open(source, 'r', encoding='utf-8') as f:
+                pdproj_content = f.read()
+            
+            # Parse as YAML (comment-style format)
+            pdproj_data = yaml.safe_load(pdproj_content)
+            
+            # Extract metadata from .pdproj
+            proj_name = name or pdproj_data.get('name', source.stem)
+            proj_version = version or pdproj_data.get('version', '1.0.0')
+            proj_description = description or pdproj_data.get('description', 'Package created from .pdproj')
+            proj_author = author or pdproj_data.get('author', 'unknown')
+            
+            # Source directory is parent of .pdproj file
+            source_dir = source.parent
+            
+            # Default output path based on project name and version
+            if not output_path:
+                output_path = source.parent / f"{proj_name.lower().replace(' ', '-')}-v{proj_version}.pdpkg"
+            
+        else:
+            # Legacy directory mode - require manual parameters
+            if not all([name, version, description]):
+                console.print("[red]ERROR[/red] When packaging a directory, --name, --version, and --description are required")
+                sys.exit(1)
+            
+            source_dir = source
+            proj_name = name
+            proj_version = version
+            proj_description = description
+            proj_author = author
+            
+            # Default output path
+            if not output_path:
+                output_path = source_dir / f"{proj_name}-v{proj_version}.pdpkg"
         
         # Ensure output has .pdpkg extension
         if not output_path.suffix:
@@ -2661,154 +2753,6 @@ def package_validate(package_path: Path):
     except Exception as e:
         console.print(f"[red]ERROR[/red] [bold red]Validation failed:[/bold red] {e}")
         sys.exit(1)
-
-
-# Alias for package create
-@cli.command('pack')
-@click.argument('source', type=click.Path(exists=True, path_type=Path))
-@click.argument('output_path', type=click.Path(path_type=Path), required=False)
-@click.option('-n', '--name', help='Package name (overrides manifest.json)')
-@click.option('-V', '--version', help='Package version (overrides manifest.json)')
-@click.option('-d', '--description', help='Package description (overrides manifest.json)')
-@click.option('-a', '--author', help='Package author (overrides manifest.json)')
-def pack_alias(source: Path, output_path: Optional[Path], name: Optional[str], version: Optional[str], description: Optional[str], author: Optional[str]):
-    """Create a .pdpkg package from a directory (alias for 'package create')."""
-    # Call the same logic as package create directly
-    package_create.callback(source, output_path, name, version, description, author)
-
-
-@cli.command("create")
-@click.argument("file", type=click.Path(path_type=Path))
-@click.option("-i", "--interactive", is_flag=True, help="Interactive mode with prompts")
-@click.option("-n", "--name", help="Prompt name")
-@click.option("-d", "--description", help="Prompt description")
-@click.option("-a", "--author", help="Author name")
-@click.option("-v", "--version", default="1.0.0", help="Version (default: 1.0.0)")
-@click.option("-t", "--template", type=click.Choice(['basic', 'analysis', 'security', 'code-review', 'creative']),
-              help="Use a predefined template")
-def create_command(file: Path, interactive: bool, name: str, description: str,
-                  author: str, version: str, template: str):
-    """Create a new .prmd file"""
-    from prompd.commands.create import create_prmd_file
-
-    try:
-        create_prmd_file(
-            file_path=file,
-            interactive=interactive,
-            name=name,
-            description=description,
-            author=author,
-            version=version,
-            template=template
-        )
-        console.print(f"[green]OK[/green] Created {file}")
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        sys.exit(1)
-
-
-@cli.command()
-@click.argument('path', default='.', type=click.Path(path_type=Path))
-@click.option('--name', help='Project name (default: directory name)')
-@click.option('--version', default='1.0.0', help='Initial version (default: 1.0.0)')
-@click.option('--description', help='Project description')
-@click.option('--author', help='Project author')
-def init(path: Path, name: Optional[str], version: str, description: Optional[str], author: Optional[str]):
-    """Initialize a new Prompd project with manifest.json."""
-    from rich.console import Console
-
-    console = Console()
-
-    # Resolve the path
-    project_dir = path.resolve()
-
-    # Create directory if it doesn't exist
-    if not project_dir.exists():
-        project_dir.mkdir(parents=True, exist_ok=True)
-        console.print(f"[green]OK[/green] Created directory: {project_dir}")
-
-    # Check if manifest.json already exists
-    manifest_path = project_dir / 'manifest.json'
-    if manifest_path.exists():
-        console.print(f"[yellow]Warning:[/yellow] manifest.json already exists in {project_dir}")
-        if not click.confirm("Overwrite existing manifest.json?"):
-            console.print("[red]Aborted[/red]")
-            return
-
-    # Generate smart defaults
-    default_name = name or project_dir.name.lower().replace(' ', '-').replace('_', '-')
-    default_description = description or f"Prompd project: {default_name}"
-    default_author = author or "unknown"
-
-    # Create manifest.json
-    manifest_data = {
-        "name": default_name,
-        "version": version,
-        "description": default_description,
-        "author": default_author,
-        "files": [
-            "*.prmd",
-            "*.md",
-            "templates/",
-            "docs/",
-            "examples/"
-        ],
-        "ignore": [
-            "*.log",
-            "*.tmp",
-            ".env*"
-        ],
-        "dependencies": {},
-        "devDependencies": {}
-    }
-
-    # Write manifest.json
-    import json
-    with open(manifest_path, 'w', encoding='utf-8') as f:
-        json.dump(manifest_data, f, indent=2, ensure_ascii=False)
-
-    console.print(f"[green]OK[/green] Created manifest.json")
-    console.print(f"[green]OK[/green] Initialized Prompd project: {default_name}")
-
-    # Create a sample .prmd file if none exists
-    sample_prmd = project_dir / 'example.prmd'
-    if not any(project_dir.glob('*.prmd')):
-        sample_content = f"""---
-name: {default_name}-example
-version: {version}
-description: Example prompt for {default_name}
-parameters:
-  name:
-    type: string
-    required: true
-    description: Name to greet
----
-
-# Example Prompt
-
-Hello {{{{ name }}}}! Welcome to {default_name}.
-
-This is an example .prmd file to get you started.
-
-## Usage
-```bash
-prompd run example.prmd --provider openai --model gpt-4o -p name="World"
-```
-"""
-
-        with open(sample_prmd, 'w', encoding='utf-8') as f:
-            f.write(sample_content)
-
-        console.print(f"[green]OK[/green] Created example.prmd")
-
-    console.print(f"\n[bold]Project initialized![/bold]")
-    console.print(f"  Directory: {project_dir}")
-    console.print(f"  Name: {default_name}")
-    console.print(f"  Version: {version}")
-    console.print(f"\n[dim]Next steps:[/dim]")
-    console.print(f"  cd {project_dir.name if project_dir != Path.cwd() else '.'}")
-    console.print(f"  prompd validate example.prmd")
-    console.print(f"  prompd pack . -o {default_name}-{version}.pdpkg")
 
 
 def main():

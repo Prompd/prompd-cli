@@ -10,8 +10,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from ..config import PrompDConfig
-from ..exceptions import PrompDError
+from ..config import PrompdConfig
+from ..exceptions import PrompdError
 from ..security import SecurityError, validate_version_string
 
 console = Console()
@@ -26,7 +26,7 @@ def provider():
 @provider.command("list")
 def list_providers():
     """List all configured providers."""
-    config = PrompDConfig()
+    config = PrompdConfig()
     
     if not config.providers:
         console.print("[yellow]No custom providers configured[/yellow]")
@@ -66,7 +66,7 @@ def add_provider(name: str, url: str, models: tuple, api_key: Optional[str]):
         prompd provider add lm-studio http://localhost:1234/v1 local-model
     """
     try:
-        config = PrompDConfig()
+        config = PrompdConfig()
         
         # Basic validation
         if not name.replace('-', '').replace('_', '').isalnum():
@@ -109,7 +109,7 @@ def add_provider(name: str, url: str, models: tuple, api_key: Optional[str]):
 @click.argument('name')
 def remove_provider(name: str):
     """Remove a custom provider."""
-    config = PrompDConfig()
+    config = PrompdConfig()
     
     if name not in config.providers:
         console.print(f"[yellow]Provider '{name}' not found[/yellow]")
@@ -125,7 +125,7 @@ def remove_provider(name: str):
 @click.argument('name')
 def show_provider(name: str):
     """Show detailed information about a provider."""
-    config = PrompDConfig()
+    config = PrompdConfig()
     
     if name not in config.providers:
         console.print(f"[yellow]Provider '{name}' not found[/yellow]")
@@ -148,7 +148,7 @@ def show_provider(name: str):
 @click.argument('api_key')
 def setkey(provider_name: str, api_key: str):
     """Set API key for a provider."""
-    config = PrompDConfig()
+    config = PrompdConfig()
     
     # Check if it's a built-in provider
     builtin_providers = ['openai', 'anthropic', 'ollama', 'groq', 'together']
@@ -172,7 +172,7 @@ def setkey(provider_name: str, api_key: str):
 @click.argument('provider_name')
 def removekey(provider_name: str):
     """Remove API key for a provider."""
-    config = PrompDConfig()
+    config = PrompdConfig()
     
     removed = False
     

@@ -12,10 +12,10 @@ from rich.syntax import Syntax
 from rich.panel import Panel
 
 from prompd.parser import PrompdParser
-from prompd.validator import PrompDValidator
-from prompd.executor import PrompDExecutor
-from prompd.config import PrompDConfig
-from prompd.exceptions import PrompDError, ValidationError, ParseError, ProviderError, ConfigurationError
+from prompd.validator import PrompdValidator
+from prompd.executor import PrompdExecutor
+from prompd.config import PrompdConfig
+from prompd.exceptions import PrompdError, ValidationError, ParseError, ProviderError, ConfigurationError
 from prompd.compiler import PrompdCompiler
 from prompd.registry import RegistryClient, validate_pdpkg
 from prompd.security import validate_git_file_path, validate_git_message, validate_version_string, SecurityError
@@ -102,11 +102,11 @@ def _run_impl(ctx, file: Path, provider: Optional[str], model: Optional[str], pa
             pass
 
         # Create executor
-        executor = PrompDExecutor()
+        executor = PrompdExecutor()
         
         # Resolve defaults for provider/model when omitted
         try:
-            cfg = PrompDConfig.load()
+            cfg = PrompdConfig.load()
             # Provider defaulting
             if not provider:
                 provider = cfg.default_provider
@@ -219,7 +219,7 @@ def _run_impl(ctx, file: Path, provider: Optional[str], model: Optional[str], pa
         except UnicodeEncodeError:
             print(f"Provider Error: {e}")
         sys.exit(1)
-    except PrompDError as e:
+    except PrompdError as e:
         try:
             console.print(f"[red]Error:[/red] {e}")
         except UnicodeEncodeError:
@@ -269,7 +269,7 @@ def run(ctx, file: Path, provider: Optional[str], model: Optional[str], param: t
 def validate(file: Path, verbose: bool, git: bool, version_only: bool):
     """Validate a .prmd file syntax and structure."""
     try:
-        validator = PrompDValidator()
+        validator = PrompdValidator()
         
         if version_only:
             # Only check version consistency
@@ -664,8 +664,8 @@ def provider():
 def list_providers():
     """List available LLM providers and their models."""
     try:
-        config = PrompDConfig.load()
-        executor = PrompDExecutor()
+        config = PrompdConfig.load()
+        executor = PrompdExecutor()
         available_providers = executor.get_available_providers()
         
         if not available_providers:
@@ -707,7 +707,7 @@ def add_provider(name: str, base_url: str, models: tuple, api_key: Optional[str]
     MODELS: Space-separated list of model names
     """
     try:
-        config = PrompDConfig.load()
+        config = PrompdConfig.load()
         
         # Check if provider already exists
         if name in config.custom_providers:
@@ -743,7 +743,7 @@ def add_provider(name: str, base_url: str, models: tuple, api_key: Optional[str]
 def remove_provider(name: str, yes: bool):
     """Remove a custom LLM provider."""
     try:
-        config = PrompDConfig.load()
+        config = PrompdConfig.load()
         
         if name not in config.custom_providers:
             console.print(f"[red]Provider '{name}' not found[/red]")
@@ -775,8 +775,8 @@ def remove_provider(name: str, yes: bool):
 def show_provider(name: str):
     """Show details for a specific provider."""
     try:
-        config = PrompDConfig.load()
-        executor = PrompDExecutor()
+        config = PrompdConfig.load()
+        executor = PrompdExecutor()
         
         # Check if it's a custom provider
         if name in config.custom_providers:
@@ -821,7 +821,7 @@ def show_provider(name: str):
 def set_api_key(provider_name: str, api_key: str):
     """Set API key for a provider."""
     try:
-        config = PrompDConfig.load()
+        config = PrompdConfig.load()
         
         # Set the API key
         if not hasattr(config, 'api_keys') or config.api_keys is None:
@@ -842,7 +842,7 @@ def set_api_key(provider_name: str, api_key: str):
 def remove_api_key(provider_name: str):
     """Remove API key for a provider."""
     try:
-        config = PrompDConfig.load()
+        config = PrompdConfig.load()
         
         if hasattr(config, 'api_keys') and config.api_keys and provider_name in config.api_keys:
             del config.api_keys[provider_name]
@@ -1315,7 +1315,7 @@ def version_suggest(file: Path, changes: Optional[str]):
     """Suggest appropriate version bump based on changes."""
     try:
         parser = PrompdParser()
-        validator = PrompDValidator()
+        validator = PrompdValidator()
         prompd = parser.parse_file(file)
         
         current_version = prompd.metadata.version or "0.0.0"

@@ -23,10 +23,10 @@ from fastapi.responses import JSONResponse
 import uvicorn
 
 from .compiler import PrompdCompiler
-from .executor import PrompDExecutor
+from .executor import PrompdExecutor
 from .parser import PrompdParser
-from .config import PrompDConfig
-from .exceptions import PrompDError
+from .config import PrompdConfig
+from .exceptions import PrompdError
 
 
 def _require_auth(oauth: Optional[Dict[str, Any]]):
@@ -76,7 +76,7 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
                             parameters[k.strip()] = v.strip()
             result = PrompdCompiler().compile(source, output_format=to, parameters=parameters)
             return JSONResponse(content={"result": result})
-        except PrompDError as e:
+        except PrompdError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -84,7 +84,7 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
     @app.post("/run", dependencies=[Depends(auth_dep)])
     async def run_endpoint(body: Dict[str, Any]):
         try:
-            cfg = PrompDConfig.load()
+            cfg = PrompdConfig.load()
             provider = body.get("provider") or (cfg.default_provider or "openai")
             model = body.get("model") or (cfg.default_model or ("gpt-3.5-turbo" if provider=="openai" else "claude-3-haiku-20240307"))
             params = body.get("params") or {}
@@ -93,7 +93,7 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
 
             # Execute
             import asyncio
-            execu = PrompDExecutor()
+            execu = PrompdExecutor()
             # Allow meta aliases via dict
             metadata_overrides = {}
             if "system" in meta:
@@ -115,7 +115,7 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
                 metadata_overrides=metadata_overrides or None
             ))
             return {"content": resp.content, "usage": resp.usage, "model": resp.model}
-        except PrompDError as e:
+        except PrompdError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

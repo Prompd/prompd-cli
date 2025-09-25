@@ -345,8 +345,8 @@ class ConversationalAssistant:
     def try_ai_providers(self, user_input: str, shell_instance=None) -> str:
         """Try AI providers for response using prompd-assistant.prmd"""
         try:
-            # Use PrompDExecutor with the dedicated assistant prompt
-            from .executor import PrompDExecutor
+            # Use PrompdExecutor with the dedicated assistant prompt
+            from .executor import PrompdExecutor
             from pathlib import Path
             import tempfile
             import os
@@ -381,7 +381,7 @@ class ConversationalAssistant:
                 conversation_history = shell_instance.conversation_history[-3:]  # Last 3 messages
             
             # Execute the assistant prompt
-            executor = PrompDExecutor()
+            executor = PrompdExecutor()
             
             # Convert parameters to CLI format
             cli_params = []
@@ -407,7 +407,7 @@ class ConversationalAssistant:
         except Exception as e:
             # Fallback to direct provider calls if prompd execution fails
             if shell_instance:
-                shell_instance.console.print(f"[dim]Debug: PrompDExecutor failed: {e}[/dim]")
+                shell_instance.console.print(f"[dim]Debug: PrompdExecutor failed: {e}[/dim]")
             pass
             
         return self.try_ai_providers_fallback(user_input, shell_instance)
@@ -416,14 +416,14 @@ class ConversationalAssistant:
         """Fallback AI provider method with simple system prompt"""
         try:
             import asyncio
-            from .config import PrompDConfig
+            from .config import PrompdConfig
             from .providers.openai import OpenAIProvider
             from .providers.anthropic import AnthropicProvider
             from .providers.base import ProviderConfig
             from .models import LLMRequest, LLMMessage, MessageRole
             
             # Get configuration
-            config = PrompDConfig.load()
+            config = PrompdConfig.load()
             
             async def get_response():
                 # Determine preferred order: default provider first, then others with keys
@@ -1987,8 +1987,8 @@ class PrompdShell:
                 return None
             import tempfile, asyncio, json
             from pathlib import Path
-            from .executor import PrompDExecutor
-            from .config import PrompDConfig
+            from .executor import PrompdExecutor
+            from .config import PrompdConfig
             # Write temp planner file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.prmd', delete=False, encoding='utf-8') as tmp:
                 tmp.write(planner_text)
@@ -2002,12 +2002,12 @@ class PrompdShell:
                 f"files={','.join(files)}",
                 f"allowed={','.join(allowed)}"
             ]
-            cfg = PrompDConfig.load()
+            cfg = PrompdConfig.load()
             provider = (cfg.default_provider or '').lower() if cfg.default_provider else None
             if not provider:
                 provider = 'openai' if cfg.get_api_key('openai') else ('anthropic' if cfg.get_api_key('anthropic') else 'ollama')
             model = cfg.default_model or ("gpt-3.5-turbo" if provider=='openai' else ("claude-3-haiku-20240307" if provider=='anthropic' else 'llama2'))
-            execu = PrompDExecutor()
+            execu = PrompdExecutor()
             resp = asyncio.run(execu.execute(
                 prompd_file=planner_path,
                 provider=provider,
@@ -2031,8 +2031,8 @@ class PrompdShell:
                 return None
             import tempfile, asyncio, json
             from pathlib import Path
-            from .executor import PrompDExecutor
-            from .config import PrompDConfig
+            from .executor import PrompdExecutor
+            from .config import PrompdConfig
             # Write temp planner file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.prmd', delete=False, encoding='utf-8') as tmp:
                 tmp.write(planner_text)
@@ -2046,12 +2046,12 @@ class PrompdShell:
                 f"files={','.join(files)}",
                 f"allowed={','.join(allowed)}"
             ]
-            cfg = PrompDConfig.load()
+            cfg = PrompdConfig.load()
             provider = (cfg.default_provider or '').lower() if cfg.default_provider else None
             if not provider:
                 provider = 'openai' if cfg.get_api_key('openai') else ('anthropic' if cfg.get_api_key('anthropic') else 'ollama')
             model = cfg.default_model or ("gpt-3.5-turbo" if provider=='openai' else ("claude-3-haiku-20240307" if provider=='anthropic' else 'llama2'))
-            execu = PrompDExecutor()
+            execu = PrompdExecutor()
             resp = asyncio.run(execu.execute(
                 prompd_file=planner_path,
                 provider=provider,
@@ -2162,8 +2162,8 @@ class PrompdShell:
     def _print_status_footer(self):
         """Render a subtle footer with provider/model and session token totals."""
         try:
-            from .config import PrompDConfig
-            cfg = PrompDConfig.load()
+            from .config import PrompdConfig
+            cfg = PrompdConfig.load()
             prov = (cfg.default_provider or '') if cfg.default_provider else (self.get_current_ai_provider() or '')
             model = cfg.default_model or ''
             spu = int(self.token_usage_total.get('prompt', 0))
@@ -2525,8 +2525,8 @@ class PrompdShell:
     def show_provider_status(self):
         """Display current provider configuration"""
         try:
-            from .config import PrompDConfig
-            config = PrompDConfig.load()
+            from .config import PrompdConfig
+            config = PrompdConfig.load()
             
             self.console.print("[cyan]AI Provider Status:[/cyan]")
             
@@ -2579,8 +2579,8 @@ class PrompdShell:
     def get_current_ai_provider(self) -> str:
         """Get the current AI provider being used"""
         try:
-            from .config import PrompDConfig
-            config = PrompDConfig.load()
+            from .config import PrompdConfig
+            config = PrompdConfig.load()
             
             # Check which provider has a key (prioritize in order)
             if config.get_api_key('openai'):
@@ -2597,8 +2597,8 @@ class PrompdShell:
     def switch_provider(self, provider_name: str):
         """Switch to a different AI provider"""
         try:
-            from .config import PrompDConfig
-            config = PrompDConfig.load()
+            from .config import PrompdConfig
+            config = PrompdConfig.load()
             
             if provider_name == 'openai':
                 if config.get_api_key('openai'):

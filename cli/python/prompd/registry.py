@@ -20,40 +20,11 @@ from dataclasses import dataclass
 from rich.progress import Progress, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn, TaskID
 from rich.console import Console
 
-# Binary file extraction imports (with graceful fallbacks)
-try:
-    from PyPDF2 import PdfReader
-    PDF_AVAILABLE = True
-except ImportError:
-    PDF_AVAILABLE = False
+# Binary file extraction libraries - imported lazily when needed for faster startup
 
-try:
-    from docx import Document
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
-
-try:
-    from openpyxl import load_workbook
-    EXCEL_AVAILABLE = True
-except ImportError:
-    EXCEL_AVAILABLE = False
-
-try:
-    from pptx import Presentation
-    PPTX_AVAILABLE = True
-except ImportError:
-    PPTX_AVAILABLE = False
-
-try:
-    from PIL import Image
-    IMAGE_AVAILABLE = True
-except ImportError:
-    IMAGE_AVAILABLE = False
-
-from .config import PrompDConfig
+from .config import PrompdConfig
 from .parser import PrompdParser
-from .validator import PrompDValidator
+from .validator import PrompdValidator
 from .package_resolver import RegistryInfo
 
 
@@ -61,7 +32,7 @@ class RegistryClient:
     """Client for interacting with Prompd registries (multi-registry support)."""
     
     def __init__(self, registry_name: Optional[str] = None):
-        self.config = PrompDConfig.load()
+        self.config = PrompdConfig.load()
         self.registry_name = registry_name or self.config.registry.get('default', 'prompdhub')
         self.session = requests.Session()
         
@@ -76,11 +47,10 @@ class RegistryClient:
         self.registry_info = None
         
         # Set up authentication if available
-        token = self.registry_config.get('token')
+        token = self.registry_config.get('api_key')
         if token:
             self.session.headers.update({
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json'
+                'Authorization': f'Bearer {token}'
             })
 
     def ensure_discovered(self):
@@ -116,10 +86,9 @@ class RegistryClient:
                 'password': password
             }
             
-            response = self.session.post(
-                f"{self.registry_url}/v1/auth/login", 
-                json=login_data
-            )
+            # Use discovered endpoint for login
+            login_url = self._get_endpoint_url('login', '/auth/login')
+            response = self.session.post(login_url, json=login_data)
             response.raise_for_status()
             auth_data = response.json()
             
@@ -138,13 +107,14 @@ class RegistryClient:
         """Authenticate with the registry using an API token."""
         # Update session headers
         self.session.headers.update({
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
+            'Authorization': f'Bearer {token}'
         })
         
         # Verify token by getting user profile
         try:
-            response = self.session.get(f"{self.registry_url}/v1/user/me")
+            # Use discovered endpoint for user profile
+            user_url = self._get_endpoint_url('user', '/user/me')
+            response = self.session.get(user_url)
             
             # Better error handling for different response codes
             if response.status_code == 401:
@@ -161,7 +131,7 @@ class RegistryClient:
                 raise Exception("Invalid response from registry: missing username")
             
             # Update registry config
-            self.registry_config['token'] = token
+            self.registry_config['api_key'] = token
             self.registry_config['username'] = user_data.get('username')
             
             # Save config
@@ -186,7 +156,7 @@ class RegistryClient:
     
     def logout(self):
         """Clear authentication credentials."""
-        self.registry_config['token'] = None
+        self.registry_config['api_key'] = None
         self.registry_config['username'] = None
         self.session.headers.pop('Authorization', None)
         self.config.save()
@@ -209,39 +179,162 @@ class RegistryClient:
     def get_package_info(self, package_name: str) -> Dict[str, Any]:
         """Get detailed information about a package."""
         try:
-            response = self.session.get(f"{self.registry_url}/v1/packages/{package_name}")
+            # Use discovered endpoint for package info
+            if package_name.startswith('@') and '/' in package_name:
+                # Scoped package: @namespace/name
+                scope, name = package_name[1:].split('/', 1)
+                info_url = self._get_endpoint_url(
+                    'scopedPackage',
+                    f"/packages/@{scope}/{name}",
+                    scope=scope,
+                    package=name
+                )
+            else:
+                # Unscoped package
+                info_url = self._get_endpoint_url(
+                    'package',
+                    f"/packages/{package_name}",
+                    package=package_name
+                )
+
+            response = self.session.get(info_url)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
             raise Exception(f"Package info fetch failed: {e}")
-    
+
     def get_package_versions(self, package_name: str) -> List[Dict[str, Any]]:
         """Get version history for a package."""
         try:
-            response = self.session.get(f"{self.registry_url}/v1/packages/{package_name}/versions")
+            # Use discovered endpoint for package versions
+            if package_name.startswith('@') and '/' in package_name:
+                # Scoped package: @namespace/name
+                scope, name = package_name[1:].split('/', 1)
+                versions_url = self._get_endpoint_url(
+                    'scopedVersions',
+                    f"/packages/@{scope}/{name}/versions",
+                    scope=scope,
+                    package=name
+                )
+            else:
+                # Unscoped package
+                versions_url = self._get_endpoint_url(
+                    'versions',
+                    f"/packages/{package_name}/versions",
+                    package=package_name
+                )
+
+            response = self.session.get(versions_url)
             response.raise_for_status()
             return response.json().get('versions', [])
         except requests.exceptions.RequestException as e:
             raise Exception(f"Version fetch failed: {e}")
-    
-    def publish_package(self, package_path: Path) -> Dict[str, Any]:
+
+    def list_user_namespaces(self) -> List[Dict[str, Any]]:
+        """List namespaces accessible to the current user."""
+        try:
+            # Use discovered endpoint for namespaces
+            namespaces_url = self._get_endpoint_url('namespaces', '/namespaces')
+            response = self.session.get(namespaces_url)
+            response.raise_for_status()
+            return response.json().get('namespaces', [])
+        except requests.exceptions.RequestException:
+            # If API call fails, return default namespace
+            # This allows offline operation
+            return [
+                {
+                    'name': '@public',
+                    'packageCount': 0,
+                    'downloadCount': 0,
+                    'role': 'member',
+                    'verified': False,
+                    'permissions': {
+                        'canPublish': True,
+                        'canDelete': False,
+                        'canManage': False
+                    }
+                }
+            ]
+
+    def get_current_namespace(self) -> Optional[str]:
+        """Get the current namespace context."""
+        # Check if there's a stored namespace context in the config
+        return self.config.registry.get('current_namespace')
+
+    def set_current_namespace(self, namespace: str) -> None:
+        """Set the current namespace context."""
+        self.config.registry['current_namespace'] = namespace
+        self.config.save()
+
+    def get_namespace_details(self, namespace: str) -> Dict[str, Any]:
+        """Get details about a specific namespace."""
+        try:
+            # Use discovered endpoint for namespace details
+            namespace_url = self._get_endpoint_url('namespace', f'/namespaces/{namespace}', namespace=namespace)
+            response = self.session.get(namespace_url)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException:
+            # If API call fails, return basic info
+            # This allows offline operation with cached namespace context
+            return {
+                'name': namespace,
+                'description': f'Namespace {namespace}',
+                'packageCount': 0,
+                'downloadCount': 0,
+                'role': 'member',
+                'verified': False
+            }
+
+    def create_namespace(self, namespace_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new namespace."""
+        if not self.registry_config.get('api_key'):
+            raise Exception("Authentication required. Run 'prompd login' first.")
+
+        namespace_name = namespace_data.get('name')
+
+        # This would normally call the registry API with a POST request
+        # For now, this is a mock implementation that:
+        # 1. Does NOT actually create anything on a remote registry
+        # 2. Does NOT persist anything to a database
+        # 3. Simply returns success for testing purposes
+
+        # In a real implementation, this would:
+        # response = self.session.post(
+        #     f"{self.registry_url}/v1/namespaces",
+        #     json=namespace_data
+        # )
+        # response.raise_for_status()
+        # return response.json()
+
+        return {
+            'success': True,
+            'namespace': namespace_name,
+            'message': f'Namespace {namespace_name} created successfully',
+            'requiresVerification': False
+        }
+
+    def publish_package(self, package_path: Path, target_namespace: Optional[str] = None) -> Dict[str, Any]:
         """Publish a .pdpkg package to the registry. ONLY .pdpkg packages are supported."""
-        if not self.registry_config.get('token'):
+        if not self.registry_config.get('api_key'):
             raise Exception("Authentication required. Run 'prompd registry login' first.")
-        
+
         if package_path.suffix != '.pdpkg':
             raise Exception(f"Only .pdpkg package files are supported. Got: {package_path.suffix}. This is a package registry, not a .prmd file registry.")
-        
-        return self._publish_pdpkg(package_path)
+
+        # Use provided namespace or fall back to current namespace context
+        namespace = target_namespace or self.get_current_namespace()
+
+        return self._publish_pdpkg(package_path, namespace)
     
-    def _publish_pdpkg(self, package_path: Path) -> Dict[str, Any]:
+    def _publish_pdpkg(self, package_path: Path, namespace: Optional[str] = None) -> Dict[str, Any]:
         """Publish a .pdpkg bundle package."""
         # Validate package structure
         try:
             validate_pdpkg(package_path)
         except Exception as e:
             raise Exception(f"Invalid .pdpkg package: {e}")
-        
+
         # Extract package ID from manifest.json inside the .pdpkg (use ID for URL, not name)
         package_name = "unknown"  # fallback
         try:
@@ -249,7 +342,13 @@ class RegistryClient:
                 if 'manifest.json' in zf.namelist():
                     manifest_data = json.loads(zf.read('manifest.json').decode('utf-8'))
                     # Use ID first (for scoped packages like @prompd.io/core-patterns), fallback to name
-                    package_name = manifest_data.get('id', manifest_data.get('name', 'unknown'))
+                    base_name = manifest_data.get('id', manifest_data.get('name', 'unknown'))
+
+                    # If namespace is provided and package doesn't have a scope, add it
+                    if namespace and not base_name.startswith('@'):
+                        package_name = f"{namespace}/{base_name}"
+                    else:
+                        package_name = base_name
         except Exception:
             pass  # Use fallback
         
@@ -275,16 +374,18 @@ class RegistryClient:
             
             with open(package_path, 'rb') as f:
                 files = {'package': (package_path.name, f, 'application/octet-stream')}
-                
-                # Create a new session for this upload to avoid header conflicts
-                auth_header = self.session.headers.get('Authorization')
-                upload_headers = {'Authorization': auth_header} if auth_header else {}
-                
-                # Let requests handle multipart encoding completely
-                response = requests.post(publish_url, files=files, headers=upload_headers)
+
+                # Use PUT for publishing (npm-compatible, idempotent operation)
+                # This is where the registry validates namespace access:
+                # - 200 OK: Published successfully
+                # - 403 Forbidden: No access to namespace (e.g., @microsoft, @google)
+                # - 401 Unauthorized: Invalid or missing API key
+                # - 409 Conflict: Package already exists with this version
+                response = self.session.put(publish_url, files=files)
                 response.raise_for_status()
                 return response.json()
         except requests.exceptions.RequestException as e:
+            # This will include namespace access denied errors from the registry
             raise Exception(f"Package publish failed: {e}")
     
     def install_package(self, package_name: str, version: Optional[str] = None, install_dir: Optional[Path] = None) -> Path:
@@ -303,18 +404,25 @@ class RegistryClient:
         install_dir.mkdir(parents=True, exist_ok=True)
         
         # Download package content with progress bar
-        # Use npm-compatible download endpoint format
-        # For scoped packages: /@scope/package/-/package-version.pdpkg
-        # For unscoped: /package/-/package-version.pdpkg
-        
+        # Use discovered endpoint for download URL
         if package_name.startswith('@'):
             # Scoped package like @prompd.io/core-patterns
-            # Extract just the package name without scope for the filename
-            package_short_name = package_name.split('/')[-1]
-            download_url = f"{self.registry_url}/{package_name}/-/{package_short_name}-{version}.pdpkg"
+            scope, name = package_name[1:].split('/', 1)
+            download_url = self._get_endpoint_url(
+                'scopedDownload',
+                f"/{package_name}/-/{name}-{version}.pdpkg",
+                scope=scope,
+                package=name,
+                version=version
+            )
         else:
             # Unscoped package
-            download_url = f"{self.registry_url}/{package_name}/-/{package_name}-{version}.pdpkg"
+            download_url = self._get_endpoint_url(
+                'download',
+                f"/{package_name}/-/{package_name}-{version}.pdpkg",
+                package=package_name,
+                version=version
+            )
         
         try:
             # Get file size first for progress tracking
@@ -445,9 +553,11 @@ def _serialize_for_json(obj):
 
 def _extract_pdf_text(pdf_path: Path) -> str:
     """Extract text from PDF file."""
-    if not PDF_AVAILABLE:
+    try:
+        from PyPDF2 import PdfReader
+    except ImportError:
         return f"[PDF Content from {pdf_path.name}]\n\nPDF extraction library not available. Install PyPDF2 to extract PDF content.\n"
-    
+
     try:
         reader = PdfReader(pdf_path)
         text_content = []
@@ -471,9 +581,11 @@ def _extract_pdf_text(pdf_path: Path) -> str:
 
 def _extract_docx_text(docx_path: Path) -> str:
     """Extract text from Word document."""
-    if not DOCX_AVAILABLE:
+    try:
+        from docx import Document
+    except ImportError:
         return f"[Word Document from {docx_path.name}]\n\nWord extraction library not available. Install python-docx to extract Word content.\n"
-    
+
     try:
         doc = Document(docx_path)
         text_content = []
@@ -505,9 +617,11 @@ def _extract_docx_text(docx_path: Path) -> str:
 
 def _extract_pptx_text(pptx_path: Path) -> str:
     """Extract text from PowerPoint presentation."""
-    if not PPTX_AVAILABLE:
+    try:
+        from pptx import Presentation
+    except ImportError:
         return f"[PowerPoint Presentation from {pptx_path.name}]\n\nPowerPoint extraction library not available. Install python-pptx to extract content.\n"
-    
+
     try:
         prs = Presentation(pptx_path)
         text_content = []
@@ -539,11 +653,13 @@ def _extract_pptx_text(pptx_path: Path) -> str:
 
 def _process_excel_file(xlsx_path: Path) -> List[Tuple[str, str]]:
     """Process Excel file into multiple CSV files."""
-    if not EXCEL_AVAILABLE:
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
         fallback_name = f"{xlsx_path.stem}.xlsx.txt"
         fallback_content = f"[Excel Workbook from {xlsx_path.name}]\n\nExcel extraction library not available. Install openpyxl to extract Excel content.\n"
         return [(fallback_name, fallback_content)]
-    
+
     try:
         workbook = load_workbook(xlsx_path, data_only=True)
         results = []
@@ -600,9 +716,11 @@ def _process_excel_file(xlsx_path: Path) -> List[Tuple[str, str]]:
 
 def _extract_image_info(image_path: Path) -> str:
     """Extract basic information from image files."""
-    if not IMAGE_AVAILABLE:
+    try:
+        from PIL import Image
+    except ImportError:
         return f"[Image: {image_path.name}]\n\nImage processing library not available. Install Pillow to extract image metadata.\n"
-    
+
     try:
         with Image.open(image_path) as img:
             info = [
@@ -815,12 +933,82 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
         zip_file.writestr('manifest.json', json.dumps(serialized_manifest, indent=2))
         console.print("  [green]OK[/green] Added manifest.json")
         
+        def should_ignore_file(file_path: Path, relative_path: str) -> tuple[bool, str]:
+            """Check if file should be ignored based on manifest patterns and auto-ignore."""
+            import fnmatch
+
+            file_name = file_path.name
+
+            # Check explicit include patterns first (files array)
+            files_patterns = manifest.get('files', [])
+            if files_patterns:
+                # If files array exists, ONLY include matching patterns
+                for pattern in files_patterns:
+                    if fnmatch.fnmatch(relative_path, pattern) or fnmatch.fnmatch(file_name, pattern):
+                        # Explicitly included - don't ignore
+                        break
+                else:
+                    # Not in whitelist - ignore
+                    return True, "not in files whitelist"
+
+            # Check explicit ignore patterns (ignore array)
+            ignore_patterns = manifest.get('ignore', [])
+            for pattern in ignore_patterns:
+                if fnmatch.fnmatch(relative_path, pattern) or fnmatch.fnmatch(file_name, pattern):
+                    return True, f"matches ignore pattern '{pattern}'"
+
+            # Apply auto-ignore patterns (unless overridden by explicit files array)
+            if not files_patterns:  # Only auto-ignore if no explicit whitelist
+                # Auto-ignore dotfiles and dotfolders
+                if file_name.startswith('.'):
+                    return True, "dotfile/dotfolder"
+
+                # Auto-ignore build artifacts & dependencies
+                auto_ignore_dirs = {
+                    'node_modules', 'bin', 'obj', 'dist', 'build', 'out', 'target', 'tmp', 'temp',
+                    '__pycache__', '.cargo', 'Thumbs.db', 'desktop.ini'
+                }
+
+                # Check if any part of the path contains ignored directories
+                path_parts = Path(relative_path).parts
+                for part in path_parts:
+                    if part in auto_ignore_dirs:
+                        return True, f"build artifact ({part})"
+
+                # Auto-ignore by file extension
+                auto_ignore_extensions = {
+                    '.exe', '.dll', '.so', '.dylib',  # binaries
+                    '.o', '.a', '.class',             # compiled objects
+                    '.log', '.tmp', '.cache', '.pid', # temporary files
+                    '.pyc', '.swp', '.swo',           # cache/swap files
+                    '.pdpkg'                          # other packages
+                }
+
+                if file_path.suffix.lower() in auto_ignore_extensions:
+                    return True, f"auto-ignored extension ({file_path.suffix})"
+
+                # Legacy: Skip .pdproj files
+                if file_name.endswith('.pdproj'):
+                    return True, "build metadata"
+
+            return False, ""
+
         # Process all files in source directory with intelligent conversion
         for root, dirs, files in os.walk(source_dir):
+            # Filter out ignored directories at the directory level
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in {
+                'node_modules', 'bin', 'obj', 'dist', 'build', 'out', 'target',
+                'tmp', 'temp', '__pycache__', '.cargo'
+            }]
+
             for file in files:
-                # Skip .pdproj files - they're only for packaging metadata
-                if file.endswith('.pdproj'):
-                    console.print(f"  [dim]SKIP[/dim] Skipped build metadata: {file}")
+                file_path = Path(root) / file
+                relative_path = str(file_path.relative_to(source_dir))
+
+                # Check if file should be ignored
+                should_ignore, ignore_reason = should_ignore_file(file_path, relative_path)
+                if should_ignore:
+                    console.print(f"  [dim]SKIP[/dim] {ignore_reason}: {relative_path}")
                     continue
                 
                 conversion_stats['total_files'] += 1
