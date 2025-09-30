@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import Dict
-
 from prompd.console import console
 
 SEMVER_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
