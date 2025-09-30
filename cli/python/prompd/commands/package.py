@@ -1,173 +1,155 @@
-"""Package management commands."""
+"""Package management commands for Prompd."""
+from __future__ import annotations
 
 import json
-import zipfile
 from pathlib import Path
-from typing import Dict, Any
+from typing import Optional
 
 import click
-from rich.console import Console
-from rich.table import Table
 
-from ..registry import RegistryClient, validate_pdpkg
-from ..exceptions import PrompdError
-from ..security import validate_file_path, SecurityError
-
-console = Console()
+from prompd.commands.common import console
 
 
-@click.group()
+@click.group(name="package")
 def package():
-    """Package management (create, validate, install)."""
+    """Package management commands."""
     pass
 
 
-@package.command('create')
-@click.argument('directory', type=click.Path(exists=True, file_okay=False))
-@click.option('-o', '--output', help='Output package file (.pdpkg)')
-@click.option('--exclude', multiple=True, help='Patterns to exclude')
-def create_package(directory: str, output: str, exclude: tuple):
+@package.command("create")
+@click.argument("source", type=click.Path(exists=True, path_type=Path))
+@click.argument("output_path", type=click.Path(path_type=Path), required=False)
+@click.option("-n", "--name", help="Package name (overrides manifest.json)")
+@click.option("-V", "--version", help="Package version (overrides manifest.json)")
+@click.option("-d", "--description", help="Package description (overrides manifest.json)")
+@click.option("-a", "--author", help="Package author (overrides manifest.json)")
+def package_create(
+    source: Path,
+    output_path: Optional[Path],
+    name: Optional[str],
+    version: Optional[str],
+    description: Optional[str],
+    author: Optional[str],
+):
     """Create a .pdpkg package from a directory."""
     try:
-        dir_path = Path(directory)
-        safe_dir = validate_file_path(dir_path)
-        
-        if not output:
-            output = f"{dir_path.name}.pdpkg"
-        
-        output_path = Path(output)
-        if not output_path.suffix == '.pdpkg':
-            output_path = output_path.with_suffix('.pdpkg')
-        
-        # Find all .prmd and related files
-        files_to_include = []
-        
-        # Include patterns
-        include_patterns = [
-            '*.prmd',
-            '*.prompd', 
-            '*.pdflow',
-            '*.json',
-            '*.yaml', 
-            '*.yml',
-            'README.md',
-            'LICENSE*'
-        ]
-        
-        for pattern in include_patterns:
-            files_to_include.extend(safe_dir.glob(pattern))
-            files_to_include.extend(safe_dir.glob(f"**/{pattern}"))
-        
-        # Remove duplicates and filter exclusions
-        files_to_include = list(set(files_to_include))
-        
-        # Apply exclusions
-        for exclude_pattern in exclude:
-            files_to_include = [f for f in files_to_include if not f.match(exclude_pattern)]
-        
-        # Exclude .pdproj files (like .csproj from NuGet)
-        files_to_include = [f for f in files_to_include if not f.suffix == '.pdproj']
-        
-        if not files_to_include:
-            console.print(f"[red]No files found to package in {directory}[/red]")
-            return
-        
-        # Generate manifest
-        manifest = {
-            "name": dir_path.name,
-            "version": "1.0.0",  # Default version
-            "description": f"Package created from {directory}",
-            "files": []
-        }
-        
-        # Look for existing manifest or .prmd with metadata
-        manifest_file = safe_dir / 'manifest.json'
-        if manifest_file.exists():
+        from prompd.registry import create_pdpkg, validate_pdpkg
+
+        if not source.is_dir():
+            console.print("[red]ERROR[/red] Source must be a directory")
+            raise SystemExit(1)
+
+        source_dir = source
+        manifest_path = source_dir / "manifest.json"
+        manifest_data = {}
+
+        if manifest_path.exists():
             try:
-                with open(manifest_file, 'r', encoding='utf-8') as f:
-                    existing_manifest = json.load(f)
-                    manifest.update(existing_manifest)
-            except Exception as e:
-                console.print(f"[yellow]Warning: Could not read existing manifest: {e}[/yellow]")
-        
-        # Create package
-        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Add files
-            for file_path in files_to_include:
-                arcname = file_path.relative_to(safe_dir)
-                zipf.write(file_path, arcname)
-                manifest["files"].append(str(arcname))
-            
-            # Add manifest
-            zipf.writestr('manifest.json', json.dumps(manifest, indent=2))
-        
-        console.print(f"[green]✓[/green] Created package: {output_path}")
-        console.print(f"  Files included: {len(files_to_include)}")
-        
-        # Show contents
-        table = Table(title="Package Contents")
-        table.add_column("File", style="cyan")
-        table.add_column("Size", style="yellow")
-        
-        for file_path in sorted(files_to_include):
-            size = file_path.stat().st_size
-            table.add_row(str(file_path.relative_to(safe_dir)), f"{size:,} bytes")
-        
-        console.print(table)
-    
-    except SecurityError as e:
-        console.print(f"[red]Security error: {e}[/red]")
-    except Exception as e:
-        console.print(f"[red]Error creating package: {e}[/red]")
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest_data = json.load(f)
+                console.print("[dim]Found existing manifest.json[/dim]")
+            except (json.JSONDecodeError, Exception) as exc:
+                console.print(f"[yellow]Warning: Could not read manifest.json: {exc}[/yellow]")
+                manifest_data = {}
+
+        proj_name = name or manifest_data.get("name", source_dir.name.lower().replace(" ", "-").replace("_", "-"))
+        proj_version = version or manifest_data.get("version", "1.0.0")
+        proj_description = description or manifest_data.get(
+            "description", f"Package created from {source_dir.name}"
+        )
+        proj_author = author or manifest_data.get("author", "unknown")
+
+        if not output_path:
+            output_path = source_dir / f"{proj_name}-{proj_version}.pdpkg"
+
+        if not output_path.suffix or output_path.suffix != ".pdpkg":
+            output_path = output_path.with_suffix(".pdpkg")
+
+        manifest = {
+            "name": proj_name,
+            "version": proj_version,
+            "description": proj_description,
+            "license": "MIT",
+            "tags": [],
+            "dependencies": {},
+            "keywords": [],
+        }
+
+        if proj_author:
+            manifest["author"] = proj_author
+
+        prompd_files = [f for f in source_dir.glob("**/*.prmd") if f.is_file()]
+        pdflow_files = [f for f in source_dir.glob("**/*.pdflow") if f.is_file()]
+
+        if prompd_files:
+            main_file = str(prompd_files[0].relative_to(source_dir)).replace("\\", "/")
+            manifest["main"] = main_file
+            if len(prompd_files) > 1:
+                additional_files = [str(f.relative_to(source_dir)).replace("\\", "/") for f in prompd_files[1:]]
+                manifest["files"] = additional_files
+
+        if pdflow_files:
+            manifest["workflows"] = [
+                str(f.relative_to(source_dir)).replace("\\", "/") for f in pdflow_files
+            ]
+
+        create_pdpkg(source_dir, output_path, manifest)
+
+        console.print("[bold green]Package created successfully![/bold green]")
+        console.print(f"   Package: [cyan]{output_path}[/cyan]")
+        console.print(f"   Size: {output_path.stat().st_size / 1024:.1f} KB")
+
+        validate_pdpkg(output_path)
+        console.print("[green]Package validation passed[/green]")
+    except Exception as exc:
+        console.print(f"[bold red]Package creation failed:[/bold red] {exc}")
+        raise SystemExit(1)
 
 
-@package.command('validate')
-@click.argument('package_file', type=click.Path(exists=True))
-def validate_package(package_file: str):
-    """Validate a .pdpkg package."""
+@package.command("validate")
+@click.argument("package_path", type=click.Path(exists=True, path_type=Path))
+def package_validate(package_path: Path):
+    """Validate a .pdpkg package archive."""
     try:
-        package_path = Path(package_file)
-        safe_path = validate_file_path(package_path)
-        
-        if not safe_path.suffix == '.pdpkg':
-            console.print(f"[red]File must have .pdpkg extension[/red]")
-            return
-        
-        # Validate package
-        result = validate_pdpkg(safe_path)
-        
-        if result["valid"]:
-            console.print(f"[green]✓[/green] Package is valid")
-            
-            # Show package info
-            manifest = result.get("manifest", {})
-            
-            info_content = f"""
-[bold cyan]Name:[/bold cyan] {manifest.get('name', 'Unknown')}
-[bold cyan]Version:[/bold cyan] {manifest.get('version', 'Unknown')}
-[bold cyan]Description:[/bold cyan] {manifest.get('description', 'No description')}
-[bold cyan]Files:[/bold cyan] {len(manifest.get('files', []))}
-"""
-            
-            from rich.panel import Panel
-            console.print(Panel(info_content.strip(), title="Package Information"))
-            
-            # Show files
-            if manifest.get('files'):
-                table = Table(title="Package Files")
-                table.add_column("File", style="cyan")
-                
-                for file_name in sorted(manifest['files']):
-                    table.add_row(file_name)
-                
-                console.print(table)
-        
+        from prompd.package_validator import validate_package
+
+        if not package_path.name.endswith(".pdpkg"):
+            console.print("[red]ERROR[/red] [bold red]Invalid package format![/bold red]")
+            console.print(f"   File: {package_path.name}")
+            console.print("   Expected: .pdpkg archive file")
+            console.print("   Note: .prmd files are individual prompts, not packages")
+            console.print("   Use 'prompd validate' to validate individual .prmd files")
+            raise SystemExit(1)
+
+        console.print(f"[blue]INFO[/blue] Validating package: [cyan]{package_path.name}[/cyan]")
+
+        result = validate_package(package_path)
+
+        if result.is_valid:
+            console.print("[green]SUCCESS[/green] [bold green]Package validation passed![/bold green]")
+
+            if result.package_info:
+                info = result.package_info
+                console.print(f"   Package: [cyan]{info.get('name', 'unknown')}[/cyan]")
+                console.print(f"   Version: [green]{info.get('version', 'unknown')}[/green]")
+                console.print(f"   Description: {info.get('description', 'No description')}")
+                if "parameters" in info:
+                    console.print(f"   Parameters: {len(info['parameters'])}")
         else:
-            console.print(f"[red]✗[/red] Package validation failed")
-            for error in result.get("errors", []):
-                console.print(f"  [red]•[/red] {error}")
-    
-    except SecurityError as e:
-        console.print(f"[red]Security error: {e}[/red]")
-    except Exception as e:
-        console.print(f"[red]Error validating package: {e}[/red]")
+            console.print("[red]ERROR[/red] [bold red]Package validation failed![/bold red]")
+            for error in result.errors:
+                console.print(f"   - [red]{error}[/red]")
+
+        if result.warnings:
+            console.print("\n[yellow]WARNINGS:[/yellow]")
+            for warning in result.warnings:
+                console.print(f"   - [yellow]{warning}[/yellow]")
+
+        if not result.is_valid:
+            raise SystemExit(1)
+    except Exception as exc:
+        console.print(f"[red]ERROR[/red] [bold red]Validation failed:[/bold red] {exc}")
+        raise SystemExit(1)
+
+
+__all__ = ["package"]

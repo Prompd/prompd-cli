@@ -329,3 +329,50 @@ Provide creative content that:
     template_body = templates.get(template, templates['basic'])
 
     return template_body
+
+
+@click.command(name="create")
+@click.argument("file", type=click.Path(path_type=Path))
+@click.option("-i", "--interactive", is_flag=True, help="Interactive mode with prompts")
+@click.option("-n", "--name", help="Prompt name")
+@click.option("-d", "--description", help="Prompt description")
+@click.option("-a", "--author", help="Author name")
+@click.option("-v", "--version", default="1.0.0", help="Version (default: 1.0.0)")
+@click.option(
+    "-t",
+    "--template",
+    type=click.Choice(["basic", "analysis", "security", "code-review", "creative"]),
+    help="Use a predefined template",
+)
+def create_command(
+    file: Path,
+    interactive: bool,
+    name: Optional[str],
+    description: Optional[str],
+    author: Optional[str],
+    version: str,
+    template: Optional[str],
+):
+    """Create a new .prmd file."""
+    try:
+        create_prmd_file(
+            file_path=file,
+            interactive=interactive,
+            name=name,
+            description=description,
+            author=author,
+            version=version,
+            template=template,
+        )
+        console.print(f"[green]OK[/green] Created {file}")
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1)
+
+
+__all__ = [
+    "create_prmd_file",
+    "generate_prmd_content",
+    "get_template_body",
+    "create_command",
+]
