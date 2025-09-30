@@ -2,7 +2,6 @@
 
 import json
 from typing import Dict, Any, Optional, List
-import httpx
 
 from prompd.providers.base import BaseProvider, ProviderConfig
 from prompd.models import LLMRequest, LLMResponse, LLMMessage, MessageRole, ExecutionContext
@@ -62,6 +61,7 @@ class OllamaProvider(BaseProvider):
         }
         
         try:
+            import httpx
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()

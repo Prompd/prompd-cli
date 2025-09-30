@@ -7,9 +7,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
 import yaml
-from dotenv import load_dotenv
 
-from prompd.models import ParameterValue
 from prompd.exceptions import ConfigurationError
 
 
@@ -84,6 +82,7 @@ class PrompdConfig:
         config = cls()
         
         # Load environment variables
+        from dotenv import load_dotenv
         load_dotenv()
         
         # Load from config file if exists
@@ -430,6 +429,7 @@ class ParameterManager:
         for key, value in data.items():
             if isinstance(value, dict) and 'value' in value:
                 # Metadata format: {"key": {"value": "...", "type": "string"}}
+                from prompd.models import ParameterValue
                 param_value = ParameterValue.from_dict(value)
                 params[key] = param_value.value
             else:

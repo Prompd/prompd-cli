@@ -2,7 +2,6 @@
 
 import json
 from typing import Dict, Any, Optional, List
-import httpx
 from pydantic import BaseModel
 
 from prompd.providers.base import BaseProvider, ProviderConfig
@@ -57,6 +56,7 @@ class CustomProvider(BaseProvider):
             headers["Authorization"] = f"Bearer {api_key}"
         
         try:
+            import httpx
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()

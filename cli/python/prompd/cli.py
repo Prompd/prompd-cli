@@ -15,7 +15,6 @@ from rich.panel import Panel
 # Heavy modules like executor, registry, compiler are imported only when needed
 from prompd import __version__ as PROMPD_VERSION
 from prompd.exceptions import PrompdError
-from prompd.commands.config import config
 
 # Configure console with proper encoding handling for Windows
 import platform
@@ -37,7 +36,8 @@ def cli():
     pass
 
 
-# Register the config command
+# Register config command with registry and provider subcommands
+from prompd.commands.config import config
 cli.add_command(config)
 
 

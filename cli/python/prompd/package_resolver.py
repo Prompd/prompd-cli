@@ -21,14 +21,8 @@ from typing import Dict, Any, Optional, List, Union, Tuple
 from urllib.parse import urljoin
 from dataclasses import dataclass, field
 from datetime import datetime
-import httpx
 from rich.progress import Progress, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
-
-# Battle-tested security libraries
 from pydantic import BaseModel, ValidationError, field_validator
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.backends import default_backend
-# Use cryptography for secure hashing
 
 from .exceptions import PrompdError
 
@@ -150,6 +144,7 @@ class RegistryInfo:
         well_known_url = urljoin(base_url.rstrip('/') + '/', '.well-known/registry.json')
         
         try:
+            import httpx
             with httpx.Client() as client:
                 response = client.get(well_known_url)
                 response.raise_for_status()
@@ -498,6 +493,8 @@ class BasePackageCache:
     
     def _hash_path(self, path: str) -> str:
         """Generate cryptographic hash of path for integrity checking."""
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.backends import default_backend
         digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
         digest.update(path.encode('utf-8'))
         return digest.finalize().hex()
@@ -567,6 +564,8 @@ class BasePackageCache:
     
     def _calculate_package_integrity(self, package_dir: Path) -> str:
         """Calculate SHA256 hash of all package files for integrity checking using cryptography library."""
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.backends import default_backend
         digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
         
         # Sort files for consistent hashing
@@ -915,6 +914,7 @@ class PackageResolver:
 
         versions_url = urljoin(registry_url.rstrip('/') + '/', versions_endpoint.lstrip('/'))
 
+        import httpx
         with httpx.Client() as client:
             # Get package versions
             response = client.get(versions_url)
