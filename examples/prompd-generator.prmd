@@ -86,7 +86,7 @@ Include examples: **{{include_examples}}**
 
 ## 3. Task Instructions Section
 - Provide clear, step-by-step instructions
-- Reference the parameters using `{{parameter_name}}` syntax
+- Reference the parameters using curly brace syntax (e.g., category, specific_use_case)
 - Include any specific methodologies or frameworks to follow
 - Define success criteria and output requirements
 

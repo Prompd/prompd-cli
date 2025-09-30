@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Python CLI**: Restored `prompd config` command with full configuration management
+  - `prompd config show` - Display all configuration settings
+  - `prompd config registry` - Registry configuration subcommands (list, add, remove, set-default, show)
+  - `prompd config provider` - Provider configuration subcommands (list, add, remove, setkey)
+  - `prompd config registries` - Alias for registry list
+  - `prompd config providers` - Alias for provider list
+
+### Changed
+- **README.md**: Updated CLI command reference with accurate syntax from `--help` output
+- **README.md**: Corrected feature parity claims - Python CLI is most complete, Go/Node.js working toward parity
+- **README.md**: Added links to centralized documentation in `prompd-docs` repository
+- **README.md**: All examples now use correct command names (`run` instead of `execute`, `config provider` instead of `provider`)
+- **Documentation**: Confirmed all variable syntax uses Jinja2 format (`{variable}` and `{%- if %}`) not Handlebars
+
+### Fixed
+- **Python CLI**: Config command was implemented but not registered in CLI - now accessible
+- **Documentation**: Removed misleading "100% Feature Parity" claims between CLI implementations
+
 ## [0.4.0] - 2025-01-12
 
 ### 🏗️ **MAJOR ARCHITECTURAL REFACTORING**

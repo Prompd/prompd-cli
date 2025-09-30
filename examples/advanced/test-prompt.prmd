@@ -9,7 +9,7 @@ parameters:
     description: The user's question
     default: "What is artificial intelligence?"
   - name: temperature
-    type: number
+    type: float
     required: false
     description: Controls randomness in responses
     default: 0.7

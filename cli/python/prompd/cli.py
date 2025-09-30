@@ -14,7 +14,7 @@ from rich.panel import Panel
 # Lazy imports - moved to function level for faster startup
 # Heavy modules like executor, registry, compiler are imported only when needed
 from prompd import __version__ as PROMPD_VERSION
-from prompd.exceptions import PrompdError
+from prompd.exceptions import ConfigurationError, PrompdError, ProviderError
 
 # Configure console with proper encoding handling for Windows
 import platform
@@ -538,12 +538,12 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
 def shell_command(simple: bool):
     """Start the interactive Prompd shell (REPL). [AI features in BETA]"""
     try:
-        if simple:
-            from prompd.interactive_simple import SimplePrompdREPL
-            SimplePrompdREPL().start()
-        else:
-            from prompd.shell import PrompdShell
-            PrompdShell().start()
+        # if simple:
+        #     from prompd.interactive_simple import SimplePrompdREPL
+        #     SimplePrompdREPL().start()
+        # else:
+        from prompd.shell import PrompdShell
+        PrompdShell().start()
     except Exception as e:
         try:
             console.print(f"[red]Error launching shell:[/red] {e}")
@@ -1145,6 +1145,9 @@ def version():
 @click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
 def version_bump(file: Path, bump_type: str, message: Optional[str], dry_run: bool):
     """Bump version in a .prmd file and create git tag."""
+    
+    from cli.python.prompd.parser import PrompdParser
+    
     try:
         parser = PrompdParser()
         prompd = parser.parse_file(file)
@@ -1230,6 +1233,9 @@ def version_diff(file: Path, version1: str, version2: Optional[str]):
 @click.option("--git", is_flag=True, help="Validate against git history")
 def version_validate(file: Path, git: bool):
     """Validate version consistency."""
+    
+    from cli.python.prompd.parser import PrompdParser
+    
     try:
         parser = PrompdParser()
         prompd = parser.parse_file(file)
@@ -1264,6 +1270,9 @@ def version_validate(file: Path, git: bool):
 @click.option("--changes", help="Description of changes made")
 def version_suggest(file: Path, changes: Optional[str]):
     """Suggest appropriate version bump based on changes."""
+    
+    from cli.python.prompd.parser import PrompdParser
+    from cli.python.prompd.validator import PrompdValidator
     try:
         parser = PrompdParser()
         validator = PrompdValidator()
@@ -2388,6 +2397,8 @@ def install_dependencies(package: str, save: bool, save_dev: bool, target: Optio
     console = Console()
     
     try:
+        import json
+        
         resolver = DependencyResolver()
         
         # Resolve dependencies
@@ -2416,7 +2427,10 @@ def install_dependencies(package: str, save: bool, save_dev: bool, target: Optio
         
         # Update project config if --save or --save-dev
         if save or save_dev:
+            from cli.python.prompd.parser import PrompdParser
             from .package_resolver import PackageResolver
+            from cli.python.prompd.package_resolver import PackageReference
+            
             resolver_inst = PackageResolver()
             config = resolver_inst.get_or_create_project_config()
             

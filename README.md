@@ -7,26 +7,26 @@ Prompd is a CLI tool and file format for managing structured AI prompts. Write o
 
 ## Installation
 
-### Multiple CLI Options (100% Feature Parity!)
-
-**🎉 NEW: Go CLI with Full Feature Parity!**
+### Multiple CLI Options
 
 ```bash
-# Option 1: Go CLI (Zero Dependencies, Single Binary)
+# Option 1: Python CLI (Full Featured - Recommended)
+pip install prompd
+
+# Option 2: Go CLI (Zero Dependencies, Single Binary)
 # Download from releases or build:
 cd cli/go && go build -o prompd ./cmd/prompd
 
-# Option 2: Python CLI (Full Featured)
-pip install prompd
-
-# Option 3: Node.js CLI (Developer Focused) 
+# Option 3: Node.js CLI (Developer Focused)
 cd cli/npm && npm install && npm run build
 ```
 
-**All three CLIs provide identical functionality!** Choose based on your deployment needs:
-- **Go CLI**: Perfect for containers, CI/CD, minimal environments
-- **Python CLI**: Great for Python ecosystems, pip install
-- **Node.js CLI**: Ideal for Node.js projects, MCP integration
+**Choose based on your deployment needs:**
+- **Python CLI**: Full-featured with compilation pipeline, AI shell, MCP server, and all advanced features
+- **Go CLI**: Lightweight, zero-dependency binary for containers, CI/CD, minimal environments
+- **Node.js CLI**: Developer-focused with TypeScript and MCP integration
+
+> **Note**: The Python CLI is the most feature-complete implementation. Go and Node.js CLIs are being updated to achieve feature parity.
 
 ### Install Python CLI from PyPI
 
@@ -39,7 +39,7 @@ pip install prompd
 
 ```bash
 # Clone and install in development mode
-git clone https://github.com/Logikbug/prompd-cli.git
+git clone https://github.com/Prompd/prompd-cli.git
 cd prompd-cli
 
 # Python CLI
@@ -96,19 +96,22 @@ Use warm, friendly language.
 
 ```bash
 # Execute with OpenAI
-prompd execute example.prmd --provider openai --model gpt-4 -p name=Alice -p style=formal
+prompd run example.prmd --provider openai --model gpt-4 -p name=Alice -p style=formal
 
 # Execute with Anthropic
-prompd execute example.prmd --provider anthropic --model claude-3-opus -p name=Bob
+prompd run example.prmd --provider anthropic --model claude-3-opus -p name=Bob
 
 # Add custom provider (Ollama, Groq, LM Studio, etc.)
-prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+prompd config provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
 
 # Execute with custom provider
-prompd execute example.prmd --provider local-ollama --model llama3.2 -p name=Charlie
+prompd run example.prmd --provider local-ollama --model llama3.2 -p name=Charlie
 
 # Validate the file
 prompd validate example.prmd
+
+# Compile to markdown
+prompd compile example.prmd --to-markdown
 
 # Bump version
 prompd version bump example.prmd minor
@@ -116,74 +119,151 @@ prompd version bump example.prmd minor
 
 ## Core Commands
 
-### `prompd execute`
-Execute a prompt with an LLM provider.
+### `prompd run`
+Run a .prmd file with an LLM provider.
 
 ```bash
-prompd execute <file> --provider <provider> --model <model> [options]
+prompd run FILE [options]
 
 Options:
-  --provider        LLM provider (openai, anthropic, ollama, or custom)
-  --model          Model name (gpt-4, claude-3, llama3.2, etc.)
-  -p, --param      Set parameter (key=value)
-  -f, --param-file Load parameters from JSON
-  --version        Execute specific version (1.2.3, HEAD, commit hash)
-  --api-key        Override API key
-  -o, --output     Save response to file
+  --provider TEXT        LLM provider (openai, anthropic, ollama)
+  --model TEXT           Model name
+  -p, --param TEXT       Parameter in format key=value
+  -f, --param-file PATH  JSON parameter file
+  --api-key TEXT         API key override
+  -o, --output PATH      Output file path
+  --format [text|json]   Output format
+  --version TEXT         Execute a specific version (e.g., '1.2.3', 'HEAD', commit hash)
+  -v, --verbose          Verbose output
+  --show-usage           Show token usage statistics
+```
+
+### `prompd compile`
+Compile a .prmd file or package reference to a target format.
+
+```bash
+prompd compile SOURCE [options]
+
+Options:
+  --to TEXT                       Output format (markdown | provider-json [openai|anthropic])
+  --to-markdown                   Shorthand for --to markdown
+  --to-provider-json [openai|anthropic]  Shorthand for --to provider-json <provider>
+  -p, --param TEXT                Parameter in format key=value
+  -f, --params-file PATH          Load parameters from JSON file
+  -o, --output PATH               Write compiled output to file
+  -v, --verbose                   Verbose output
 ```
 
 ### `prompd validate`
-Validate syntax and structure.
+Validate a .prmd file syntax and structure.
 
 ```bash
-prompd validate <file> [options]
+prompd validate FILE [options]
 
 Options:
-  -v, --verbose    Show detailed validation
-  --git           Check git consistency
-  --version-only  Only validate version
+  -v, --verbose      Show detailed validation results
+  --git              Include git history consistency checks
+  --version-only     Only validate version-related aspects
+  --check-overrides  Validate section overrides against parent template
+```
+
+### `prompd config`
+Configuration management commands.
+
+```bash
+prompd config show                                    # Show all configuration
+prompd config registries                              # List configured registries
+prompd config providers                               # List configured providers
+
+# Registry configuration
+prompd config registry list                           # List all configured registries
+prompd config registry add <name> <url> [options]    # Add a new registry
+prompd config registry remove <name>                  # Remove a registry
+prompd config registry set-default <name>             # Set default registry
+prompd config registry show [name]                    # Show registry details
+
+# Provider configuration
+prompd config provider list                           # List all configured providers
+prompd config provider add <name> <url> <models...>  # Add custom provider
+prompd config provider remove <name>                  # Remove custom provider
+prompd config provider setkey <name> <api_key>       # Set API key for provider
+
+# Examples
+prompd config provider add groq https://api.groq.com/openai/v1 llama-3.1-8b --api-key gsk_...
+prompd config provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+```
+
+### `prompd package`
+Package management commands.
+
+```bash
+prompd package create <source> [output] [options]  # Create a .pdpkg package
+prompd package validate <package.pdpkg>            # Validate a .pdpkg package
+
+Options for create:
+  -n, --name TEXT         Package name
+  -V, --version TEXT      Package version
+  -d, --description TEXT  Package description
+  -a, --author TEXT       Package author
 ```
 
 ### `prompd git`
 Git operations for .prmd files.
 
 ```bash
-prompd git add <files...>                        # Add to staging
-prompd git remove <files...> [--cached]         # Remove from tracking
-prompd git status                               # Show git status
-prompd git commit -m "message" [--all]          # Commit changes
-prompd git checkout <file> <version> [-o FILE]  # Checkout specific version
+prompd git add <files...>                         # Add .prmd files to git staging
+prompd git remove <files...> [--cached]          # Remove .prmd files from git tracking
+prompd git status                                # Show git status for .prmd files
+prompd git commit -m "message" [--all]           # Commit staged .prmd files
+prompd git checkout <file> <version> [-o FILE]   # Checkout a specific version
 ```
 
 ### `prompd version`
-Manage semantic versions with git integration.
+Version management commands.
 
 ```bash
-prompd version bump <file> <major|minor|patch>  # Bump version
-prompd version history <file>                    # Show history
-prompd version diff <file> <v1> [v2]            # Compare versions
-prompd version suggest <file>                    # Get bump suggestions
+prompd version bump <file> <major|minor|patch>   # Bump version and create git tag
+prompd version history <file>                     # Show version history
+prompd version diff <file> <v1> [v2]             # Show differences between versions
+prompd version suggest <file>                     # Suggest appropriate version bump
+prompd version validate <file>                    # Validate version consistency
 ```
 
-### `prompd provider`
-Manage LLM providers including custom ones.
+### Registry Commands
 
 ```bash
-prompd provider list                             # List all providers
-prompd provider add <name> <url> <models...>    # Add custom provider
-prompd provider show <name>                      # Show provider details
-prompd provider remove <name>                    # Remove custom provider
-
-# Examples
-prompd provider add groq https://api.groq.com/openai/v1 llama-3.1-8b --api-key gsk_...
-prompd provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+prompd login                        # Login to package registry
+prompd logout                       # Logout from package registry
+prompd search <query>               # Search packages in registry
+prompd install <package>            # Install packages from registry
+prompd uninstall <package>          # Uninstall packages
+prompd publish <package.pdpkg>      # Publish package to registry
+prompd versions <package>           # List available versions of a package
 ```
 
 ### Other Commands
 
 ```bash
-prompd list [--path DIR]        # List .prmd files
-prompd show <file>              # Display file structure
+prompd list [options]               # List available .prmd files
+  -p, --path PATH                   # Directory to search
+  -d, --detailed                    # Show detailed information
+  -r, --recursive                   # Search recursively
+
+prompd show FILE [options]          # Show file structure and parameters
+  --sections                        # Show available section IDs
+  --verbose                         # Show detailed section information
+
+prompd create FILE [options]        # Create a new .prmd file
+  -i, --interactive                 # Interactive mode with prompts
+  -n, --name TEXT                   # Prompt name
+  -d, --description TEXT            # Prompt description
+  -a, --author TEXT                 # Author name
+  -v, --version TEXT                # Version (default: 1.0.0)
+  -t, --template [basic|analysis|security|code-review|creative]
+
+prompd init [path]                  # Initialize a new Prompd project
+prompd shell                        # Start interactive Prompd shell (REPL)
+prompd chat                         # Start Prompd shell in chat mode
 ```
 
 ## Prompd File Format
@@ -261,10 +341,10 @@ Execute or checkout specific versions of your prompts:
 
 ```bash
 # Execute version 1.2.3 without modifying files
-prompd execute prompt.prmd --provider openai --model gpt-4 --version 1.2.3
+prompd run prompt.prmd --provider openai --model gpt-4 --version 1.2.3
 
 # Execute last committed version
-prompd execute prompt.prmd --provider openai --model gpt-4 --version HEAD
+prompd run prompt.prmd --provider openai --model gpt-4 --version HEAD
 
 # Checkout version to working directory
 prompd git checkout prompt.prmd 1.2.3
@@ -308,15 +388,14 @@ Or create `~/.prompd/config.json`:
 
 ## Documentation
 
-Full documentation and examples are available in the GitHub repository:
+For comprehensive documentation, see the [**Prompd Documentation Repository**](../prompd-docs/README.md).
 
-- [**GitHub Repository**](https://github.com/Logikbug/prompd-cli) - Source code and full documentation
-- [**Format Specification**](https://github.com/Logikbug/prompd-cli/blob/main/docs/FORMAT.md) - Complete .prmd file format
-- [**CLI Reference**](https://github.com/Logikbug/prompd-cli/blob/main/docs/CLI.md) - All commands and options
-- [**Examples**](https://github.com/Logikbug/prompd-cli/tree/main/examples) - Sample .prmd files
-- [**VS Code Extension**](https://github.com/Logikbug/prompd-cli/tree/main/vscode-extension) - IDE integration
+Key documentation:
 
-> **Note**: If the repository is private, please request access or refer to the documentation included with your installation.
+- [**CLI Reference**](../prompd-docs/cli.md) - Complete command reference and usage guide
+- [**GitHub Repository**](https://github.com/Prompd/prompd-cli) - Source code and CLI implementation
+- [**Examples**](https://github.com/Prompd/prompd-cli/tree/main/examples) - Sample .prmd files
+- [**VS Code Extension**](https://github.com/Prompd/prompd-cli/tree/main/vscode-extension) - IDE integration
 
 ## Development
 
@@ -349,4 +428,4 @@ MIT License - see [LICENSE](LICENSE) file.
 
 ## Author
 
-Created by [Logikbug](https://github.com/Logikbug)
+Created by [Prompd](https://github.com/Prompd)
