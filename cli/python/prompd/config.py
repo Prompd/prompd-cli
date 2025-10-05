@@ -184,8 +184,17 @@ class PrompdConfig:
             del self.api_keys['prompd']
     
     def get_registry_url(self) -> str:
-        """Get registry URL."""
-        return self.registry.get('url', 'http://localhost:4000')
+        """Get registry URL from configured registries."""
+        # Get default registry name
+        default_registry = self.registry.get('default', 'prompdhub')
+        registries = self.registry.get('registries', {})
+
+        # Return URL from default registry, or fallback to prompdhub
+        if default_registry in registries:
+            return registries[default_registry].get('url', 'https://registry.prompdhub.ai')
+
+        # Final fallback to prompdhub production URL
+        return 'https://registry.prompdhub.ai'
     
     def resolve_registry_for_package(self, package_name: str) -> str:
         """Resolve which registry to use for a package."""
@@ -274,8 +283,9 @@ class PrompdConfig:
                     self.registry['registries'] = {}
                 
                 # Create a registry entry from old data
-                old_url = old_data.get('registry_url', 'http://localhost:4000')
-                if old_url == 'http://localhost:4000':
+                old_url = old_data.get('registry_url', 'https://registry.prompdhub.ai')
+                # Determine registry name based on URL
+                if 'localhost' in old_url or '127.0.0.1' in old_url:
                     registry_name = 'local'
                 else:
                     registry_name = 'prompdhub'

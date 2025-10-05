@@ -178,7 +178,7 @@ class ProjectConfig:
     version: str = "1.0.0"
     dependencies: Dict[str, str] = field(default_factory=dict)
     dev_dependencies: Dict[str, str] = field(default_factory=dict)
-    registry_urls: List[str] = field(default_factory=lambda: ["http://localhost:4000"])
+    registry_urls: List[str] = field(default_factory=list)  # Empty list - will be populated from user config
 
 
 class PackageLock:
@@ -721,7 +721,33 @@ class PackageResolver:
             global_mode: If True, install to global cache by default
         """
         self.project_root = project_root or Path.cwd()
-        self.registry_urls = registry_urls or ["http://localhost:4000"]
+
+        # Load registry URLs from user config if not provided
+        if registry_urls is None:
+            from .config import PrompdConfig
+            config = PrompdConfig.load()
+            # Get configured registries
+            configured_registries = config.registry.get('registries', {})
+            default_registry = config.registry.get('default', 'prompdhub')
+
+            if configured_registries:
+                # Put default registry first, then others
+                registry_urls_list = []
+                if default_registry in configured_registries and 'url' in configured_registries[default_registry]:
+                    registry_urls_list.append(configured_registries[default_registry]['url'])
+
+                # Add other registries (except default which is already added)
+                for name, reg in configured_registries.items():
+                    if name != default_registry and 'url' in reg:
+                        registry_urls_list.append(reg['url'])
+
+                self.registry_urls = registry_urls_list if registry_urls_list else ["https://registry.prompdhub.ai"]
+            else:
+                # Fallback to prompdhub production if no registries configured
+                self.registry_urls = ["https://registry.prompdhub.ai"]
+        else:
+            self.registry_urls = registry_urls
+
         self.registries: Dict[str, RegistryInfo] = {}
         self.global_mode = global_mode
         
@@ -922,8 +948,14 @@ class PackageResolver:
             versions_data = response.json()
 
             # Convert versions array to dict format expected by the rest of the code
+            # API can return either a list directly or wrapped in {'versions': [...]}
             versions = {}
-            for version_info in versions_data.get('versions', []):
+            if isinstance(versions_data, list):
+                versions_list = versions_data
+            else:
+                versions_list = versions_data.get('versions', [])
+
+            for version_info in versions_list:
                 version_num = version_info['version']
                 versions[version_num] = version_info
 
@@ -1062,7 +1094,7 @@ class PackageResolver:
                     version=data.get('version', '1.0.0'),
                     dependencies=data.get('dependencies', {}),
                     dev_dependencies=data.get('devDependencies', {}),
-                    registry_urls=data.get('registries', ["http://localhost:4000"])
+                    registry_urls=data.get('registries', ["https://registry.prompdhub.ai"])
                 )
         except Exception as e:
             print(f"Warning: Failed to load project config: {e}")

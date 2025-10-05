@@ -8,13 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install Python CLI globally (recommended)
 pip install prompd
 
-# Development installation
+# Development installation from source
 cd cli/python && pip install -e ".[dev,mcp]"
+
+# Quick validation of installation
+prompd --version
+prompd validate examples/basic/example.prmd
 
 # Quick test across all CLIs
 python cli/python/run_tests.py && cd cli/go && go test ./... && cd ../npm && npm test
 
-# Build cross-platform Go binaries
+# Build cross-platform Go binaries (creates 6 platform binaries in dist/)
 ./build.bat  # Windows
 ./build.sh   # Unix/macOS
 ```
@@ -51,25 +55,40 @@ All CLIs share identical validation logic and package format specifications.
 ### Build & Test
 
 ```bash
-# Python
+# Python CLI
 cd cli/python
-pytest tests/test_parser.py::test_specific_function -v
-black prompd/ && ruff check prompd/
+pip install -e ".[dev,mcp]"          # Install with dev dependencies
+python run_tests.py                  # Quick test (models, validator, parser)
+pytest tests/                        # Full test suite
+pytest tests/test_parser.py -v       # Single test file
+pytest tests/test_parser.py::test_specific_function -v  # Specific test
+black prompd/                        # Format code
+ruff check prompd/                   # Lint code
+python -m build                      # Build distribution packages
+python -m twine upload dist/*        # Publish to PyPI
 
-# Go
+# Go CLI
 cd cli/go
-go test ./... -run TestValidateFile
-go build -ldflags "-s -w" -o prompd.exe ./cmd/prompd
+go build -o prompd.exe ./cmd/prompd               # Quick build
+go build -ldflags "-s -w" -o prompd.exe ./cmd/prompd  # Optimized build
+go test ./...                        # Run all tests
+go test ./... -run TestValidateFile  # Specific test pattern
+go test -v ./cmd/prompd              # Verbose tests for main package
 
-# Node.js
+# Node.js CLI
 cd cli/npm
-npm run build && npm test
-npx jest parser --verbose
+npm install                          # Install dependencies
+npm run build                        # TypeScript compilation
+npm test                             # Run all tests
+npm run test:watch                   # Watch mode
+npx jest parser --verbose            # Single test suite
+npm run dev                          # Development mode with ts-node
 
 # VS Code Extension
 cd vscode-extension
-npm run compile  # Build
-npm run watch    # Dev mode
+npm install                          # Install dependencies
+npm run compile                      # Build extension
+npm run watch                        # Dev mode with auto-rebuild
 ```
 
 ### Core Operations
@@ -89,16 +108,31 @@ prompd compile @namespace/package@1.0.0 -p key=value
 prompd run example.prmd --provider openai --model gpt-4o -p key=value
 prompd run example.prmd --meta:context ./src/ --meta:debug true
 
+# Interactive Shell (Python only)
+prompd shell                         # AI-powered REPL with prompt execution
+prompd chat                          # Direct chat mode
+
 # Package Management
 prompd package create ./project -o mypackage.pdpkg
 prompd package validate mypackage.pdpkg
 prompd publish mypackage.pdpkg
 prompd install @namespace/package@1.0.0
 
+# Cache Management (Python)
+prompd cache clear                   # Clear compilation cache
+prompd cache show                    # Display cache statistics
+
+# Provider Configuration
+prompd config provider list
+prompd config provider add <name> <url> <models...>
+prompd config provider setkey <provider> <key>
+
 # Registry Operations
 prompd login
+prompd logout
 prompd search "database helper"
 prompd versions @namespace/package
+prompd registry info @namespace/package
 ```
 
 ## High-Level Architecture
@@ -134,11 +168,23 @@ Processes any `--meta:{section}` flag and injects content into the prompt dynami
 
 ### Provider Architecture
 
-Supports both standard providers (OpenAI, Anthropic) and custom endpoints:
+Supports both standard providers (OpenAI, Anthropic) and custom endpoints (Ollama, Groq, LM Studio, etc.):
+
 ```bash
-prompd provider add groq https://api.groq.com/openai/v1 llama-3.1-8b
-prompd provider add local-ollama http://localhost:11434/v1 llama3.2
+# Add custom providers via config command
+prompd config provider add groq https://api.groq.com/openai/v1 llama-3.1-8b mixtral-8x7b
+prompd config provider add local-ollama http://localhost:11434/v1 llama3.2 qwen2.5
+prompd config provider add lm-studio http://localhost:1234/v1 local-model
+
+# Set API keys for providers
+prompd config provider setkey groq gsk_...
+prompd config provider setkey openai sk-...
+
+# List all configured providers
+prompd config provider list
 ```
+
+**Note:** Custom providers must expose OpenAI-compatible API endpoints (`/v1/chat/completions`).
 
 ## Key Implementation Details
 
@@ -226,11 +272,13 @@ registry:
 
 ## Version Management
 
-When releasing new versions, update:
-- `cli/python/pyproject.toml` (version field)
+When releasing new versions, update version strings in:
+- `cli/python/pyproject.toml` (version field, line 7)
 - `cli/go/cmd/prompd/main.go` (version constant)
-- `cli/npm/package.json` (version field)
+- `cli/npm/package.json` (version field, line 3)
 - `vscode-extension/package.json` (version field)
+
+Current version: **0.4.0** (Python CLI leads versioning)
 
 ## Testing Strategy
 
@@ -246,11 +294,17 @@ When releasing new versions, update:
 
 ### Quick Validation
 ```bash
-# Test file that exercises core functionality
+# Test files that exercise core functionality
 prompd validate examples/basic/example.prmd
+prompd show examples/basic/example.prmd
 prompd compile examples/basic/example.prmd --to-markdown
 prompd package create examples/basic -o test.pdpkg
 prompd package validate test.pdpkg
+
+# Test examples with different features
+prompd validate examples/features/yaml-content.prmd      # YAML-defined sections
+prompd validate examples/features/markdown-features.prmd # Markdown formatting
+prompd validate examples/advanced/research-assistant.prmd # Complex prompt
 ```
 
 ## Common Development Tasks
@@ -292,3 +346,62 @@ Memory usage for large packages:
 - Streaming ZIP operations for files >10MB
 - Lazy loading of package dependencies
 - Efficient YAML parsing with minimal allocations
+
+## Key Implementation Files
+
+### Python CLI (`cli/python/prompd/`)
+- `compiler.py` - 6-stage compilation pipeline with binary asset extraction
+- `package_resolver.py` - Registry discovery and package resolution
+- `parser.py` - YAML frontmatter + Markdown parsing with Jinja2
+- `validator.py` - Validation rules and schema enforcement
+- `shell.py` - Interactive AI shell and chat mode
+- `config.py` - Configuration management for providers and registries
+- `registry.py` - Registry operations (login, publish, search, install)
+- `commands/` - Click command implementations
+
+### Go CLI (`cli/go/cmd/prompd/`)
+- `main.go` - Entry point and command dispatcher
+- `package.go` - Package creation and validation
+- `package_resolver.go` - Registry discovery (/.well-known/registry.json)
+- `validator.go` - Core validation logic (matches Python implementation)
+- `compiler.go` - 6-stage compilation pipeline
+
+### Node.js CLI (`cli/npm/src/`)
+- `index.ts` - Main CLI entry point and command routing
+- `commands/` - Command implementations (package, registry, etc.)
+- `mcp/server.ts` - Model Context Protocol integration
+- `parser/` - YAML and Markdown parsing logic
+- `validators/` - Validation rules
+
+### VS Code Extension (`vscode-extension/`)
+- `src/extension.ts` - Main extension entry point
+- `package.json` - Extension manifest with command definitions
+- `syntaxes/prompd.tmLanguage.json` - Syntax highlighting rules
+
+## Critical Architecture Notes
+
+### CLI Implementation Priority
+When adding features, implement in this order:
+1. **Python CLI first** - Most feature-complete, canonical implementation
+2. **Go CLI** - Core features only (zero-dependency constraint)
+3. **Node.js CLI** - Developer-focused features (TypeScript, MCP)
+
+### Multi-CLI Consistency Rules
+- All CLIs must share identical validation logic
+- Package format (.pdpkg) must be cross-compatible
+- Registry API calls must use same endpoints/authentication
+- File format parsing (.prmd) must produce identical results
+
+### Build Artifacts
+- Python: PyPI package (`pip install prompd`)
+- Go: 6 cross-platform binaries (Windows/Linux/macOS × amd64/arm64) in `dist/`
+- Node.js: npm package (not yet published)
+
+### Testing Before Release
+```bash
+# Validation checklist across all implementations
+python cli/python/run_tests.py           # Python quick tests
+cd cli/go && go test ./...                # Go tests
+cd cli/npm && npm test                    # Node.js tests
+prompd validate examples/basic/example.prmd  # Cross-CLI validation test
+```

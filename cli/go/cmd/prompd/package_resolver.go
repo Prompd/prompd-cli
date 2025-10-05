@@ -264,7 +264,7 @@ type PackageResolver struct {
 // NewPackageResolver creates a new package resolver
 func NewPackageResolver() *PackageResolver {
 	return &PackageResolver{
-		RegistryURLs: []string{"http://localhost:4000"},
+		RegistryURLs: []string{"https://registry.prompdhub.ai"},
 		Registries:   make(map[string]*RegistryDiscoveryInfo),
 		Cache:        NewPackageCache(),
 	}

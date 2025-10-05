@@ -939,16 +939,41 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
 
             file_name = file_path.name
 
+            # Normalize relative_path for consistent matching (forward slashes, no ./ prefix)
+            normalized_path = relative_path.replace('\\', '/')
+            if normalized_path.startswith('./'):
+                normalized_path = normalized_path[2:]
+
+            # Check if this is the main file - always include it
+            main_file = manifest.get('main')
+            if main_file:
+                # Normalize main file path for comparison
+                normalized_main = main_file.replace('\\', '/').lstrip('./')
+                if normalized_path == normalized_main:
+                    return False, "main file (auto-included)"
+
+            # Check if this is the readme file - always include it
+            readme_file = manifest.get('readme')
+            if readme_file:
+                # Normalize readme file path for comparison
+                normalized_readme = readme_file.replace('\\', '/').lstrip('./')
+                if normalized_path == normalized_readme:
+                    return False, "readme file (auto-included)"
+
             # Check explicit include patterns first (files array)
             files_patterns = manifest.get('files', [])
             if files_patterns:
-                # If files array exists, ONLY include matching patterns
+                # If files array exists, ONLY include matching patterns (unless it's main/readme)
                 for pattern in files_patterns:
-                    if fnmatch.fnmatch(relative_path, pattern) or fnmatch.fnmatch(file_name, pattern):
+                    # Normalize pattern (remove ./ prefix, use forward slashes)
+                    normalized_pattern = pattern.replace('\\', '/').lstrip('./')
+
+                    if fnmatch.fnmatch(normalized_path, normalized_pattern) or fnmatch.fnmatch(file_name, normalized_pattern):
                         # Explicitly included - don't ignore
                         break
                 else:
-                    # Not in whitelist - ignore
+                    # Not in whitelist - ignore (unless it's main or readme, checked above)
+                    # Main and readme are already checked and returned False if matched
                     return True, "not in files whitelist"
 
             # Check explicit ignore patterns (ignore array)

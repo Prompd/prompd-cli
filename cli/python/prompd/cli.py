@@ -251,11 +251,11 @@ def _run_impl(ctx, file: Path, provider: Optional[str], model: Optional[str], pa
 
 
 @cli.command(name="run", context_settings=dict(ignore_unknown_options=True))
-@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.argument("source")  # Accept string to allow package references
 @click.option("--provider", required=False, help="LLM provider (openai, anthropic, ollama). Defaults from config if omitted")
 @click.option("--model", required=False, help="Model name. Defaults from config/provider if omitted")
 @click.option("--param", "-p", multiple=True, help="Parameter in format key=value")
-@click.option("--param-file", "-f", type=click.Path(exists=True, path_type=Path), 
+@click.option("--param-file", "-f", type=click.Path(exists=True, path_type=Path),
               multiple=True, help="JSON parameter file")
 @click.option("--api-key", help="API key override")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
@@ -264,18 +264,111 @@ def _run_impl(ctx, file: Path, provider: Optional[str], model: Optional[str], pa
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 @click.option("--show-usage", is_flag=True, help="Show token usage statistics")
 @click.pass_context
-def run(ctx, file: Path, provider: Optional[str], model: Optional[str], param: tuple, param_file: tuple, 
+def run(ctx, source: str, provider: Optional[str], model: Optional[str], param: tuple, param_file: tuple,
         api_key: Optional[str], output: Optional[str], format: str, version: Optional[str], verbose: bool, show_usage: bool):
-    """Run a .prmd file with an LLM provider (supports --meta:* flags)."""
+    """Run a .prmd file or package reference with an LLM provider.
+
+    Supports package references like:
+    - @namespace/package@version/path/to/file.prmd
+    - @prompd/public-examples@1.0.0/prompts/basic-inheritance.prmd
+    - package@version/file.prmd
+
+    Also supports --meta:* flags for dynamic section injection.
+    """
+    # Check if source is a package reference with path
+    import re
+    package_pattern = r'^(@[\w.-]+/[\w.-]+|[\w.-]+)@([\w.-]+)/(.+\.prmd)$'
+    match = re.match(package_pattern, source)
+
+    if match:
+        # This is a package reference with file path
+        package_ref = f"{match.group(1)}@{match.group(2)}"
+        file_path_in_package = match.group(3)
+
+        if verbose:
+            console.print(f"[cyan]Resolving package:[/cyan] {package_ref}")
+            console.print(f"[cyan]File path:[/cyan] {file_path_in_package}")
+
+        # Resolve the package
+        from .package_resolver import PackageResolver
+        resolver = PackageResolver()
+
+        try:
+            # Resolve package to local path
+            package_path = resolver.resolve_package(package_ref)
+
+            # Construct full file path
+            file = package_path / file_path_in_package
+
+            if not file.exists():
+                console.print(f"[red]File not found in package:[/red] {file_path_in_package}")
+                console.print(f"[yellow]Package location:[/yellow] {package_path}")
+                sys.exit(1)
+
+        except Exception as e:
+            console.print(f"[red]Failed to resolve package:[/red] {e}")
+            sys.exit(1)
+    else:
+        # Regular file path
+        file = Path(source)
+        if not file.exists():
+            console.print(f"[red]File not found:[/red] {source}")
+            sys.exit(1)
+
     return _run_impl(ctx, file, provider, model, param, param_file, api_key, output, format, version, verbose, show_usage)
 @cli.command()
-@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.argument("source")  # Accept string to allow package references
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed validation results")
 @click.option("--git", is_flag=True, help="Include git history consistency checks")
 @click.option("--version-only", is_flag=True, help="Only validate version-related aspects")
 @click.option("--check-overrides", is_flag=True, help="Validate section overrides against parent template")
-def validate(file: Path, verbose: bool, git: bool, version_only: bool, check_overrides: bool):
-    """Validate a .prmd file syntax and structure."""
+def validate(source: str, verbose: bool, git: bool, version_only: bool, check_overrides: bool):
+    """Validate a .prmd file or package reference syntax and structure.
+
+    Supports package references like:
+    - @namespace/package@version/path/to/file.prmd
+    - @prompd/public-examples@1.0.0/prompts/basic-inheritance.prmd
+    """
+    # Check if source is a package reference with path
+    import re
+    package_pattern = r'^(@[\w.-]+/[\w.-]+|[\w.-]+)@([\w.-]+)/(.+\.prmd)$'
+    match = re.match(package_pattern, source)
+
+    if match:
+        # This is a package reference with file path
+        package_ref = f"{match.group(1)}@{match.group(2)}"
+        file_path_in_package = match.group(3)
+
+        if verbose:
+            console.print(f"[cyan]Resolving package:[/cyan] {package_ref}")
+            console.print(f"[cyan]File path:[/cyan] {file_path_in_package}")
+
+        # Resolve the package
+        from .package_resolver import PackageResolver
+        resolver = PackageResolver()
+
+        try:
+            # Resolve package to local path
+            package_path = resolver.resolve_package(package_ref)
+
+            # Construct full file path
+            file = package_path / file_path_in_package
+
+            if not file.exists():
+                console.print(f"[red]File not found in package:[/red] {file_path_in_package}")
+                console.print(f"[yellow]Package location:[/yellow] {package_path}")
+                sys.exit(1)
+
+        except Exception as e:
+            console.print(f"[red]Failed to resolve package:[/red] {e}")
+            sys.exit(1)
+    else:
+        # Regular file path
+        file = Path(source)
+        if not file.exists():
+            console.print(f"[red]File not found:[/red] {source}")
+            sys.exit(1)
+
     try:
         from prompd.validator import PrompdValidator
         validator = PrompdValidator()
@@ -2579,35 +2672,45 @@ def package_create(source: Path, output_path: Optional[Path], name: Optional[str
         elif output_path.suffix != '.pdpkg':
             output_path = output_path.with_suffix('.pdpkg')
         
-        # Create manifest (matches backend PdpkgManifestSchema)
-        manifest = {
-            'name': proj_name,
-            'version': proj_version,
-            'description': proj_description,
-            'license': 'MIT',
-            'tags': [],
-            'dependencies': {},
-            'keywords': []
-        }
-        
+        # Start with existing manifest data (if any) and update with new values
+        manifest = manifest_data.copy() if manifest_data else {}
+
+        # Update core fields (CLI overrides or loaded values)
+        manifest['name'] = proj_name
+        manifest['version'] = proj_version
+        manifest['description'] = proj_description
+
+        # Set defaults for fields that weren't in the existing manifest
+        if 'license' not in manifest:
+            manifest['license'] = 'MIT'
+        if 'tags' not in manifest:
+            manifest['tags'] = []
+        if 'dependencies' not in manifest:
+            manifest['dependencies'] = {}
+        if 'keywords' not in manifest:
+            manifest['keywords'] = []
+
         if proj_author:
             manifest['author'] = proj_author
-        
+
         # Find .prmd and .pdflow files (ensure they are actual files, not directories)
         prompd_files = [f for f in source_dir.glob('**/*.prmd') if f.is_file()]
         pdflow_files = [f for f in source_dir.glob('**/*.pdflow') if f.is_file()]
-        
-        if prompd_files:
+
+        # Only auto-set main/files if not already in manifest
+        if prompd_files and 'main' not in manifest:
             # Set main file (first .prmd file found)
             main_file = str(prompd_files[0].relative_to(source_dir)).replace('\\', '/')
             manifest['main'] = main_file
-            
+
+        # Only auto-set files array if not already in manifest
+        if prompd_files and 'files' not in manifest:
             # If there are additional .prmd files, add them to files array
             if len(prompd_files) > 1:
                 additional_files = [str(f.relative_to(source_dir)).replace('\\', '/') for f in prompd_files[1:]]
                 manifest['files'] = additional_files
-        
-        if pdflow_files:
+
+        if pdflow_files and 'workflows' not in manifest:
             manifest['workflows'] = [str(f.relative_to(source_dir)).replace('\\', '/') for f in pdflow_files]
         
         # Create package
