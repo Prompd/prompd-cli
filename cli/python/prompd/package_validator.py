@@ -300,24 +300,42 @@ class PackageValidator:
             except Exception as e:
                 errors.append(f"Failed to read {prompd_file}: {e}")
     
-    def _validate_file_references(self, zip_file: zipfile.ZipFile, file_refs: Dict[str, Any], 
+    def _validate_file_references(self, zip_file: zipfile.ZipFile, file_refs: Dict[str, Any],
                                  errors: List[str], warnings: List[str]):
-        """Validate that referenced files exist in the package."""
+        """Validate that referenced files exist in the package.
+
+        Note: Some files may be renamed during packaging (e.g., .ts -> .ts.txt) to avoid execution.
+        This validator checks for both the original name and common renamed variants.
+        """
         file_list = zip_file.namelist()
-        
+
+        def _file_exists_in_package(file_ref: str, file_list: List[str]) -> bool:
+            """Check if file exists, including renamed variants (.txt suffix)."""
+            # Check original filename
+            if file_ref in file_list:
+                return True
+
+            # Check if file was renamed with .txt suffix (common for source code files)
+            # This happens for files like .ts, .js, .py, etc. during packaging
+            txt_variant = f"{file_ref}.txt"
+            if txt_variant in file_list:
+                return True
+
+            return False
+
         # Handle both dict format (categorized) and list format (simple array)
         if isinstance(file_refs, dict):
             for category, files in file_refs.items():
                 if not isinstance(files, list):
                     continue
-                
+
                 for file_ref in files:
-                    if file_ref not in file_list:
+                    if not _file_exists_in_package(file_ref, file_list):
                         errors.append(f"Referenced file not found in package: {file_ref}")
         elif isinstance(file_refs, list):
             # Simple list of file paths
             for file_ref in file_refs:
-                if file_ref not in file_list:
+                if not _file_exists_in_package(file_ref, file_list):
                     errors.append(f"Referenced file not found in package: {file_ref}")
         else:
             errors.append(f"Invalid file references format: expected dict or list, got {type(file_refs)}")

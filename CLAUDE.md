@@ -405,3 +405,43 @@ cd cli/go && go test ./...                # Go tests
 cd cli/npm && npm test                    # Node.js tests
 prompd validate examples/basic/example.prmd  # Cross-CLI validation test
 ```
+
+## Additional Commands
+
+### Dependency Management
+```bash
+prompd deps                              # Analyze project dependencies
+prompd deps @namespace/package@1.0.0    # Analyze specific package
+prompd deps --tree                       # Show dependency tree
+prompd deps --conflicts                  # Check for version conflicts
+```
+
+### Namespace Management
+```bash
+prompd namespace list                    # List your namespaces
+prompd namespace current                 # Show current namespace context
+prompd namespace use @mycompany          # Switch to different namespace
+prompd namespace create @mycompany       # Create namespace
+```
+
+### Command Aliases
+- `prompd pack` - Alias for `prompd package create`
+
+## Exit Codes
+
+Understanding exit codes for automation and error handling:
+
+- `0` - Success
+- `1` - General error
+- `2` - Validation error
+- `3` - Network/registry error
+- `4` - Authentication error
+- `5` - File not found
+- `6` - Permission denied
+
+## Additional Documentation
+
+For comprehensive command documentation, see:
+- [PROMPD-COMMANDS-REFERENCE.md](PROMPD-COMMANDS-REFERENCE.md) - Complete command reference with all options
+- [DISTRIBUTION.md](DISTRIBUTION.md) - Distribution and release strategy
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines

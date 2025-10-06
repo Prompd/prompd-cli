@@ -474,53 +474,22 @@ class RegistryClient:
 
 
 def validate_pdpkg(package_path: Path):
-    """Validate a .pdpkg package structure."""
-    if not package_path.exists():
-        raise Exception(f"Package file not found: {package_path}")
-    
-    if not zipfile.is_zipfile(package_path):
-        raise Exception("Package file is not a valid ZIP archive")
-    
-    with zipfile.ZipFile(package_path, 'r') as zip_file:
-        # Check for manifest
-        if 'manifest.json' not in zip_file.namelist():
-            raise Exception("Package missing required manifest.json file")
-        
-        # Validate manifest
-        with zip_file.open('manifest.json') as f:
-            try:
-                manifest = json.loads(f.read().decode('utf-8'))
-            except json.JSONDecodeError as e:
-                raise Exception(f"Invalid manifest.json: {e}")
-        
-        # Validate required manifest fields
-        required_fields = ['name', 'version', 'description']
-        for field in required_fields:
-            if field not in manifest:
-                raise Exception(f"Manifest missing required field: {field}")
-        
-        # Validate semantic version
-        version = manifest['version']
-        if not _is_valid_semver(version):
-            raise Exception(f"Invalid semantic version: {version}")
-        
-        # Validate referenced files exist
-        if 'files' in manifest:
-            # Handle both dict format (categorized) and list format (simple array)
-            if isinstance(manifest['files'], dict):
-                for file_pattern in manifest['files'].get('prompts', []):
-                    if file_pattern not in zip_file.namelist():
-                        raise Exception(f"Referenced file not found in package: {file_pattern}")
-            elif isinstance(manifest['files'], list):
-                # Simple list of file paths
-                for file_pattern in manifest['files']:
-                    if file_pattern not in zip_file.namelist():
-                        raise Exception(f"Referenced file not found in package: {file_pattern}")
-        
-        # Simple check - at least one .prmd file should exist
-        prompd_files = [f for f in zip_file.namelist() if f.endswith('.prmd')]
-        if not prompd_files:
-            raise Exception("Package contains no .prmd files")
+    """Validate a .pdpkg package structure.
+
+    Uses the centralized PackageValidator to avoid code duplication.
+    Raises exceptions for compatibility with existing code that expects exceptions.
+    """
+    from .package_validator import PackageValidator
+
+    validator = PackageValidator()
+    result = validator.validate_pdpkg_package(package_path)
+
+    if not result.is_valid:
+        # Combine all errors into a single exception message
+        error_messages = '\n'.join(f"  - {error}" for error in result.errors)
+        raise Exception(f"Package validation failed:\n{error_messages}")
+
+    # Return successfully (no exception means validation passed)
 
 
 def _is_valid_semver(version: str) -> bool:

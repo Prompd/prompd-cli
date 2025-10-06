@@ -142,6 +142,12 @@ class DependencyResolutionStage(CompilerStage):
                         # UsingPackage object
                         package_ref = item.name
                         prefix = item.prefix
+
+                        # Prefix is required for 'using' - the whole point is to create a shorthand
+                        if not prefix:
+                            context.errors.append(f"Package '{package_ref}' in 'using' field must have a prefix for shorthand access")
+                            continue
+
                         try:
                             package_path = self.resolver.resolve_package(package_ref)
                             resolved_packages[package_ref] = {
@@ -149,17 +155,20 @@ class DependencyResolutionStage(CompilerStage):
                                 'prefix': prefix
                             }
                             if context.verbose:
-                                if prefix:
-                                    print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
-                                else:
-                                    print(f"Resolved package: {package_ref} -> {package_path}")
+                                print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
                         except Exception as e:
                             context.warnings.append(f"Failed to resolve package {package_ref}: {e}")
                     elif isinstance(item, dict):
-                        # Dict with name and optional prefix
+                        # Dict with name and REQUIRED prefix
                         package_ref = item.get('name', item.get('package', ''))
                         prefix = item.get('prefix')
+
                         if package_ref:
+                            # Prefix is required for 'using' - the whole point is to create a shorthand
+                            if not prefix:
+                                context.errors.append(f"Package '{package_ref}' in 'using' field must have a prefix for shorthand access")
+                                continue
+
                             try:
                                 package_path = self.resolver.resolve_package(package_ref)
                                 resolved_packages[package_ref] = {
@@ -167,10 +176,7 @@ class DependencyResolutionStage(CompilerStage):
                                     'prefix': prefix
                                 }
                                 if context.verbose:
-                                    if prefix:
-                                        print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
-                                    else:
-                                        print(f"Resolved package: {package_ref} -> {package_path}")
+                                    print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
                             except Exception as e:
                                 context.warnings.append(f"Failed to resolve package {package_ref}: {e}")
                                 

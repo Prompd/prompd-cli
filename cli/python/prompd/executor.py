@@ -205,20 +205,83 @@ class PrompdExecutor:
                 raise PrompdError(f"Execution failed: {e}")
 
     def _resolve_custom_value(self, raw: str, base_file: Path) -> str:
-        """Resolve a custom override value which may be a file path or inline text."""
+        """
+        Resolve a custom override value which may be:
+        - A file path (reads file content)
+        - A directory path (reads all text files in directory)
+        - A glob pattern (reads all matching files)
+        - Inline text (returned as-is)
+        """
+        import glob as glob_module
+
         try:
             text = str(raw)
-            # Treat as file path if it looks like one
-            p = Path(text)
+
+            # Handle relative paths
             if text.startswith('./') or text.startswith('../'):
-                candidate = (base_file.parent / p).resolve()
-                if candidate.exists() and candidate.is_file():
-                    return candidate.read_text(encoding='utf-8')
-            elif p.exists() and p.is_file():
-                return p.read_text(encoding='utf-8')
+                candidate = (base_file.parent / text).resolve()
+            else:
+                candidate = Path(text)
+
+            # Check if it's a directory
+            if candidate.exists() and candidate.is_dir():
+                return self._read_directory_contents(candidate)
+
+            # Check if it's a file
+            if candidate.exists() and candidate.is_file():
+                return candidate.read_text(encoding='utf-8')
+
+            # Check if it's a glob pattern
+            if '*' in text or '?' in text or '[' in text:
+                # Resolve glob pattern relative to base file directory
+                if text.startswith('./') or text.startswith('../'):
+                    glob_pattern = str(base_file.parent / text)
+                else:
+                    glob_pattern = text
+
+                matching_files = glob_module.glob(glob_pattern, recursive=True)
+                if matching_files:
+                    return self._read_multiple_files(matching_files)
         except Exception:
             pass
+
         return str(raw)
+
+    def _read_directory_contents(self, directory: Path) -> str:
+        """Read all text files in a directory and combine them."""
+        contents = []
+
+        # Read all common text file extensions
+        text_extensions = {'.txt', '.md', '.prmd', '.json', '.yaml', '.yml', '.py', '.js', '.ts', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.hpp'}
+
+        for file_path in sorted(directory.iterdir()):
+            if file_path.is_file() and file_path.suffix.lower() in text_extensions:
+                try:
+                    file_content = file_path.read_text(encoding='utf-8')
+                    # Add file header for context
+                    contents.append(f"### File: {file_path.name}\n\n{file_content}")
+                except Exception:
+                    # Skip files that can't be read
+                    continue
+
+        return '\n\n'.join(contents) if contents else ''
+
+    def _read_multiple_files(self, file_paths: List[str]) -> str:
+        """Read multiple files and combine their contents."""
+        contents = []
+
+        for file_path_str in sorted(file_paths):
+            file_path = Path(file_path_str)
+            if file_path.is_file():
+                try:
+                    file_content = file_path.read_text(encoding='utf-8')
+                    # Add file header for context
+                    contents.append(f"### File: {file_path.name}\n\n{file_content}")
+                except Exception:
+                    # Skip files that can't be read
+                    continue
+
+        return '\n\n'.join(contents) if contents else ''
     
     async def _resolve_parameters(
         self,

@@ -102,9 +102,13 @@ def parse_content_reference(value: Union[str, List[str], Dict[str, Any]]) -> Con
 
 
 class UsingPackage(BaseModel):
-    """Package reference with optional prefix."""
+    """Package reference with required prefix for shorthand access.
+
+    The prefix creates an alias for the package, allowing you to reference
+    it with a shorter name (e.g., 'pkg' instead of '@namespace/package@1.0.0').
+    """
     name: str
-    prefix: Optional[str] = None
+    prefix: str  # Required - the whole point of 'using' is to create a shorthand alias
 
 
 class PrompdMetadata(BaseModel):
@@ -127,7 +131,7 @@ class PrompdMetadata(BaseModel):
     # Content references
     system: Optional[Union[str, List[str]]] = None
     assistant: Optional[Union[str, List[str]]] = None
-    context: Optional[Union[str, List[str]]] = None
+    context: Optional[Union[str, List[str]]] = None  # Can be a single file or list of files for extraction
     user: Optional[Union[str, List[str]]] = None
     response: Optional[Union[str, List[str]]] = None
 

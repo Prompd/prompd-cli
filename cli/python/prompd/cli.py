@@ -30,7 +30,7 @@ except:
 
 
 @click.group()
-@click.version_option(version="0.4.0", prog_name="prompd")
+@click.version_option(version="0.3.1", prog_name="prompd")
 def cli():
     """Prompd - CLI for structured prompt definitions."""
     pass
@@ -745,6 +745,27 @@ def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_
                 console.print(f"[red]File not found:[/red] {source}")
                 sys.exit(1)
         
+        # Parse meta alias flags of form --meta:{section} <value>
+        metadata_overrides: Dict[str, str] = {}
+        try:
+            extra_args = list(ctx.args) if hasattr(ctx, 'args') else []
+            i = 0
+            while i < len(extra_args):
+                token = extra_args[i]
+                if isinstance(token, str) and token.startswith("--meta:"):
+                    section = token.split(":", 1)[1]
+                    # Grab the next arg as the value if present
+                    if i + 1 < len(extra_args):
+                        val = extra_args[i+1]
+                        # Store the section name without the meta: prefix
+                        metadata_overrides[section] = str(val)
+                        i += 2
+                        continue
+                i += 1
+        except Exception:
+            # Best-effort; ignore parsing errors
+            pass
+
         # Merge parameters from files and CLI
         parameters: Dict[str, Any] = {}
         if params_file:
@@ -815,6 +836,17 @@ def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_
                 pass
 
         from prompd.compiler import PrompdCompiler
+        from prompd.executor import PrompdExecutor
+
+        # If we have metadata overrides, we need to resolve them and merge into parameters
+        if metadata_overrides:
+            executor = PrompdExecutor()
+            for key, value in metadata_overrides.items():
+                # Resolve the value (could be file/directory/glob pattern)
+                resolved_value = executor._resolve_custom_value(value, base_file=source_path)
+                # Merge into parameters with the meta: prefix as the key
+                parameters[key] = resolved_value
+
         compiler = PrompdCompiler()
         result = compiler.compile(
             source=source,
