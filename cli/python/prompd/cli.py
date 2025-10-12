@@ -2,6 +2,7 @@
 
 import sys
 import subprocess
+import json
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -30,7 +31,7 @@ except:
 
 
 @click.group()
-@click.version_option(version="0.3.1", prog_name="prompd")
+@click.version_option(version=PROMPD_VERSION, prog_name="prompd")
 def cli():
     """Prompd - CLI for structured prompt definitions."""
     pass
@@ -1003,6 +1004,399 @@ def show(file: Path, sections: bool, verbose: bool):
 
     except Exception as e:
         console.print(f"[red]Error reading file:[/red] {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('target', type=str)
+@click.option('--detailed', '-d', is_flag=True, help='Show detailed information')
+@click.option('--sections', '-s', is_flag=True, help='Show section content previews')
+@click.option('--history', '-h', is_flag=True, help='Show version/git history')
+@click.option('--registry', '-r', help='Registry to query (for package references)')
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
+def explain(target: str, detailed: bool, sections: bool, history: bool, registry: Optional[str], verbose: bool):
+    """Explain detailed information about a .prmd file, package, or registry package.
+
+    Examples:
+      prompd explain examples/src/prompts/base-prompt.prmd
+      prompd explain examples/src/prompts/team-project-planner.prmd -dsh
+      prompd explain examples/dist/public-examples.pdpkg -d
+      prompd explain @prompd.io/public-examples
+    """
+    if verbose:
+        console.print("[dim]Verbose logging enabled[/dim]")
+
+    target_path = Path(target)
+
+    # Detect target type
+    if target.startswith('@') or ('/' in target and not target_path.exists()):
+        if verbose:
+            console.print(f"[dim]Detected: Registry package reference[/dim]")
+        _explain_registry_package(target, registry, detailed, verbose)
+    elif target.endswith('.pdpkg'):
+        if verbose:
+            console.print(f"[dim]Detected: Package file (.pdpkg)[/dim]")
+        _explain_package_file(target_path, detailed, verbose)
+    elif target.endswith('.prmd'):
+        if verbose:
+            console.print(f"[dim]Detected: Prompd file (.prmd)[/dim]")
+        _explain_prmd_file(target_path, detailed, sections, history, verbose)
+    else:
+        console.print("[red]Unknown target type. Use .prmd file, .pdpkg package, or @namespace/package[/red]")
+        sys.exit(1)
+
+
+def _explain_prmd_file(file_path: Path, detailed: bool, show_sections: bool, show_history: bool, verbose: bool):
+    """Explain a .prmd file."""
+    if verbose:
+        console.print(f"[dim]Parsing file: {file_path}[/dim]")
+
+    try:
+        # Parse file
+        from prompd.parser import PrompdParser
+        parser = PrompdParser()
+        prompd = parser.parse_file(file_path)
+        metadata = prompd.metadata
+
+        if verbose:
+            console.print(f"[dim]Found {len(metadata.parameters or [])} parameters[/dim]")
+            console.print(f"[dim]Found {len(prompd.sections)} sections[/dim]")
+
+        # Build output
+        output = f"{file_path.name}\n\n"
+        output += "[bold cyan]Metadata:[/bold cyan]\n"
+        output += f"  Name:        {metadata.name}\n"
+        output += f"  Version:     {metadata.version}\n"
+        output += f"  Description: {metadata.description or 'None'}\n"
+
+        # Show additional metadata only in detailed mode
+        if detailed:
+            if hasattr(metadata, 'author') and metadata.author:
+                output += f"  Author:      {metadata.author}\n"
+            if hasattr(metadata, 'license') and metadata.license:
+                output += f"  License:     {metadata.license}\n"
+            if hasattr(metadata, 'inherits') and metadata.inherits:
+                output += f"  Inherits:    {metadata.inherits}\n"
+        elif hasattr(metadata, 'inherits') and metadata.inherits:
+            # Always show inherits
+            output += f"\nInherits: {metadata.inherits}\n"
+
+        # Parameters
+        if metadata.parameters:
+            param_count = len(metadata.parameters)
+            output += f"\n[bold cyan]Parameters ({param_count}):[/bold cyan]\n"
+
+            for param in metadata.parameters:
+                required = param.required
+                marker = "*" if required else " "
+                req_text = "required" if required else "optional"
+
+                # Basic display
+                default_text = f" - Default: {param.default}" if param.default is not None and not detailed else ""
+                output += f"  {marker} {param.name} ({param.type.value}, {req_text}){default_text}\n"
+
+                # Detailed display
+                if detailed:
+                    if param.description:
+                        output += f"    Description: {param.description}\n"
+                    if param.default is not None:
+                        output += f"    Default: {param.default}\n"
+                    if hasattr(param, 'pattern') and param.pattern:
+                        output += f"    Pattern: {param.pattern}\n"
+                    if hasattr(param, 'enum') and param.enum:
+                        output += f"    Enum: {', '.join(param.enum)}\n"
+                    output += "\n"
+
+        # Context files
+        if hasattr(metadata, 'contexts') and metadata.contexts:
+            context_count = len(metadata.contexts)
+            output += f"\n[bold cyan]Contexts ({context_count}):[/bold cyan]\n"
+            for ctx in metadata.contexts:
+                output += f"  - {ctx}\n"
+
+        # Overrides
+        if hasattr(metadata, 'override') and metadata.override:
+            override_count = len(metadata.override)
+            output += f"\n[bold cyan]Overrides ({override_count}):[/bold cyan]\n"
+            for section_id, override_path in metadata.override.items():
+                if override_path is None:
+                    output += f"  - {section_id} -> [removed]\n"
+                else:
+                    output += f"  - {section_id} -> {override_path}\n"
+
+        # Sections
+        if prompd.sections:
+            if not detailed and not show_sections:
+                # Basic display - just list section names
+                all_section_names = list(prompd.sections.keys())
+                output += f"\n[bold cyan]Sections:[/bold cyan] {', '.join(all_section_names)} ({len(all_section_names)} total)\n"
+            else:
+                # Detailed display - show all sections with content info
+                output += f"\n[bold cyan]Sections ({len(prompd.sections)}):[/bold cyan]\n"
+                for section_id, content in prompd.sections.items():
+                    # Content is a string directly
+                    lines = len(content.split('\n'))
+                    output += f"  - {section_id} ({lines} lines)\n"
+                    if show_sections:
+                        preview = content[:100].replace('\n', ' ')
+                        if len(content) > 100:
+                            preview += "..."
+                        output += f"    {preview}\n"
+
+        # Git history (if requested)
+        if show_history:
+            if verbose:
+                console.print("[dim]Checking git history...[/dim]")
+
+            try:
+                import subprocess
+                # Get git tags for this file
+                basename = file_path.stem
+                result = subprocess.run(
+                    ['git', 'tag', '-l', f'{basename}-v*'],
+                    capture_output=True, text=True, check=True, cwd=file_path.parent
+                )
+                tags = [t.strip() for t in result.stdout.split('\n') if t.strip()]
+
+                if verbose and tags:
+                    console.print(f"[dim]Found {len(tags)} version tags[/dim]")
+
+                if tags:
+                    output += f"\n[bold cyan]Git History ({len(tags)} versions):[/bold cyan]\n"
+                    for tag in sorted(tags, reverse=True)[:10]:  # Show last 10
+                        # Get commit info for tag
+                        commit_info = subprocess.run(
+                            ['git', 'log', '-1', '--format=%cd - %s', '--date=short', tag],
+                            capture_output=True, text=True, cwd=file_path.parent
+                        )
+                        if commit_info.stdout:
+                            output += f"  {tag} ({commit_info.stdout.strip()})\n"
+                else:
+                    output += "\n[dim]No version tags found[/dim]\n"
+            except Exception as e:
+                if verbose:
+                    console.print(f"[dim]Git history unavailable: {e}[/dim]")
+                output += "\n[dim]Git history unavailable[/dim]\n"
+
+        # File stats (only in detailed mode)
+        if detailed:
+            stats = file_path.stat()
+            size_kb = stats.st_size / 1024
+            with open(file_path, 'r', encoding='utf-8') as f:
+                line_count = len(f.readlines())
+
+            from datetime import datetime
+            mod_time = datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+
+            output += f"\n[bold cyan]File Stats:[/bold cyan]\n"
+            output += f"  Size: {size_kb:.2f} KB\n"
+            output += f"  Lines: {line_count}\n"
+            output += f"  Last modified: {mod_time}\n"
+
+        console.print(Panel(output.strip(), title=f"Prompd File: {file_path.name}"))
+
+    except Exception as e:
+        console.print(f"[red]Error explaining file: {e}[/red]")
+        if verbose:
+            import traceback
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        sys.exit(1)
+
+
+def _explain_package_file(package_path: Path, detailed: bool, verbose: bool):
+    """Explain a .pdpkg package file."""
+    import zipfile
+
+    if verbose:
+        console.print(f"[dim]Opening package: {package_path}[/dim]")
+
+    try:
+        # Open and inspect package
+        with zipfile.ZipFile(package_path, 'r') as zf:
+            # Read manifest
+            try:
+                manifest_data = zf.read('manifest.json')
+                manifest = json.loads(manifest_data)
+                if verbose:
+                    console.print(f"[dim]Parsed manifest.json[/dim]")
+            except KeyError:
+                console.print("[red]Invalid package: manifest.json not found[/red]")
+                sys.exit(1)
+
+            # Get file list
+            file_list = zf.namelist()
+            total_size = sum(zf.getinfo(f).file_size for f in file_list)
+
+            if verbose:
+                console.print(f"[dim]Found {len(file_list)} files, total size {total_size / 1024:.1f} KB[/dim]")
+
+            # Build output
+            output = f"{package_path.name}\n\n"
+            output += "[bold cyan]Package Metadata:[/bold cyan]\n"
+            output += f"  Name:        {manifest.get('name', 'Unknown')}\n"
+            output += f"  Version:     {manifest.get('version', 'Unknown')}\n"
+            output += f"  Description: {manifest.get('description', 'None')}\n"
+
+            if detailed:
+                output += f"  Author:      {manifest.get('author', 'Unknown')}\n"
+                output += f"  License:     {manifest.get('license', 'Unknown')}\n"
+                if manifest.get('homepage'):
+                    output += f"  Homepage:    {manifest.get('homepage')}\n"
+
+            # Contents
+            output += f"\n[bold cyan]Contents ({len(file_list)} files):[/bold cyan]\n"
+
+            # Group by type
+            prompd_files = [f for f in file_list if f.endswith('.prmd')]
+            readme_files = [f for f in file_list if f.lower().endswith('.md')]
+            manifest_files = [f for f in file_list if f == 'manifest.json']
+            other_files = [f for f in file_list if f not in prompd_files + readme_files + manifest_files]
+
+            # Show files
+            max_display = 10 if not detailed else len(file_list)
+            displayed = 0
+
+            for prompd_file in prompd_files[:max_display - displayed]:
+                size = zf.getinfo(prompd_file).file_size
+                output += f"  {prompd_file} ({size / 1024:.1f} KB)\n"
+                displayed += 1
+
+            for readme_file in readme_files[:max(1, max_display - displayed)]:
+                size = zf.getinfo(readme_file).file_size
+                output += f"  {readme_file} ({size / 1024:.1f} KB)\n"
+                displayed += 1
+
+            if detailed and other_files:
+                for other_file in other_files[:max_display - displayed]:
+                    size = zf.getinfo(other_file).file_size
+                    output += f"  {other_file} ({size / 1024:.1f} KB)\n"
+                    displayed += 1
+
+            # Show truncation message
+            remaining = len(file_list) - displayed
+            if remaining > 0:
+                output += f"  [dim]... (and {remaining} more files)[/dim]\n"
+
+            # Dependencies
+            deps = manifest.get('dependencies', {})
+            if deps:
+                output += f"\n[bold cyan]Dependencies ({len(deps)}):[/bold cyan]\n"
+                for dep_name, dep_version in deps.items():
+                    output += f"  {dep_name}@{dep_version}\n"
+            else:
+                output += f"\n[bold cyan]Dependencies:[/bold cyan] 0\n"
+
+            output += f"\n[bold cyan]Package Size:[/bold cyan] {total_size / 1024:.1f} KB\n"
+
+            console.print(Panel(output.strip(), title=f"Package: {package_path.name}"))
+
+            # Offer to show README
+            readme_file = next((f for f in file_list if f.lower() == 'readme.md'), None)
+            if readme_file:
+                from rich.prompt import Confirm
+                show_readme = Confirm.ask("\nView README?", default=False)
+                if show_readme:
+                    readme_content = zf.read(readme_file).decode('utf-8')
+                    from rich.markdown import Markdown
+                    console.print("\n")
+                    console.print(Markdown(readme_content))
+
+    except Exception as e:
+        console.print(f"[red]Error explaining package: {e}[/red]")
+        if verbose:
+            import traceback
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        sys.exit(1)
+
+
+def _explain_registry_package(package_name: str, registry: Optional[str], detailed: bool, verbose: bool):
+    """Explain a registry package - reuses registry info command logic."""
+    if verbose:
+        console.print(f"[dim]Querying registry for: {package_name}[/dim]")
+
+    try:
+        from prompd.registry import RegistryClient
+
+        client = RegistryClient(registry_name=registry)
+
+        if verbose:
+            console.print(f"[dim]Using registry: {client.registry_url}[/dim]")
+
+        info = client.get_package_info(package_name)
+
+        if verbose:
+            console.print(f"[dim]Received package info[/dim]")
+
+        # Enhanced output based on registry info command
+        output = f"{info.get('name')} (from registry)\n\n"
+        output += "[bold cyan]Package Information:[/bold cyan]\n"
+        output += f"  Name:        {info.get('name')}\n"
+        output += f"  Latest:      {info.get('version')}\n"
+        output += f"  Description: {info.get('description', 'No description')}\n"
+
+        if detailed:
+            output += f"  Author:      {info.get('author', 'Unknown')}\n"
+            output += f"  License:     {info.get('license', 'Unknown')}\n"
+
+            if info.get('homepage'):
+                output += f"  Homepage:    {info.get('homepage')}\n"
+            if info.get('repository'):
+                output += f"  Repository:  {info.get('repository')}\n"
+
+        output += f"  Downloads:   {info.get('downloads', 0):,}\n"
+        if info.get('publishedAt'):
+            output += f"  Published:   {info.get('publishedAt')}\n"
+
+        # Tags
+        if info.get('tags'):
+            output += f"\nTags: {', '.join(info.get('tags'))}\n"
+
+        # Available versions
+        if 'versions' in info and info['versions']:
+            version_list = info['versions']
+            display_count = 10 if detailed else 5
+            versions = version_list[:display_count]
+
+            output += f"\n[bold cyan]Available Versions ({len(version_list)} total):[/bold cyan]\n"
+            for v in versions:
+                version_str = v.get('version') if isinstance(v, dict) else v
+                date_str = f" - {v.get('publishedAt', '')}" if isinstance(v, dict) and detailed else ""
+                output += f"  {version_str}{date_str}\n"
+
+            if len(version_list) > display_count:
+                output += f"  [dim](and {len(version_list) - display_count} more)[/dim]\n"
+
+        # Dependencies
+        if info.get('dependencies'):
+            deps = info['dependencies']
+            output += f"\n[bold cyan]Dependencies ({len(deps)}):[/bold cyan]\n"
+            for dep_name, dep_version in deps.items():
+                output += f"  {dep_name}@{dep_version}\n"
+        else:
+            output += f"\n[bold cyan]Dependencies:[/bold cyan] 0\n"
+
+        output += f"\n[bold cyan]Install:[/bold cyan]\n"
+        output += f"  prompd install {package_name}@{info.get('version')}\n"
+
+        console.print(Panel(output.strip(), title=f"Registry Package: {package_name}"))
+
+        # Offer to show README if available
+        if info.get('readme'):
+            from rich.prompt import Confirm
+            show_readme = Confirm.ask("\nView README?", default=False)
+            if show_readme:
+                from rich.markdown import Markdown
+                console.print("\n")
+                console.print(Markdown(info['readme']))
+        elif detailed and verbose:
+            console.print("[dim]No README available for this package[/dim]")
+
+    except Exception as e:
+        if verbose:
+            console.print(f"[dim]Error details: {str(e)}[/dim]")
+            import traceback
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        console.print(f"[red]Error getting package info: {e}[/red]")
         sys.exit(1)
 
 

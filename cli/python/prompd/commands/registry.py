@@ -16,41 +16,6 @@ def registry():
     pass
 
 
-@registry.command('info')
-@click.argument('package_name', required=True)
-@click.option('--registry', help='Registry to query')
-def registry_info(package_name: str, registry: Optional[str]):
-    """Get detailed package information."""
-    try:
-        from prompd.registry import RegistryClient
-        
-        client = RegistryClient(registry_name=registry)
-        info = client.get_package_info(package_name)
-        
-        console.print(Panel(
-            f"[bold cyan]{info.get('name')}[/bold cyan] v{info.get('version')}\n\n"
-            f"[bold]Description:[/bold] {info.get('description', 'No description')}\n"
-            f"[bold]Author:[/bold] {info.get('author', 'Unknown')}\n"
-            f"[bold]License:[/bold] {info.get('license', 'Unknown')}\n"
-            f"[bold]Homepage:[/bold] {info.get('homepage', 'None')}\n"
-            f"[bold]Downloads:[/bold] {info.get('downloads', 0):,}\n"
-            f"[bold]Latest Version:[/bold] {info.get('latest', info.get('version'))}\n"
-            f"[bold]Repository:[/bold] {info.get('repository', 'None')}",
-            title=f"Package: {package_name}"
-        ))
-        
-        # Show available versions
-        if 'versions' in info and info['versions']:
-            versions = info['versions'][:5]  # Show latest 5 versions
-            version_list = ", ".join([f"v{v}" for v in versions])
-            console.print(f"\n[bold]Recent Versions:[/bold] {version_list}")
-            if len(info['versions']) > 5:
-                console.print(f"[dim](and {len(info['versions']) - 5} more versions)[/dim]")
-        
-    except Exception as e:
-        console.print(f"[red]Error getting package info: {e}[/red]")
-
-
 @registry.command('list')
 @click.option('--limit', default=20, help='Number of packages to list')
 @click.option('--scope', help='Filter by scope (e.g., @prompd.io)')

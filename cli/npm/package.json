@@ -1,6 +1,6 @@
 {
   "name": "@logikbug/prompd-cli",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Node.js CLI for structured prompt definitions with universal LLM provider support",
   "main": "dist/index.js",
   "bin": {

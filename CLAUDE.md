@@ -98,6 +98,7 @@ npm run watch                        # Dev mode with auto-rebuild
 prompd validate example.prmd
 prompd show example.prmd
 prompd list [path]
+prompd explain example.prmd              # Detailed file/package info
 
 # Compilation Pipeline (Python/Go)
 prompd compile example.prmd --to-markdown
@@ -278,7 +279,7 @@ When releasing new versions, update version strings in:
 - `cli/npm/package.json` (version field, line 3)
 - `vscode-extension/package.json` (version field)
 
-Current version: **0.4.0** (Python CLI leads versioning)
+Current version: **0.3.1** (Python CLI leads versioning)
 
 ## Testing Strategy
 

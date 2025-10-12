@@ -1,8 +1,0 @@
-{
-  "input_text": {
-    "value": "John Smith is 34 years old and works at Acme Corporation as a software engineer.",
-    "type": "string",
-    "description": "Sample text for data extraction"
-  },
-  "format": "json"
-}

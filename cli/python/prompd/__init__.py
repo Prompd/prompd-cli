@@ -1,6 +1,6 @@
 """Prompd CLI - A tool for working with structured prompt definitions (.prmd files)."""
 
-__version__ = "0.3.1"
+__version__ = "0.3.3"
 
 def check_prompd_version():
     """Return the current version from __init__.py"""
