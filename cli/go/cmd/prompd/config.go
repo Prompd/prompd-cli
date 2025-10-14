@@ -19,15 +19,17 @@ type RegistryInfo struct {
 
 // Config represents the prompd configuration
 type Config struct {
-	APIKeys         map[string]string                `yaml:"api_keys"`
-	DefaultProvider string                           `yaml:"default_provider"`
-	DefaultModel    string                           `yaml:"default_model"`
-	CustomProviders map[string]CustomProvider        `yaml:"custom_providers"`
-	Registry        map[string]interface{}           `yaml:"registry"`
-	Scopes          map[string]string                `yaml:"scopes"`
-	MaxRetries      int                              `yaml:"max_retries"`
-	Timeout         int                              `yaml:"timeout"`
-	Verbose         bool                             `yaml:"verbose"`
+	APIKeys          map[string]string                `yaml:"api_keys"`
+	DefaultProvider  string                           `yaml:"default_provider"`
+	DefaultModel     string                           `yaml:"default_model"`
+	CustomProviders  map[string]CustomProvider        `yaml:"custom_providers"`
+	Registry         map[string]interface{}           `yaml:"registry"`
+	Scopes           map[string]string                `yaml:"scopes"`
+	Namespaces       map[string]string                `yaml:"namespaces"`
+	CurrentNamespace string                           `yaml:"current_namespace"`
+	MaxRetries       int                              `yaml:"max_retries"`
+	Timeout          int                              `yaml:"timeout"`
+	Verbose          bool                             `yaml:"verbose"`
 }
 
 // CustomProvider represents a custom LLM provider configuration
@@ -88,14 +90,14 @@ func getConfigPaths() []string {
 	
 	// 1. Current directory
 	if cwd, err := os.Getwd(); err == nil {
-		paths = append(paths, filepath.Join(cwd, ".prmd", "config.yaml"))
-		paths = append(paths, filepath.Join(cwd, ".prmd", "config.json"))
+		paths = append(paths, filepath.Join(cwd, ".prompd", "config.yaml"))
+		paths = append(paths, filepath.Join(cwd, ".prompd", "config.json"))
 	}
-	
+
 	// 2. User home directory
 	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".prmd", "config.yaml"))
-		paths = append(paths, filepath.Join(home, ".prmd", "config.json"))
+		paths = append(paths, filepath.Join(home, ".prompd", "config.yaml"))
+		paths = append(paths, filepath.Join(home, ".prompd", "config.json"))
 	}
 	
 	// 3. System config directory (Windows)
@@ -249,7 +251,7 @@ func SaveConfig(config *Config) error {
 		return fmt.Errorf("error getting home directory: %w", err)
 	}
 	
-	configDir := filepath.Join(homeDir, ".prmd")
+	configDir := filepath.Join(homeDir, ".prompd")
 	configPath := filepath.Join(configDir, "config.yaml")
 	
 	// Ensure config directory exists

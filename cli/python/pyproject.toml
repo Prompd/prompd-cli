@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "prompd"
-version = "0.3.3"
+version = "0.3.4"
 description = "Structured prompt management CLI with universal LLM provider support, version control, and git integration"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
 authors = [
-    {name = "Logikbug", email = "contact@logikbug.com"},
+    {name = "Prompd", email = "prompd-cli@prompdhub.ai"},
 ]
 maintainers = [
-    {name = "Logikbug", email = "contact@logikbug.com"},
+    {name = "Prompd", email = "prompd-cli@prompdhub.ai"},
 ]
 keywords = ["prompt", "prompd", "prompt-management", "prompt-engineering", "template", "ai", "cli", "llm", "openai", "anthropic", "ollama", "local-llm", "groq", "together-ai"]
 classifiers = [

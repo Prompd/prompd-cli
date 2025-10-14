@@ -1,10 +1,19 @@
 {
-  "name": "@logikbug/prompd-cli",
-  "version": "0.3.2",
-  "description": "Node.js CLI for structured prompt definitions with universal LLM provider support",
-  "main": "dist/index.js",
+  "name": "@prompd/cli",
+  "version": "0.3.3",
+  "description": "Node.js CLI for structured prompt definitions with universal LLM provider support. Also usable as a library in TypeScript/React apps.",
+  "main": "dist/lib/index.js",
+  "types": "dist/lib/index.d.ts",
   "bin": {
     "prompd": "./bin/prompd.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/lib/index.d.ts",
+      "import": "./dist/lib/index.js",
+      "require": "./dist/lib/index.js"
+    },
+    "./cli": "./bin/prompd.js"
   },
   "files": [
     "dist/",

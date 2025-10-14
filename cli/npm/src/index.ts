@@ -2,59 +2,60 @@
 
 import { Command } from 'commander';
 import { spawn } from 'child_process';
+import chalk from 'chalk';
+import { createCreateCommand } from './commands/create';
+import { createInitCommand } from './commands/init';
 import { createValidateCommand } from './commands/validate';
 import { createListCommand } from './commands/list';
 import { createShowCommand } from './commands/show';
-import { createRunCommand } from './commands/execute';
-import { createCompileCommand } from './commands/render';
-import { createProviderCommand } from './commands/provider';
+import { createExplainCommand } from './commands/explain';
+import { createRunCommand } from './commands/run';
+import { createCompileCommand } from './commands/compile';
 import { createVersionCommand } from './commands/version';
 import { createGitCommand } from './commands/git';
 import { createMCPCommand } from './commands/mcp';
-import { createRegistryCommand, createLoginCommand, createLogoutCommand, createSearchCommand, createInstallCommand, createPublishCommand } from './commands/registry';
-import { createPackageCommand } from './commands/package';
+import { createLoginCommand, createLogoutCommand, createSearchCommand, createInstallCommand, createPublishCommand, createVersionsCommand } from './commands/registry';
+import { createPackageCommand, createPackCommand } from './commands/package';
+import { createConfigCommand } from './commands/config';
+import { createCacheCommand } from './commands/cache';
+import { createUninstallCommand } from './commands/uninstall';
+import { createNamespaceCommand } from './commands/namespace';
+import { createDepsCommand } from './commands/deps';
 
 const program = new Command();
 
 program
   .name('prompd')
   .description('CLI for structured prompt definitions')
-  .version('0.3.0');
+  .version('0.3.3');
 
-// Add all commands
+// Core commands
+program.addCommand(createConfigCommand());
+program.addCommand(createCreateCommand());
+program.addCommand(createInitCommand());
 program.addCommand(createValidateCommand());
 program.addCommand(createListCommand());
 program.addCommand(createShowCommand());
+program.addCommand(createExplainCommand());
 program.addCommand(createRunCommand());
 program.addCommand(createCompileCommand());
 program.addCommand(createPackageCommand());
-program.addCommand(createProviderCommand());
+program.addCommand(createPackCommand()); // Alias for 'package create'
+program.addCommand(createCacheCommand());
 program.addCommand(createVersionCommand());
 program.addCommand(createGitCommand());
 program.addCommand(createMCPCommand());
-program.addCommand(createRegistryCommand());
 
-// Add top-level multi-registry commands
+// Registry operations (top-level for convenience)
 program.addCommand(createLoginCommand());
 program.addCommand(createLogoutCommand());
 program.addCommand(createSearchCommand());
 program.addCommand(createInstallCommand());
+program.addCommand(createUninstallCommand());
 program.addCommand(createPublishCommand());
-
-// Legacy providers command for backward compatibility
-program
-  .command('providers')
-  .description('List available LLM providers and their models (deprecated: use "provider list")')
-  .action(async () => {
-    console.log('Note: Use "prompd provider list" for more detailed view\n');
-    // This would call the provider list command
-    const { createProviderCommand } = await import('./commands/provider');
-    const providerCmd = createProviderCommand();
-    const listCmd = providerCmd.commands.find(cmd => cmd.name() === 'list');
-    if (listCmd) {
-      await listCmd.parseAsync(['node', 'prompd']);
-    }
-  });
+program.addCommand(createVersionsCommand());
+program.addCommand(createNamespaceCommand());
+program.addCommand(createDepsCommand());
 
 // Git operations (simplified versions)
 const gitCommand = new Command('git');
@@ -370,12 +371,10 @@ program.configureOutput({
   }
 });
 
-// Parse arguments
-if (require.main === module) {
-  program.parseAsync(process.argv).catch((error) => {
-    console.error('CLI Error:', error);
-    process.exit(1);
-  });
-}
+// Parse arguments - always run when loaded (for bin wrapper compatibility)
+program.parseAsync(process.argv).catch((error) => {
+  console.error('CLI Error:', error);
+  process.exit(1);
+});
 
 export default program;

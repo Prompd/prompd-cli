@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "0.3.2"
+var version = "0.3.3"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -14,12 +14,18 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "create":
+		handleCreate()
+	case "init":
+		handleInit()
 	case "validate":
 		handleValidate()
 	case "list":
 		handleList()
 	case "show":
 		handleShow()
+	case "explain":
+		handleExplain()
 	case "run":
 		handleRun()
 	case "compile":
@@ -28,8 +34,10 @@ func main() {
 		handleCache()
 	case "package":
 		handlePackage()
-	case "registry":
-		handleRegistry()
+	case "pack":
+		handlePack()
+	case "config":
+		handleConfig()
 	case "login":
 		handleTopLevelLogin()
 	case "logout":
@@ -40,12 +48,14 @@ func main() {
 		handleTopLevelSearch()
 	case "install":
 		handleTopLevelInstall()
+	case "uninstall":
+		handleUninstall()
 	case "versions":
 		handleTopLevelVersions()
-	case "provider":
-		handleProvider()
-	case "providers":
-		handleProviders()
+	case "namespace":
+		handleNamespace()
+	case "deps":
+		handleDeps()
 	case "git":
 		handleGit()
 	case "version":
@@ -69,48 +79,59 @@ Usage:
   prompd <command> [options]
 
 🚀 Core Commands:
-  validate <file>           Validate a .prmd file
-  list [path]              List .prmd files in directory  
+  create <file>            Create a new .prmd file
+  init [path]              Initialize a new Prompd project with manifest.json
+  validate <file>          Validate a .prmd file
+  list [path]              List .prmd files in directory
   show <file>              Show file structure and parameters
+  explain <target>         Detailed information about files and packages
   compile <file> [options] Multi-stage compilation with binary extraction
   run <file> [options]     Execute a .prmd file with LLM (redirects to Python CLI)
-  
+
 📦 Package Management:
   package <source>         Create a .pdpkg package from .pdproj file or directory
+  pack <source> [output]   Create a .pdpkg package (alias for package create)
   cache <subcommand>       Package cache management
-  
-🌐 Registry Operations (npm-style):
+
+⚙️  Configuration:
+  config                   Manage prompd configuration
+  config show              Display all configuration
+  config providers         List configured providers (alias)
+  config registries        List configured registries (alias)
+  config provider ...      Provider management commands
+  config registry ...      Registry management commands
+
+🌐 Registry Operations:
   login [token]            Authenticate with registry
   logout                   Clear authentication
   publish <file>           Publish a package to registry
   search <query>           Search for packages
   install <package>        Install a package
+  uninstall <package>      Uninstall a package
   versions <package>       List package versions
-  registry <subcommand>    Advanced registry management
 
 🔧 Additional Commands:
-  provider <subcommand>    Manage LLM providers (limited in Go CLI)
-  providers                List available LLM providers  
+  namespace <subcommand>   Manage package namespaces
+  deps <target>            Analyze dependencies with tree and conflict detection
   git <subcommand>         Git operations for .prmd files
   version <subcommand>     Version management commands
   help                     Show this help
 
-Registry Management Commands:
-  prompd registry list                 List configured registries
-  prompd registry add <name> <url>     Add a new registry
-  prompd registry remove <name>        Remove a registry
-  prompd registry set-default <name>   Set default registry
-  prompd registry info <package>       Show detailed package information
+Configuration Commands:
+  prompd config show
+  prompd config provider list
+  prompd config provider add <name> <url> <models...>
+  prompd config provider setkey <provider> <key>
+  prompd config registry list
+  prompd config registry add <name> <url>
 
 Examples:
   prompd validate prompt.prmd
-  prompd list prompts/
-  prompd show example.prmd
+  prompd pack ./src output.pdpkg
+  prompd config show
   prompd login sk-ant-api_...
   prompd search code-review
-  prompd publish my-prompt.pdpkg
-  prompd install @security/audit@2.0.0
-  prompd registry add company https://registry.company.com`)
+  prompd publish my-prompt.pdpkg`)
 }
 
 func handleValidate() {

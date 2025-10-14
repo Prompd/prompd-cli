@@ -205,7 +205,7 @@ All CLIs enforce identical validation rules:
 ### Registry Integration
 - Discovery protocol: `/.well-known/registry.json`
 - NPM-compatible REST API
-- Authentication: JWT tokens stored in `~/.prmd/config.yaml`
+- Authentication: JWT tokens stored in `~/.prompd/config.yaml`
 - Package signing with SHA256 hashes
 
 ### Security Measures
@@ -250,7 +250,7 @@ Input/output examples
 
 ## Environment Configuration
 
-### Config File (`~/.prmd/config.yaml`)
+### Config File (`~/.prompd/config.yaml`)
 ```yaml
 default_provider: openai
 default_model: gpt-4o
@@ -279,7 +279,60 @@ When releasing new versions, update version strings in:
 - `cli/npm/package.json` (version field, line 3)
 - `vscode-extension/package.json` (version field)
 
-Current version: **0.3.1** (Python CLI leads versioning)
+Current version: **0.3.3** (Python CLI leads versioning)
+
+## What's New in v0.3.3
+
+### Go CLI Enhancements
+
+**Command Structure Improvements:**
+- Added `prompd pack` with dual mode (packaging + installation)
+  - Package mode: `prompd pack ./src --name "@org/pkg" --version "1.0.0"`
+  - Install mode: `prompd pack @namespace/package@1.0.0`
+- Added `prompd config` parent command hierarchy
+  - `prompd config show` - Display all configuration
+  - `prompd config providers` - List providers (alias)
+  - `prompd config registries` - List registries (alias)
+  - `prompd config provider <subcommand>` - Provider management
+  - `prompd config registry <subcommand>` - Registry management
+- Backwards compatible: `prompd provider` and `prompd registry` still work
+
+**Security Features:**
+- Secrets detection system (8+ secret types)
+  - OpenAI, Anthropic, AWS, GitHub, Prompd registry tokens
+  - Private keys, generic API keys, Bearer tokens, JWT tokens
+  - Two-pass scanning before package creation
+  - Blocks packaging if secrets detected
+- Comprehensive input validation
+  - Package name validation (npm-style scoping)
+  - Semantic version validation
+  - Registry URL validation (HTTPS-only except localhost)
+  - File path sanitization (directory traversal prevention)
+  - Malicious content detection
+- Enhanced ZIP slip protection
+  - Absolute path detection
+  - Symlink validation
+  - Null byte checks
+
+**Files Added:**
+- `security.go` (~250 lines) - Secrets detection system
+- `validation.go` (~200 lines) - Input validation functions
+- `security_test.go` (~200 lines) - Security unit tests
+- `validation_test.go` (~230 lines) - Validation unit tests
+
+**Test Coverage:**
+- 90%+ tests passing
+- 70+ new test cases added
+- Security features validated
+- Cross-platform compatibility verified
+
+### npm CLI Enhancements (completed in previous work)
+
+- Security hardening with secrets detection
+- Input validation system
+- `prompd pack` dual mode
+- `prompd config` command structure
+- 106 new security/validation tests
 
 ## Testing Strategy
 
@@ -361,11 +414,16 @@ Memory usage for large packages:
 - `commands/` - Click command implementations
 
 ### Go CLI (`cli/go/cmd/prompd/`)
-- `main.go` - Entry point and command dispatcher
-- `package.go` - Package creation and validation
+- `main.go` - Entry point and command dispatcher (v0.3.3)
+- `commands.go` - Config, pack, provider, git, version, cache commands
+- `package.go` - Package creation, validation, and secrets scanning
 - `package_resolver.go` - Registry discovery (/.well-known/registry.json)
 - `validator.go` - Core validation logic (matches Python implementation)
+- `validation.go` - **NEW v0.3.3** - Input validation (package names, versions, URLs)
+- `security.go` - **NEW v0.3.3** - Secrets detection system (8+ secret types)
 - `compiler.go` - 6-stage compilation pipeline
+- `registry.go` - Registry operations (login, logout, publish, search, install, versions)
+- `config.go` - Configuration management
 
 ### Node.js CLI (`cli/npm/src/`)
 - `index.ts` - Main CLI entry point and command routing

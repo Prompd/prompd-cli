@@ -1,57 +1,92 @@
-# Prompd CLI - NPM/Node.js Implementation
+# @prompd/cli
 
-A TypeScript/Node.js implementation of the Prompd CLI, providing full compatibility with Python and Go versions.
+A TypeScript/Node.js implementation of the Prompd CLI, providing full compatibility with Python and Go versions. Can be used both as a **command-line tool** and as a **library** in TypeScript/React applications.
 
 ## Installation
 
 ```bash
+# As a CLI tool (global)
+npm install -g @prompd/cli
+
+# As a library in your project
+npm install @prompd/cli
+
 # From source
 npm install
 npm run build
-
-# Global installation
-npm install -g @logikbug/prompd-cli
 ```
 
 ## Features
 
-✅ **Full feature parity with Python and Go CLIs:**
-- `.prompd` file validation with comprehensive error reporting
-- List and show prompt files with metadata
-- Execute prompts with LLM providers (OpenAI, Anthropic, Ollama)
-- Provider management (add/remove/list custom providers)
-- Version management with git integration
-- Git operations for .prompd files
+✅ **Dual-purpose package:**
+- **CLI tool** with full feature parity with Python and Go CLIs
+- **Library** for programmatic use in TypeScript/React/Node.js apps
 
-## Commands
+✅ **Core capabilities:**
+- `.prmpd` file parsing and validation
+- Package management (create, validate, publish)
+- Registry operations (login, search, install)
+- Provider configuration and management
+- Security scanning (secrets detection)
+- Input validation and sanitization
+
+## Usage as a Library
+
+```typescript
+import { PrompdParser, ConfigManager, validatePackageName } from '@prompd/cli';
+
+// Parse a .prmd file
+const parser = new PrompdParser();
+const prompd = await parser.parseFile('./example.prmd');
+console.log('Prompt ID:', prompd.metadata.id);
+
+// Validate a file
+const issues = await parser.validateFile('./example.prmd');
+issues.forEach(issue => console.log(`[${issue.level}] ${issue.message}`));
+
+// Work with configuration
+const config = new ConfigManager();
+const currentConfig = config.load();
+console.log('Provider:', currentConfig.defaultProvider);
+
+// Validate package names
+const isValid = validatePackageName('@myorg/my-prompt');
+```
+
+**See [examples/library-usage.ts](examples/library-usage.ts) and [examples/library-usage.js](examples/library-usage.js) for complete examples.**
+
+## CLI Commands
 
 ```bash
-# Validate a .prompd file
-prompd validate <file>
+# Validation & Display
+prompd validate <file>            # Validate .prmd file
+prompd list [directory]            # List all .prmd files
+prompd show <file>                 # Show file details
 
-# List all .prompd files in a directory
-prompd list <directory>
+# Package Management
+prompd package create <dir> -o <output.pdpkg>  # Create package
+prompd package validate <package.pdpkg>        # Validate package
+prompd pack <dir>                              # Quick package create (alias)
 
-# Show details of a .prompd file
-prompd show <file>
+# Registry Operations
+prompd login                       # Interactive authentication
+prompd logout                      # Clear credentials
+prompd publish <package.pdpkg>     # Publish to registry
+prompd search <query>              # Search packages
+prompd install @namespace/package@version
+prompd versions <package>          # List versions
+prompd registry info <package>     # Package details
 
-# Execute a prompt with an LLM provider
-prompd execute <file> --provider openai --model gpt-4
-
-# Manage providers
-prompd provider list
-prompd provider show <name>
-prompd provider add <name> <url>
-prompd provider remove <name>
-
-# Version management
-prompd version bump <file> <major|minor|patch>
-prompd version history <file>
-prompd version diff <file> <v1> <v2>
-
-# Git operations
-prompd git add <files...>
-prompd git status
+# Configuration
+prompd config show                 # Show current config
+prompd config provider list        # List providers
+prompd config provider show <name> # Show provider details
+prompd config provider add <name> <url> <models...>
+prompd config provider remove <name>
+prompd config provider setkey <provider> <key>
+prompd config registry list
+prompd config registry add <name> <url>
+prompd config registry remove <name>
 ```
 
 ## Configuration

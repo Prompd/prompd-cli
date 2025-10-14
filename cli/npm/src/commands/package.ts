@@ -4,6 +4,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import archiver from 'archiver';
+import { SecurityManager } from '../lib/security';
 
 interface PDProjMetadata {
   name: string;
@@ -28,6 +29,31 @@ interface PackageManifest {
   files?: { [key: string]: any };
 }
 
+/**
+ * Shared package creation logic (used by both 'package create' and 'pack')
+ */
+async function handlePackageCreate(source: string, output?: string, options?: any): Promise<void> {
+  const sourcePath = path.resolve(source);
+
+  // Check if source exists
+  if (!await fs.pathExists(sourcePath)) {
+    console.error(chalk.red(`❌ Source not found: ${sourcePath}`));
+    process.exit(1);
+  }
+
+  // Check if source is a .pdproj file
+  if (sourcePath.endsWith('.pdproj')) {
+    await packageFromPdproj(sourcePath);
+  } else {
+    // Directory mode - requires manual parameters
+    if (!options?.name || !options?.version || !options?.description) {
+      console.error(chalk.red('❌ Directory packaging requires --name, --version, and --description options'));
+      process.exit(1);
+    }
+    await packageFromDirectory(sourcePath, output, options);
+  }
+}
+
 export function createPackageCommand(): Command {
   const command = new Command('package');
   command.description('Package management commands');
@@ -44,26 +70,7 @@ export function createPackageCommand(): Command {
     .option('--author <author>', 'Package author (overrides .pdproj)')
     .action(async (source: string, output?: string, options?: any) => {
       try {
-        const sourcePath = path.resolve(source);
-        
-        // Check if source exists
-        if (!await fs.pathExists(sourcePath)) {
-          console.error(chalk.red(`❌ Source not found: ${sourcePath}`));
-          process.exit(1);
-        }
-
-        // Check if source is a .pdproj file
-        if (sourcePath.endsWith('.pdproj')) {
-          await packageFromPdproj(sourcePath);
-        } else {
-          // Directory mode - requires manual parameters
-          if (!options?.name || !options?.version || !options?.description) {
-            console.error(chalk.red('❌ Directory packaging requires --name, --version, and --description options'));
-            process.exit(1);
-          }
-          await packageFromDirectory(sourcePath, output, options);
-        }
-
+        await handlePackageCreate(source, output, options);
       } catch (error: any) {
         console.error(chalk.red(`❌ Package creation failed: ${error.message}`));
         process.exit(1);
@@ -206,11 +213,68 @@ async function packageFromDirectory(
 }
 
 async function createPackage(
-  sourceDir: string, 
-  outputPath: string, 
-  manifest: PackageManifest, 
+  sourceDir: string,
+  outputPath: string,
+  manifest: PackageManifest,
   exclusions: PDProjExclusions
 ): Promise<void> {
+  // First pass: scan for secrets
+  const secretsFound: Array<{ file: string; type: string; line: number }> = [];
+
+  const scanDir = async (dir: string, relativePath: string = ''): Promise<void> => {
+    const items = await fs.readdir(dir);
+
+    for (const item of items) {
+      const itemPath = path.join(dir, item);
+      const itemRelPath = path.join(relativePath, item);
+      const stat = await fs.stat(itemPath);
+
+      if (shouldExclude(itemRelPath, stat.isDirectory(), exclusions)) {
+        continue;
+      }
+
+      if (stat.isDirectory()) {
+        await scanDir(itemPath, itemRelPath);
+      } else {
+        // Scan text files for secrets
+        const ext = path.extname(itemPath).toLowerCase();
+        const textExtensions = ['.prmd', '.txt', '.json', '.yaml', '.yml', '.md', '.js', '.ts', '.py', '.sh', '.env'];
+
+        if (textExtensions.includes(ext)) {
+          const scanResult = await SecurityManager.scanFileForSecrets(itemPath);
+          if (scanResult.hasSecrets) {
+            scanResult.secrets.forEach(secret => {
+              secretsFound.push({
+                file: itemRelPath,
+                type: secret.type,
+                line: secret.line
+              });
+            });
+          }
+        }
+      }
+    }
+  };
+
+  // Scan for secrets before packaging
+  await scanDir(sourceDir);
+
+  if (secretsFound.length > 0) {
+    console.error(chalk.red.bold('\n⚠️  SECURITY WARNING: Potential secrets detected!'));
+    console.error(chalk.yellow('\nThe following files contain potential secrets:'));
+
+    secretsFound.forEach(({ file, type, line }) => {
+      console.error(chalk.yellow(`  • ${file}:${line} - ${type}`));
+    });
+
+    console.error(chalk.red('\n❌ Package creation blocked to prevent secret exposure.'));
+    console.error(chalk.gray('Please remove secrets from these files before packaging.'));
+    console.error(chalk.gray('Use environment variables or secure vaults for sensitive data.\n'));
+
+    throw new Error('Secrets detected in package contents');
+  }
+
+  // Second pass: create the package
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(outputPath);
     const archive = archiver('zip', { zlib: { level: 9 } });
@@ -227,7 +291,7 @@ async function createPackage(
     // Walk source directory and add files
     const walkDir = (dir: string, relativePath: string = '') => {
       const items = fs.readdirSync(dir);
-      
+
       for (const item of items) {
         const itemPath = path.join(dir, item);
         const itemRelPath = path.join(relativePath, item);
@@ -344,4 +408,34 @@ async function validatePdpkgFile(filePath: string): Promise<void> {
   if (!manifestFound) {
     throw new Error('Missing manifest.json in package');
   }
+}
+
+/**
+ * Creates the 'pack' command (alias for 'package create')
+ * Convenient shorthand like 'npm pack'
+ */
+export function createPackCommand(): Command {
+  const packCommand = new Command('pack');
+  packCommand
+    .description('Create a .pdpkg package (alias for "package create")')
+    .argument('<source>', 'Source .pdproj file or directory')
+    .argument('[output]', 'Output .pdpkg file path (optional)')
+    .option('--name <name>', 'Package name (overrides .pdproj)')
+    .option('-n, --name <name>', 'Package name (overrides .pdproj)')
+    .option('--version <version>', 'Package version (overrides .pdproj)')
+    .option('-V, --version <version>', 'Package version (overrides .pdproj)')
+    .option('--description <description>', 'Package description (overrides .pdproj)')
+    .option('-d, --description <description>', 'Package description (overrides .pdproj)')
+    .option('--author <author>', 'Package author (overrides .pdproj)')
+    .option('-a, --author <author>', 'Package author (overrides .pdproj)')
+    .action(async (source: string, output?: string, options?: any) => {
+      try {
+        await handlePackageCreate(source, output, options);
+      } catch (error: any) {
+        console.error(chalk.red(`❌ Package creation failed: ${error.message}`));
+        process.exit(1);
+      }
+    });
+
+  return packCommand;
 }

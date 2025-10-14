@@ -300,18 +300,47 @@ class SectionOverrideProcessor:
             else:
                 file_path = Path(override_path)
 
-            # Security check - ensure path doesn't escape base directory
+            # Security check - ensure path doesn't escape to dangerous locations
+            # Allow relative paths that go up (..) but stay within reasonable project bounds
             try:
                 if not Path(override_path).is_absolute():
                     resolved_path = file_path.resolve()
-                    base_resolved = base_dir.resolve()
 
-                    # Check if the resolved path is within base directory
-                    if not str(resolved_path).startswith(str(base_resolved)):
+                    # Find the project root by looking for common markers
+                    # Start from base_dir and search upward for .git, .prompd, or package.json
+                    project_root = base_dir.resolve()
+                    search_dir = project_root
+                    max_depth = 10  # Limit upward search to prevent infinite loops
+                    depth = 0
+
+                    while depth < max_depth:
+                        # Check for project markers
+                        if (search_dir / '.git').exists() or \
+                           (search_dir / '.prompd').exists() or \
+                           (search_dir / 'package.json').exists() or \
+                           (search_dir / 'pyproject.toml').exists() or \
+                           (search_dir / 'go.mod').exists():
+                            project_root = search_dir
+                            break
+
+                        parent = search_dir.parent
+                        if parent == search_dir:  # Reached filesystem root
+                            break
+                        search_dir = parent
+                        depth += 1
+
+                    # Check if the resolved path is within project root
+                    # This allows ../systems/file.md from src/assistants/ directory
+                    try:
+                        resolved_path.relative_to(project_root)
+                    except ValueError:
+                        # Path is outside project root
                         raise ValidationError(
-                            f"Override path '{override_path}' attempts to access files outside the base directory. "
+                            f"Override path '{override_path}' attempts to access files outside the project root. "
                             f"For security reasons, override files must be within the project directory."
                         )
+            except ValidationError:
+                raise
             except OSError:
                 # If path resolution fails, continue with basic checks
                 pass
@@ -446,12 +475,13 @@ class SectionOverrideProcessor:
                     try:
                         override_content = self.load_override_content(override_path, base_dir)
 
-                        # Create new section info with override content
+                        # Create new section info with override content (use as-is)
+                        # The override file should contain its own headings and structure
                         original_section = parent_sections[section_id]
                         final_sections[section_id] = SectionInfo(
                             id=section_id,
                             heading_text=original_section.heading_text,
-                            content=f"{'#' * original_section.heading_level} {original_section.heading_text}\n\n{override_content}",
+                            content=override_content,
                             start_line=0,  # Reset for merged content
                             end_line=0,
                             heading_level=original_section.heading_level

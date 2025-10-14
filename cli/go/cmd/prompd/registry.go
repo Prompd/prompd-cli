@@ -713,3 +713,95 @@ func getString(m map[string]interface{}, key, defaultVal string) string {
 	}
 	return defaultVal
 }
+
+// getPackageInfo fetches package information from registry
+func getPackageInfo(packageName string, registryName string) (*PackageInfo, error) {
+	config, err := LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	regInfo, err := getRegistryInfo(config, registryName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct API URL
+	url := fmt.Sprintf("%s/packages/%s", regInfo.URL, packageName)
+
+	// Make HTTP request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add authentication if available
+	if regInfo.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+regInfo.Token)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch package info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("registry returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var info PackageInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &info, nil
+}
+
+// getPackageVersions fetches available versions for a package
+func getPackageVersions(packageName string, registryName string) ([]string, error) {
+	config, err := LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	regInfo, err := getRegistryInfo(config, registryName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct API URL
+	url := fmt.Sprintf("%s/packages/%s/versions", regInfo.URL, packageName)
+
+	// Make HTTP request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add authentication if available
+	if regInfo.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+regInfo.Token)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch versions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("registry returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var versions []string
+	if err := json.NewDecoder(resp.Body).Decode(&versions); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return versions, nil
+}

@@ -297,9 +297,9 @@ export function createLogoutCommand(): Command {
       try {
         const registryName = options.registry;
         const client = new RegistryClient(registryName);
-        
+
         await client.logout();
-        
+
         const actualRegistryName = registryName || 'default';
         console.log(chalk.green(`Successfully logged out from ${actualRegistryName}`));
 
@@ -310,4 +310,49 @@ export function createLogoutCommand(): Command {
     });
 
   return logoutCommand;
+}
+
+// Versions command - list package versions
+export function createVersionsCommand(): Command {
+  const versionsCommand = new Command('versions');
+  versionsCommand
+    .description('List available versions of a package')
+    .argument('<package>', 'Package name (@namespace/name)')
+    .option('-r, --registry <registry>', 'Registry to query')
+    .action(async (packageName: string, options) => {
+      try {
+        const client = new RegistryClient(options.registry);
+
+        // Call registry API to get versions
+        const versions = await client.getPackageVersions(packageName);
+
+        if (!versions || versions.length === 0) {
+          console.log(chalk.yellow(`No versions found for ${packageName}`));
+          return;
+        }
+
+        console.log(chalk.bold(`\nVersions for ${packageName}:`));
+        console.log();
+
+        // Sort versions in descending order (newest first)
+        const sortedVersions = versions.sort((a: string, b: string) => {
+          return b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' });
+        });
+
+        sortedVersions.forEach((version: string, index: number) => {
+          const isLatest = index === 0;
+          const marker = isLatest ? chalk.green('(latest)') : '';
+          console.log(`  ${chalk.cyan(version)} ${marker}`);
+        });
+
+        console.log();
+        console.log(chalk.dim(`Total: ${sortedVersions.length} version(s)`));
+
+      } catch (error) {
+        console.error(chalk.red(`Failed to fetch versions: ${error}`));
+        process.exit(1);
+      }
+    });
+
+  return versionsCommand;
 }

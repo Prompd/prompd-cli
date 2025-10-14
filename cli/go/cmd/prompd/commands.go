@@ -1082,11 +1082,216 @@ Usage:
 
 Subcommands:
   list    List cached packages
-  clear   Clear the package cache  
+  clear   Clear the package cache
   info    Show cache information
 
 Examples:
   prompd cache list
   prompd cache clear
   prompd cache info`)
+}
+
+// handlePack implements dual-mode pack command (packaging OR installation)
+func handlePack() {
+	// Simple alias for package create
+	newArgs := []string{"prompd", "package", "create"}
+	newArgs = append(newArgs, os.Args[2:]...)
+	os.Args = newArgs
+	handlePackageCreate()
+}
+
+func printPackUsage() {
+	fmt.Println(`Usage: prompd pack <source> [output] [options]
+
+Create a .pdpkg package (alias for "package create")
+
+Arguments:
+  source              Source .pdproj file or directory
+  output              Output .pdpkg file path (optional)
+
+Options:
+  --name <name>       Package name (overrides .pdproj)
+  --version <ver>     Package version (overrides .pdproj)
+  --description <d>   Package description (overrides .pdproj)
+  --author <author>   Package author (overrides .pdproj)
+
+Examples:
+  prompd pack ./src output.pdpkg
+  prompd pack ./src --name "@mycompany/api-helper" --version "1.0.0"
+  prompd pack project.pdproj`)
+}
+
+// handleConfig manages configuration commands
+func handleConfig() {
+	if len(os.Args) < 3 {
+		printConfigUsage()
+		return
+	}
+
+	switch os.Args[2] {
+	case "show":
+		handleConfigShow()
+	case "providers":
+		// Alias for "config provider list"
+		handleProviderList()
+	case "registries":
+		// Alias for "config registry list"
+		handleRegistryList()
+	case "provider":
+		handleConfigProvider()
+	case "registry":
+		handleConfigRegistry()
+	default:
+		fmt.Printf("Unknown config command: %s\n", os.Args[2])
+		printConfigUsage()
+		os.Exit(1)
+	}
+}
+
+func handleConfigProvider() {
+	// Shift args and delegate to existing provider handler
+	// os.Args: ["prompd", "config", "provider", "list", ...]
+	// Becomes: ["prompd", "provider", "list", ...]
+	if len(os.Args) < 4 {
+		printProviderUsage()
+		return
+	}
+	os.Args = append([]string{"prompd", "provider"}, os.Args[3:]...)
+	handleProvider()
+}
+
+func handleConfigRegistry() {
+	// Shift args and delegate to existing registry handler
+	// os.Args: ["prompd", "config", "registry", "list", ...]
+	// Becomes: ["prompd", "registry", "list", ...]
+	if len(os.Args) < 4 {
+		printRegistryUsage()
+		return
+	}
+	os.Args = append([]string{"prompd", "registry"}, os.Args[3:]...)
+	handleRegistry()
+}
+
+func handleConfigShow() {
+	// Display all configuration from ~/.prompd/config.yaml
+	config, err := LoadConfig()
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Prompd Configuration")
+	fmt.Println("====================")
+	fmt.Println()
+
+	// Defaults
+	fmt.Println("Defaults:")
+	if config.DefaultProvider != "" {
+		fmt.Printf("  Provider: %s\n", config.DefaultProvider)
+	} else {
+		fmt.Println("  Provider: (not set)")
+	}
+	if config.DefaultModel != "" {
+		fmt.Printf("  Model: %s\n", config.DefaultModel)
+	} else {
+		fmt.Println("  Model: (not set)")
+	}
+	fmt.Println()
+
+	// Show providers
+	fmt.Println("Configured Providers:")
+	hasProviders := false
+	for name := range config.APIKeys {
+		fmt.Printf("  • %s (API key: ***)\n", name)
+		hasProviders = true
+	}
+	for name, provider := range config.CustomProviders {
+		fmt.Printf("  • %s (%s)\n", name, provider.BaseURL)
+		if len(provider.Models) > 0 {
+			fmt.Printf("    Models: %s\n", strings.Join(provider.Models, ", "))
+		}
+		hasProviders = true
+	}
+	if !hasProviders {
+		fmt.Println("  (No providers configured)")
+	}
+	fmt.Println()
+
+	// Show registries
+	fmt.Println("Configured Registries:")
+	registries := getRegistriesMap(config)
+	defaultRegistry := ""
+	if def, exists := config.Registry["default"]; exists {
+		if defStr, ok := def.(string); ok {
+			defaultRegistry = defStr
+		}
+	}
+
+	if len(registries) == 0 {
+		fmt.Println("  (No registries configured)")
+	} else {
+		for name, regData := range registries {
+			marker := " "
+			if name == defaultRegistry {
+				marker = "✓"
+			}
+
+			url := "N/A"
+			hasToken := false
+
+			if regMap, ok := regData.(map[string]interface{}); ok {
+				if urlVal, exists := regMap["url"]; exists {
+					if urlStr, ok := urlVal.(string); ok {
+						url = urlStr
+					}
+				}
+				if tokenVal, exists := regMap["token"]; exists {
+					if tokenStr, ok := tokenVal.(string); ok && tokenStr != "" {
+						hasToken = true
+					}
+				}
+			}
+
+			fmt.Printf("  %s %s: %s\n", marker, name, url)
+			if hasToken {
+				fmt.Printf("    Token: ***\n")
+			}
+		}
+	}
+	fmt.Println()
+
+	// Settings
+	fmt.Println("Settings:")
+	fmt.Printf("  Max Retries: %d\n", config.MaxRetries)
+	fmt.Printf("  Timeout: %d seconds\n", config.Timeout)
+	fmt.Printf("  Verbose: %v\n", config.Verbose)
+}
+
+func printConfigUsage() {
+	fmt.Println(`Configuration Commands:
+  prompd config show                     Display all configuration
+  prompd config providers                List configured providers (alias)
+  prompd config registries               List configured registries (alias)
+  prompd config provider <subcommand>    Provider management
+  prompd config registry <subcommand>    Registry management
+
+Provider Management:
+  prompd config provider list                     List available providers
+  prompd config provider add <name> <url> <models...>  Add custom provider
+  prompd config provider remove <name>            Remove custom provider
+  prompd config provider show <name>              Show provider details
+  prompd config provider setkey <provider> <key>  Set API key
+  prompd config provider removekey <provider>     Remove API key
+
+Registry Management:
+  prompd config registry list                List configured registries
+  prompd config registry add <name> <url>    Add new registry
+  prompd config registry remove <name>       Remove registry
+  prompd config registry set-default <name>  Set default registry
+
+Examples:
+  prompd config show
+  prompd config provider add groq https://api.groq.com/openai/v1 llama-3.1-8b
+  prompd config provider setkey openai sk-...
+  prompd config registry add company https://registry.company.com`)
 }

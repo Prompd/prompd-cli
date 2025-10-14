@@ -54,6 +54,8 @@ export interface Config {
     registries: Record<string, RegistryConfig>;
   };
   scopes: Record<string, string>; // scope -> registry mapping
+  namespaces?: Record<string, string>; // namespace -> registry URL mapping
+  currentNamespace?: string; // active namespace
   maxRetries?: number;
   timeout?: number;
   verbose?: boolean;

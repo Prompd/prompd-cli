@@ -162,11 +162,75 @@ func packageFromPdproj(pdprojPath string) error {
 		return fmt.Errorf("failed to parse .pdproj file: %v", err)
 	}
 
+	// SECURITY: Validate package metadata
+	if err := validatePackageName(metadata.Name); err != nil {
+		return fmt.Errorf("invalid package name: %v", err)
+	}
+
+	if err := validateVersion(metadata.Version); err != nil {
+		return fmt.Errorf("invalid version: %v", err)
+	}
+
+	if err := validateDescription(metadata.Description); err != nil {
+		return fmt.Errorf("invalid description: %v", err)
+	}
+
+	if metadata.Author != "" {
+		if err := validateAuthor(metadata.Author); err != nil {
+			return fmt.Errorf("invalid author: %v", err)
+		}
+	}
+
 	// Source directory is parent of .pdproj file
 	sourceDir := filepath.Dir(pdprojPath)
-	
-	// Generate output path
-	outputName := strings.ToLower(strings.ReplaceAll(metadata.Name, " ", "-"))
+
+	// SECURITY: Two-pass scanning for secrets
+	fmt.Println("🔒 Scanning for secrets...")
+
+	excludePatterns := []string{
+		"*.pdproj",
+		".git",
+		"node_modules",
+		"__pycache__",
+		"*.pyc",
+		"dist",
+		"build",
+		".DS_Store",
+	}
+
+	// Add custom exclusions from .pdproj
+	excludePatterns = append(excludePatterns, metadata.Exclusions.Patterns...)
+
+	secrets, err := scanDirectoryForSecrets(sourceDir, excludePatterns)
+	if err != nil {
+		return fmt.Errorf("error scanning for secrets: %v", err)
+	}
+
+	if len(secrets) > 0 {
+		fmt.Println()
+		fmt.Println("⚠️  SECURITY WARNING: Potential secrets detected!")
+		fmt.Println("The following files contain sensitive data:")
+		fmt.Println()
+
+		for _, secret := range secrets {
+			relPath, _ := filepath.Rel(sourceDir, secret.FilePath)
+			fmt.Printf("  • %s:%d - %s\n", relPath, secret.Line, secret.Type)
+			fmt.Printf("    Preview: %s\n\n", secret.MaskedValue)
+		}
+
+		fmt.Println("❌ Package creation blocked to prevent credential leakage.")
+		fmt.Println("Please remove secrets before packaging or add files to exclusions in .pdproj.")
+		return fmt.Errorf("secrets detected in package contents")
+	}
+
+	fmt.Println("✓ No secrets detected")
+	fmt.Println()
+
+	// Generate output path with safe filename
+	outputName := strings.ToLower(metadata.Name)
+	outputName = strings.ReplaceAll(outputName, " ", "-")
+	outputName = strings.ReplaceAll(outputName, "/", "-")
+	outputName = strings.ReplaceAll(outputName, "@", "")
 	outputPath := filepath.Join(sourceDir, fmt.Sprintf("%s-v%s.pdpkg", outputName, metadata.Version))
 
 	// Create manifest
@@ -221,10 +285,13 @@ func packageFromDirectory(sourceDir string, args []string) error {
 			if i+1 < len(args) {
 				author = args[i+1]
 			}
-		default:
-			if !strings.HasPrefix(arg, "--") && outputPath == "" {
-				outputPath = arg
+		case "--output", "-o":
+			if i+1 < len(args) {
+				outputPath = args[i+1]
 			}
+		default:
+			// Skip non-flag arguments (they're values for the flags)
+			continue
 		}
 	}
 
@@ -232,8 +299,75 @@ func packageFromDirectory(sourceDir string, args []string) error {
 		return fmt.Errorf("--name, --version, and --description are required for directory packaging")
 	}
 
+	// SECURITY: Validate package metadata
+	if err := validatePackageName(name); err != nil {
+		return fmt.Errorf("invalid package name: %v", err)
+	}
+
+	if err := validateVersion(version); err != nil {
+		return fmt.Errorf("invalid version: %v", err)
+	}
+
+	if err := validateDescription(description); err != nil {
+		return fmt.Errorf("invalid description: %v", err)
+	}
+
+	if author != "" {
+		if err := validateAuthor(author); err != nil {
+			return fmt.Errorf("invalid author: %v", err)
+		}
+	}
+
+	// SECURITY: Scan for secrets before packaging
+	fmt.Println("🔒 Scanning for secrets...")
+
+	excludePatterns := []string{
+		"*.pdproj",
+		".git",
+		"node_modules",
+		"__pycache__",
+		"*.pyc",
+		"dist",
+		"build",
+		".DS_Store",
+		"*.log",
+		"*.tmp",
+		"*.cache",
+		".env*",
+	}
+
+	secrets, err := scanDirectoryForSecrets(sourceDir, excludePatterns)
+	if err != nil {
+		return fmt.Errorf("error scanning for secrets: %v", err)
+	}
+
+	if len(secrets) > 0 {
+		fmt.Println()
+		fmt.Println("⚠️  SECURITY WARNING: Potential secrets detected!")
+		fmt.Println("The following files contain sensitive data:")
+		fmt.Println()
+
+		for _, secret := range secrets {
+			relPath, _ := filepath.Rel(sourceDir, secret.FilePath)
+			fmt.Printf("  • %s:%d - %s\n", relPath, secret.Line, secret.Type)
+			fmt.Printf("    Preview: %s\n\n", secret.MaskedValue)
+		}
+
+		fmt.Println("❌ Package creation blocked to prevent credential leakage.")
+		fmt.Println("Please remove secrets before packaging.")
+		return fmt.Errorf("secrets detected in package contents")
+	}
+
+	fmt.Println("✓ No secrets detected")
+	fmt.Println()
+
 	if outputPath == "" {
-		outputPath = fmt.Sprintf("%s-v%s.pdpkg", strings.ToLower(strings.ReplaceAll(name, " ", "-")), version)
+		// Generate safe filename from package name
+		safeName := strings.ToLower(name)
+		safeName = strings.ReplaceAll(safeName, " ", "-")
+		safeName = strings.ReplaceAll(safeName, "/", "-")
+		safeName = strings.ReplaceAll(safeName, "@", "")
+		outputPath = fmt.Sprintf("%s-v%s.pdpkg", safeName, version)
 	}
 
 	// Ensure .pdpkg extension

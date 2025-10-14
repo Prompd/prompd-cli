@@ -725,7 +725,80 @@ class TemplateProcessingStage(CompilerStage):
                 context.warnings.append(f"Failed to process inheritance from {parent_path}: {e}")
                 if context.verbose:
                     print(f"Warning: Could not inherit from {parent_path}: {e}")
-        
+
+        # Process standalone overrides (without inheritance)
+        # This allows overriding sections in the current file itself
+        if context.metadata and hasattr(context.metadata, 'override') and context.metadata.override:
+            # Only process if not already handled by inheritance
+            if 'inherits' not in context.dependencies:
+                overrides = context.metadata.override
+
+                if context.verbose:
+                    print(f"Processing {len(overrides)} standalone section overrides...")
+
+                try:
+                    # Extract sections from current content
+                    current_sections = {}
+                    if context.content:
+                        current_sections = self.section_processor.extract_sections(context.content)
+
+                    # Determine base directory for resolving override files
+                    base_dir = context.source_file.parent if context.source_file else Path.cwd()
+
+                    # Apply each override to replace sections in current content
+                    for section_id, override_path in overrides.items():
+                        if section_id in current_sections:
+                            if override_path is None:
+                                # Remove section
+                                del current_sections[section_id]
+                                if context.verbose:
+                                    print(f"  - Removing section '{section_id}'")
+                            else:
+                                # Replace section content
+                                try:
+                                    override_content = self.section_processor.load_override_content(override_path, base_dir)
+
+                                    # Update section with override content (use as-is, no heading prepended)
+                                    # The override file should contain its own headings and structure
+                                    original_section = current_sections[section_id]
+                                    current_sections[section_id] = type(original_section)(
+                                        id=section_id,
+                                        heading_text=original_section.heading_text,
+                                        content=override_content,
+                                        start_line=0,
+                                        end_line=0,
+                                        heading_level=original_section.heading_level
+                                    )
+
+                                    if context.verbose:
+                                        print(f"  - Replacing section '{section_id}' with content from {override_path}")
+
+                                except Exception as e:
+                                    context.warnings.append(f"Failed to apply override for section '{section_id}': {e}")
+                                    if context.verbose:
+                                        print(f"Warning: Failed to apply override for section '{section_id}': {e}")
+                        else:
+                            context.warnings.append(f"Override section '{section_id}' not found in current content")
+                            if context.verbose:
+                                available = ', '.join(sorted(current_sections.keys()))
+                                print(f"Warning: Override section '{section_id}' not found. Available: {available}")
+
+                    # Reconstruct content from modified sections
+                    content_parts = []
+                    for section_info in current_sections.values():
+                        content_parts.append(section_info.content)
+
+                    context.content = '\n\n'.join(content_parts)
+                    content = context.content
+
+                    if context.verbose:
+                        print(f"Applied standalone overrides, final content has {len(current_sections)} sections")
+
+                except Exception as e:
+                    context.warnings.append(f"Standalone override processing failed: {e}")
+                    if context.verbose:
+                        print(f"Warning: Standalone override processing failed: {e}")
+
         # Process templates with both Handlebars/Jinja2 control structures and variable substitution
         if content:
             try:
