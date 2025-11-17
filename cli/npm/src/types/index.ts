@@ -10,6 +10,11 @@ export interface PrompdParameter {
   enum?: string[];
 }
 
+export interface UsingPackage {
+  name: string;
+  prefix?: string;
+}
+
 export interface PrompdMetadata {
   id: string;         // Machine-readable identifier (kebab-case) - REQUIRED
   name?: string;      // Human-readable display name (can have spaces)
@@ -17,11 +22,16 @@ export interface PrompdMetadata {
   version?: string;
   parameters?: PrompdParameter[];
   variables?: PrompdParameter[]; // For backward compatibility
-  system?: string;
-  context?: string;
-  user?: string;
-  response?: string;
+  system?: string | string[];
+  context?: string | string[];
+  user?: string | string[];
+  assistant?: string | string[];
+  response?: string | string[];
   requires?: string[];
+  // Advanced features for composable architecture
+  using?: string | UsingPackage[] | Record<string, string>;  // Package imports
+  inherits?: string;  // Parent template reference
+  override?: Record<string, string | null>;  // Section overrides
 }
 
 export interface PrompdFile {

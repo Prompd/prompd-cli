@@ -279,11 +279,27 @@ When releasing new versions, update version strings in:
 - `cli/npm/package.json` (version field, line 3)
 - `vscode-extension/package.json` (version field)
 
-Current version: **0.3.3** (Python CLI leads versioning)
+Current version: **0.3.4** (Python CLI leads versioning)
 
-## What's New in v0.3.3
+## Feature Parity Status
 
-### Go CLI Enhancements
+**100% FEATURE PARITY ACHIEVED** (as of 2025-10-13)
+
+All three CLI implementations now have complete feature parity for core operations:
+- **Python CLI:** 100% ✅ (Reference implementation with advanced features)
+- **Go CLI:** 100% ✅ (Complete core feature set, zero-dependency)
+- **Node.js CLI:** 100% ✅ (Complete core feature set, TypeScript/MCP integration)
+
+See [CLI-FEATURE-PARITY.md](CLI-FEATURE-PARITY.md) and [SESSION-SUMMARY.md](SESSION-SUMMARY.md) for detailed feature matrix.
+
+## What's New in v0.3.4
+
+### Python CLI Updates (v0.3.4)
+- Latest improvements to compilation pipeline
+- Enhanced package resolution
+- Bug fixes and stability improvements
+
+### Go CLI Enhancements (v0.3.3)
 
 **Command Structure Improvements:**
 - Added `prompd pack` with dual mode (packaging + installation)
@@ -431,6 +447,8 @@ Memory usage for large packages:
 - `mcp/server.ts` - Model Context Protocol integration
 - `parser/` - YAML and Markdown parsing logic
 - `validators/` - Validation rules
+- `security.ts` - Secrets detection (matching Go CLI implementation)
+- `validation.ts` - Input validation functions
 
 ### VS Code Extension (`vscode-extension/`)
 - `src/extension.ts` - Main extension entry point
