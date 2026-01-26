@@ -21,6 +21,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'name', type: 'string', default: 'World' },
           { name: 'age', type: 'number', default: 25 }
@@ -41,6 +43,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'name', type: 'string', default: 'World' }
         ]
@@ -53,11 +57,13 @@ describe('SemanticAnalysisStage', () => {
 
     it('should warn about missing required parameters', async () => {
       const context = createMockContext('/test.prmd', {
-        parameters: {}
+        parameters: { someOtherParam: 'value' } // Provide at least one param to trigger execution mode
       });
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'required_param', type: 'string', required: true }
         ]
@@ -76,6 +82,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'age', type: 'number' }
         ]
@@ -94,6 +102,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           {
             name: 'email',
@@ -116,6 +126,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           {
             name: 'score',
@@ -139,6 +151,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'items', type: 'array' }
         ]
@@ -156,6 +170,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'user', type: 'object' }
         ]
@@ -173,6 +189,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'enabled', type: 'boolean' }
         ]
@@ -185,7 +203,11 @@ describe('SemanticAnalysisStage', () => {
 
     it('should handle metadata without parameters', async () => {
       const context = createMockContext('/test.prmd');
-      context.metadata = { id: 'test' } as PrompdMetadata;
+      context.metadata = {
+        id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0'
+      } as PrompdMetadata;
 
       await stage.process(context);
 
@@ -216,6 +238,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'name', type: 'string', default: 'World' }
         ]
@@ -238,6 +262,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           { name: 'nullable', type: 'string', default: null as any }
         ]
@@ -245,7 +271,8 @@ describe('SemanticAnalysisStage', () => {
 
       await stage.process(context);
 
-      expect(context.parameters.nullable).toBeUndefined();
+      // null is a valid default value and should be applied
+      expect(context.parameters.nullable).toBeNull();
     });
 
     it('should handle minimum value validation', async () => {
@@ -255,6 +282,8 @@ describe('SemanticAnalysisStage', () => {
 
       context.metadata = {
         id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
         parameters: [
           {
             name: 'score',

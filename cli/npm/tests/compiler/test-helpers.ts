@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs-extra';
 import * as os from 'os';
 import { CompilationContext, CompilationOptions } from '../../src/lib/compiler/types';
+import { MemoryFileSystem } from '../../src/lib/compiler/file-system';
 
 /**
  * Create a temporary test file.
@@ -47,18 +48,33 @@ export async function cleanupTempDir(dir: string): Promise<void> {
 }
 
 /**
- * Create a mock compilation context.
+ * Create a mock compilation context with in-memory file system.
  */
 export function createMockContext(
   sourceFile: string,
-  options: Partial<CompilationOptions> = {}
+  options: Partial<CompilationOptions> & { fileContent?: string; files?: Record<string, string> } = {}
 ): CompilationContext {
-  return new CompilationContext(sourceFile, {
+  const { fileContent, files, ...compilationOptions } = options;
+
+  const context = new CompilationContext(sourceFile, {
     outputFormat: 'markdown',
     parameters: {},
     verbose: false,
-    ...options
+    ...compilationOptions
   });
+
+  // Create in-memory file system
+  const memoryFiles: Record<string, string> = files || {};
+
+  // If fileContent is provided, add the source file
+  if (fileContent) {
+    memoryFiles[sourceFile] = fileContent;
+  }
+
+  // Set up the file system
+  context.fileSystem = new MemoryFileSystem(memoryFiles);
+
+  return context;
 }
 
 /**

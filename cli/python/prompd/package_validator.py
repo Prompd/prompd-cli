@@ -234,24 +234,33 @@ class PackageValidator:
                 warnings.append(f"Variable '{var}' used in content but not defined in parameters")
     
     def _validate_manifest(self, zip_file: zipfile.ZipFile, errors: List[str], warnings: List[str]) -> Optional[Dict[str, Any]]:
-        """Validate the manifest.json file in a .pdpkg package."""
-        if 'manifest.json' not in zip_file.namelist():
-            errors.append("Package missing required manifest.json file")
+        """Validate the prompd.json file in a .pdpkg package (with legacy manifest.json fallback)."""
+        file_list = zip_file.namelist()
+
+        # Check for prompd.json (preferred) or manifest.json (legacy compatibility)
+        manifest_file = None
+        if 'prompd.json' in file_list:
+            manifest_file = 'prompd.json'
+        elif 'manifest.json' in file_list:
+            manifest_file = 'manifest.json'
+            warnings.append("Using legacy manifest.json - consider renaming to prompd.json")
+        else:
+            errors.append("Package missing required prompd.json file")
             return None
-        
+
         try:
-            with zip_file.open('manifest.json') as f:
+            with zip_file.open(manifest_file) as f:
                 manifest = json.loads(f.read().decode('utf-8'))
         except json.JSONDecodeError as e:
-            errors.append(f"Invalid manifest.json: {e}")
+            errors.append(f"Invalid {manifest_file}: {e}")
             return None
         except Exception as e:
-            errors.append(f"Failed to read manifest.json: {e}")
+            errors.append(f"Failed to read {manifest_file}: {e}")
             return None
-        
+
         # Validate manifest structure
         self._validate_package_metadata(manifest, errors, warnings)
-        
+
         return manifest
     
     def _validate_package_structure(self, zip_file: zipfile.ZipFile, errors: List[str], warnings: List[str]):

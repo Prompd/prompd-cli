@@ -28,6 +28,174 @@ from .validator import PrompdValidator
 from .package_resolver import RegistryInfo
 
 
+# Code file extensions that need frontmatter protection for security.
+# These files will have prompd content frontmatter added to make them non-executable.
+CODE_EXTENSIONS = [
+    # JavaScript/TypeScript ecosystem
+    '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+    # Python
+    '.py', '.pyw', '.pyi',
+    # Shell/Scripts
+    '.sh', '.bash', '.zsh', '.fish', '.ps1', '.psm1', '.psd1', '.bat', '.cmd',
+    # Ruby
+    '.rb', '.rake', '.gemspec',
+    # Go
+    '.go',
+    # Rust
+    '.rs',
+    # C/C++
+    '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',
+    # Java/JVM
+    '.java', '.kt', '.kts', '.scala', '.groovy',
+    # .NET
+    '.cs', '.fs', '.vb',
+    # PHP
+    '.php', '.phtml',
+    # Perl
+    '.pl', '.pm',
+    # Swift
+    '.swift',
+    # Lua
+    '.lua',
+    # R
+    '.r', '.R',
+    # Julia
+    '.jl',
+    # Elixir/Erlang
+    '.ex', '.exs', '.erl',
+    # Haskell
+    '.hs', '.lhs',
+    # Web frameworks
+    '.vue', '.svelte',
+    # SQL (can be dangerous with stored procedures)
+    '.sql',
+    # Markup/Config that could contain executable scripts
+    '.html', '.htm', '.css', '.xml', '.scss', '.sass', '.less', '.styl',
+    '.astro', '.toml', '.ini', '.cfg', '.conf', '.env'
+]
+
+# Map file extensions to content type names for frontmatter metadata.
+CONTENT_TYPES = {
+    # JavaScript/TypeScript
+    '.ts': 'typescript',
+    '.tsx': 'typescript-react',
+    '.js': 'javascript',
+    '.jsx': 'javascript-react',
+    '.mjs': 'javascript-module',
+    '.cjs': 'javascript-commonjs',
+    # Python
+    '.py': 'python',
+    '.pyw': 'python-windows',
+    '.pyi': 'python-stub',
+    # Shell
+    '.sh': 'shell',
+    '.bash': 'bash',
+    '.zsh': 'zsh',
+    '.fish': 'fish',
+    '.ps1': 'powershell',
+    '.psm1': 'powershell-module',
+    '.psd1': 'powershell-data',
+    '.bat': 'batch',
+    '.cmd': 'batch',
+    # Ruby
+    '.rb': 'ruby',
+    '.rake': 'ruby-rake',
+    '.gemspec': 'ruby-gemspec',
+    # Go
+    '.go': 'go',
+    # Rust
+    '.rs': 'rust',
+    # C/C++
+    '.c': 'c',
+    '.cpp': 'cpp',
+    '.cc': 'cpp',
+    '.cxx': 'cpp',
+    '.h': 'c-header',
+    '.hpp': 'cpp-header',
+    '.hxx': 'cpp-header',
+    # Java/JVM
+    '.java': 'java',
+    '.kt': 'kotlin',
+    '.kts': 'kotlin-script',
+    '.scala': 'scala',
+    '.groovy': 'groovy',
+    # .NET
+    '.cs': 'csharp',
+    '.fs': 'fsharp',
+    '.vb': 'vb',
+    # PHP
+    '.php': 'php',
+    '.phtml': 'php-html',
+    # Perl
+    '.pl': 'perl',
+    '.pm': 'perl-module',
+    # Swift
+    '.swift': 'swift',
+    # Lua
+    '.lua': 'lua',
+    # R
+    '.r': 'r',
+    '.R': 'r',
+    # Julia
+    '.jl': 'julia',
+    # Elixir/Erlang
+    '.ex': 'elixir',
+    '.exs': 'elixir-script',
+    '.erl': 'erlang',
+    # Haskell
+    '.hs': 'haskell',
+    '.lhs': 'literate-haskell',
+    # Web frameworks
+    '.vue': 'vue',
+    '.svelte': 'svelte',
+    # SQL
+    '.sql': 'sql',
+    # Markup/Config
+    '.html': 'html',
+    '.htm': 'html',
+    '.css': 'css',
+    '.xml': 'xml',
+    '.scss': 'scss',
+    '.sass': 'sass',
+    '.less': 'less',
+    '.styl': 'stylus',
+    '.astro': 'astro',
+    '.toml': 'toml',
+    '.ini': 'ini',
+    '.cfg': 'config',
+    '.conf': 'config',
+    '.env': 'env',
+}
+
+
+def needs_frontmatter_protection(filename: str) -> bool:
+    """Check if a file extension requires frontmatter protection."""
+    ext = Path(filename).suffix.lower()
+    return ext in CODE_EXTENSIONS
+
+
+def get_content_type(filename: str) -> str:
+    """Get the content type for a file extension."""
+    ext = Path(filename).suffix.lower()
+    return CONTENT_TYPES.get(ext, 'text')
+
+
+def add_content_frontmatter(content: str, filename: str) -> str:
+    """Add prompd content frontmatter to make code files non-executable.
+
+    This security layer adds YAML frontmatter that breaks execution in any
+    programming language, marking the file as prompd packaged content.
+    """
+    content_type = get_content_type(filename)
+    frontmatter = f"""---
+prompd_content_file: true
+original_filename: {filename}
+content_type: {content_type}
+---
+"""
+    return frontmatter + content
+
+
 class RegistryClient:
     """Client for interacting with Prompd registries (multi-registry support)."""
     
@@ -744,18 +912,7 @@ def _convert_file_for_package(file_path: Path, source_dir: Path, used_names: set
     # Define file categories
     SAFE_FILES = {'.prmd', '.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.tsv'}
     SAFE_IMAGES = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'}
-    
-    PROGRAMMING_LANGS = {
-        '.js', '.ts', '.jsx', '.tsx', '.cs', '.cpp', '.cxx', '.cc', '.c', '.h', '.hpp',
-        '.py', '.go', '.java', '.php', '.rb', '.rs', '.swift', '.kt', '.scala', '.clj',
-        '.sh', '.bash', '.ps1', '.bat', '.cmd', '.vbs', '.lua', '.r', '.sql', '.pl', '.pm'
-    }
-    
-    MARKUP_CONFIG = {
-        '.html', '.htm', '.css', '.xml', '.scss', '.sass', '.less', '.styl',
-        '.vue', '.svelte', '.astro', '.toml', '.ini', '.cfg', '.conf', '.env'
-    }
-    
+
     # Safe files - keep as-is
     if file_ext in SAFE_FILES:
         with open(file_path, 'rb') as f:
@@ -784,24 +941,21 @@ def _convert_file_for_package(file_path: Path, source_dir: Path, used_names: set
         
         return results
     
-    # Programming languages and markup - convert to .ext.txt
-    if file_ext in PROGRAMMING_LANGS or file_ext in MARKUP_CONFIG:
+    # Code files - add frontmatter protection
+    # This keeps the original extension but makes files non-executable
+    if file_ext in CODE_EXTENSIONS:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
-            # Create header with file info
-            header = f"[Source File: {file_path.name}]\n"
-            header += f"Original Extension: {file_ext}\n"
-            header += f"Language/Type: {file_ext[1:].upper()}\n"
-            header += "-" * 50 + "\n\n"
-            
-            full_content = header + content
-            
-            archive_name = _get_safe_archive_name(str(relative_path), '.txt', used_names)
-            console.print(f"  [yellow]CONV[/yellow] Converted code file: {file_path.name} -> {archive_name}")
-            return [(archive_name, full_content.encode('utf-8'))]
-            
+
+            # Add security frontmatter to make file non-executable
+            protected_content = add_content_frontmatter(content, file_path.name)
+
+            # Keep original path/extension - frontmatter provides security
+            archive_name = str(relative_path)
+            console.print(f"  [cyan]PROT[/cyan] Protected code file: {archive_name}")
+            return [(archive_name, protected_content.encode('utf-8'))]
+
         except UnicodeDecodeError:
             # If can't read as text, treat as binary
             pass

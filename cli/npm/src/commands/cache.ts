@@ -131,7 +131,7 @@ async function listCachedPackages(cacheDir: string): Promise<CachedPackage[]> {
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const packagePath = path.join(cacheDir, entry.name);
-        const manifestPath = path.join(packagePath, 'manifest.json');
+        const manifestPath = path.join(packagePath, 'prompd.json');
 
         if (await fs.pathExists(manifestPath)) {
           try {

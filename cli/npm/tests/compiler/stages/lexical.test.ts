@@ -3,9 +3,8 @@
  */
 
 import { LexicalAnalysisStage } from '../../../src/lib/compiler/stages/lexical';
-import { createMockContext, createTempFile, cleanupTempDir } from '../test-helpers';
-import { SIMPLE_PRMD, INVALID_PRMD } from '../fixtures/test-files';
-import * as path from 'path';
+import { createMockContext } from '../test-helpers';
+import { SIMPLE_PRMD } from '../fixtures/test-files';
 
 describe('LexicalAnalysisStage', () => {
   let stage: LexicalAnalysisStage;
@@ -16,8 +15,9 @@ describe('LexicalAnalysisStage', () => {
 
   describe('process()', () => {
     it('should parse valid .prmd file and populate context', async () => {
-      const filePath = await createTempFile('test.prmd', SIMPLE_PRMD);
-      const context = createMockContext(filePath);
+      const context = createMockContext('test.prmd', {
+        fileContent: SIMPLE_PRMD
+      });
 
       await stage.process(context);
 
@@ -26,15 +26,14 @@ describe('LexicalAnalysisStage', () => {
       expect(context.metadata?.name).toBe('Simple Test');
       expect(context.metadata?.version).toBe('1.0.0');
       expect(context.metadata?.parameters).toHaveLength(2);
-      expect(context.content).toContain('Hello, {name}!');
-      expect(context.errors).toHaveLength(0);
-
-      await cleanupTempDir(path.dirname(filePath));
+      expect(context.content).toContain('Hello, {{name}}!');
+      expect(context.diagnostics).toHaveLength(0);
     });
 
     it('should extract parameters correctly', async () => {
-      const filePath = await createTempFile('test.prmd', SIMPLE_PRMD);
-      const context = createMockContext(filePath);
+      const context = createMockContext('test.prmd', {
+        fileContent: SIMPLE_PRMD
+      });
 
       await stage.process(context);
 
@@ -47,54 +46,50 @@ describe('LexicalAnalysisStage', () => {
       expect(params[1].name).toBe('age');
       expect(params[1].type).toBe('number');
       expect(params[1].default).toBe(25);
-
-      await cleanupTempDir(path.dirname(filePath));
     });
 
     it('should extract content sections', async () => {
-      const filePath = await createTempFile('test.prmd', SIMPLE_PRMD);
-      const context = createMockContext(filePath);
+      const context = createMockContext('test.prmd', {
+        fileContent: SIMPLE_PRMD
+      });
 
       await stage.process(context);
 
       expect(context.content).toContain('# System');
       expect(context.content).toContain('# User');
       expect(context.content).toContain('helpful assistant');
-
-      await cleanupTempDir(path.dirname(filePath));
     });
 
     it('should handle parsing errors gracefully', async () => {
-      const filePath = await createTempFile('invalid.prmd', 'not valid yaml\n---\n# Content');
-      const context = createMockContext(filePath);
+      const invalidContent = 'not valid yaml\n---\n# Content';
+      const context = createMockContext('invalid.prmd', {
+        fileContent: invalidContent
+      });
 
       await stage.process(context);
 
-      expect(context.errors.length).toBeGreaterThan(0);
-      expect(context.errors[0]).toContain('Lexical analysis failed');
-
-      await cleanupTempDir(path.dirname(filePath));
+      expect(context.diagnostics.length).toBeGreaterThan(0);
+      expect(context.diagnostics[0].message).toContain('Lexical analysis failed');
     });
 
     it('should handle missing file', async () => {
-      const context = createMockContext('/nonexistent/file.prmd');
+      const context = createMockContext('nonexistent.prmd');
 
       await stage.process(context);
 
-      expect(context.errors.length).toBeGreaterThan(0);
-      expect(context.errors[0]).toContain('not found');
+      expect(context.diagnostics.length).toBeGreaterThan(0);
+      expect(context.diagnostics[0].message).toContain('not found');
     });
 
     it('should validate required frontmatter', async () => {
       const noFrontmatter = `# Just content without frontmatter`;
-      const filePath = await createTempFile('no-frontmatter.prmd', noFrontmatter);
-      const context = createMockContext(filePath);
+      const context = createMockContext('no-frontmatter.prmd', {
+        fileContent: noFrontmatter
+      });
 
       await stage.process(context);
 
-      expect(context.errors.length).toBeGreaterThan(0);
-
-      await cleanupTempDir(path.dirname(filePath));
+      expect(context.diagnostics.length).toBeGreaterThan(0);
     });
   });
 
@@ -106,8 +101,10 @@ describe('LexicalAnalysisStage', () => {
 
   describe('verbose mode', () => {
     it('should log details in verbose mode', async () => {
-      const filePath = await createTempFile('test.prmd', SIMPLE_PRMD);
-      const context = createMockContext(filePath, { verbose: true });
+      const context = createMockContext('test.prmd', {
+        fileContent: SIMPLE_PRMD,
+        verbose: true
+      });
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
@@ -115,8 +112,6 @@ describe('LexicalAnalysisStage', () => {
 
       expect(consoleSpy).toHaveBeenCalled();
       consoleSpy.mockRestore();
-
-      await cleanupTempDir(path.dirname(filePath));
     });
   });
 });

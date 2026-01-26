@@ -14,7 +14,7 @@ export function createInitCommand(): Command {
   const initCommand = new Command('init');
 
   initCommand
-    .description('Initialize a new Prompd project with manifest.json')
+    .description('Initialize a new Prompd project with prompd.json')
     .argument('[path]', 'Project directory (default: current directory)', '.')
     .option('--name <name>', 'Project name (default: directory name)')
     .option('--version <version>', 'Initial version (default: 1.0.0)')
@@ -46,10 +46,10 @@ async function initProject(projectPath: string, options: InitOptions): Promise<v
     console.log(`✓ Created directory: ${absPath}`);
   }
 
-  // Check if manifest.json already exists
-  const manifestPath = path.join(absPath, 'manifest.json');
+  // Check if prompd.json already exists
+  const manifestPath = path.join(absPath, 'prompd.json');
   if (await fs.pathExists(manifestPath)) {
-    console.log(`Warning: manifest.json already exists in ${absPath}`);
+    console.log(`Warning: prompd.json already exists in ${absPath}`);
     const shouldOverwrite = await promptYesNo('Overwrite? (y/N): ');
     if (!shouldOverwrite) {
       console.log('Aborted');
@@ -92,9 +92,9 @@ async function initProject(projectPath: string, options: InitOptions): Promise<v
     devDependencies: {}
   };
 
-  // Write manifest.json
+  // Write prompd.json
   await fs.writeJSON(manifestPath, manifest, { spaces: 2 });
-  console.log('✓ Created manifest.json');
+  console.log('✓ Created prompd.json');
   console.log(`✓ Initialized Prompd project: ${name}`);
 
   // Create a sample .prmd file if none exists

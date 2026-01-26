@@ -3,19 +3,14 @@ import { PrompdParser } from '../src/lib/parser';
 import * as fs from 'fs-extra';
 import { execSync } from 'child_process';
 
-// Replace fs-extra with mocks
-(fs as any).readFile = jest.fn();
-(fs as any).writeFile = jest.fn();
-
 // Mock dependencies
 jest.mock('fs-extra');
 jest.mock('child_process');
 jest.mock('../src/lib/parser');
 
-const mockFs = {
-  readFile: jest.fn(),
-  writeFile: jest.fn()
-} as any;
+const mockReadFile = fs.readFile as jest.MockedFunction<typeof fs.readFile>;
+const mockWriteFile = fs.writeFile as jest.MockedFunction<typeof fs.writeFile>;
+const mockFs = { readFile: mockReadFile, writeFile: mockWriteFile };
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
 const mockParser = PrompdParser as jest.MockedClass<typeof PrompdParser>;
 
@@ -49,6 +44,7 @@ Content here`;
 
       const mockPrompdFile = {
         metadata: {
+          id: 'test-prompt',
           name: 'test-prompt',
           version: '1.2.3',
           description: 'Test prompt'
@@ -79,6 +75,7 @@ Content`;
 
       const mockPrompdFile = {
         metadata: {
+          id: 'test-prompt',
           name: 'test-prompt',
           version: '1.2.3'
         },
@@ -106,6 +103,7 @@ Content`;
 
       const mockPrompdFile = {
         metadata: {
+          id: 'test-prompt',
           name: 'test-prompt',
           version: '1.2.3'
         },
@@ -126,6 +124,7 @@ Content`;
     it('should handle missing version field', async () => {
       const mockPrompdFile = {
         metadata: {
+          id: 'test-prompt',
           name: 'test-prompt'
         },
         content: 'Content',
@@ -188,6 +187,7 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
     it('should validate version format', async () => {
       const mockPrompdFile = {
         metadata: {
+          id: 'test-prompt',
           name: 'test-prompt',
           version: '1.2.3'
         },
@@ -206,6 +206,7 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
     it('should detect invalid version format', async () => {
       const mockPrompdFile = {
         metadata: {
+          id: 'test-prompt',
           name: 'test-prompt',
           version: 'invalid-version'
         },

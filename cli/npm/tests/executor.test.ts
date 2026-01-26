@@ -38,6 +38,7 @@ describe('PrompdExecutor', () => {
   describe('execute', () => {
     const mockPrompdFile = {
       metadata: {
+        id: 'test-prompt',
         name: 'test-prompt',
         parameters: [
           { name: 'topic', type: 'string' as const, required: true }
@@ -53,7 +54,9 @@ describe('PrompdExecutor', () => {
         defaultProvider: 'openai',
         defaultModel: 'gpt-4',
         apiKeys: { openai: 'test-key' },
-        customProviders: {}
+        customProviders: {},
+        registry: { default: 'prompdhub', registries: {} },
+        scopes: {}
       };
       
       mockConfigManager.loadConfig.mockResolvedValue(mockConfig);
@@ -103,7 +106,9 @@ describe('PrompdExecutor', () => {
         defaultProvider: 'openai',
         defaultModel: 'gpt-4',
         apiKeys: { openai: 'test-key' },
-        customProviders: {}
+        customProviders: {},
+        registry: { default: 'prompdhub', registries: {} },
+        scopes: {}
       };
       
       mockConfigManager.loadConfig.mockResolvedValue(mockConfig);
@@ -124,7 +129,9 @@ describe('PrompdExecutor', () => {
         defaultProvider: 'openai',
         defaultModel: 'gpt-4',
         apiKeys: { openai: 'test-key' },
-        customProviders: {}
+        customProviders: {},
+        registry: { default: 'prompdhub', registries: {} },
+        scopes: {}
       };
       
       mockConfigManager.loadConfig.mockResolvedValue(mockConfig);
@@ -143,7 +150,9 @@ describe('PrompdExecutor', () => {
         defaultProvider: 'openai',
         defaultModel: 'gpt-4',
         apiKeys: { openai: 'test-key' },
-        customProviders: {}
+        customProviders: {},
+        registry: { default: 'prompdhub', registries: {} },
+        scopes: {}
       };
       
       mockConfigManager.loadConfig.mockResolvedValue(mockConfig);
@@ -190,7 +199,9 @@ describe('PrompdExecutor', () => {
         defaultProvider: 'anthropic',
         defaultModel: 'claude-3-sonnet-20240229',
         apiKeys: { anthropic: 'test-key' },
-        customProviders: {}
+        customProviders: {},
+        registry: { default: 'prompdhub', registries: {} },
+        scopes: {}
       };
       
       mockConfigManager.loadConfig.mockResolvedValue(mockConfig);

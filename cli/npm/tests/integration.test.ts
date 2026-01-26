@@ -131,7 +131,9 @@ customProviders:
               enabled: true,
               type: 'openai-compatible'
             }
-          }
+          },
+          registry: { default: 'prompdhub', registries: {} },
+          scopes: {}
         };
       });
 

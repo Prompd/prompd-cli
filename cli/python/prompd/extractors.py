@@ -8,12 +8,51 @@ Supports extracting text content from various binary formats:
 - PowerPoint (.pptx) → slide text
 - Images (.png, .jpg, .gif) → alt-text/descriptions
 - Config files (.json, .yaml, .env) → structured data
+
+Also provides frontmatter stripping for packaged content files.
 """
 
 import json
 import csv
 import io
 from pathlib import Path
+
+
+def strip_content_frontmatter(content: str) -> str:
+    """
+    Strip prompd content file frontmatter if present.
+
+    This is used for packaged code files (.ts, .js, etc.) that have frontmatter
+    added for security (makes them non-executable when stored on disk).
+
+    Only strips frontmatter that contains `prompd_content_file: true`.
+    Regular .prmd frontmatter is NOT stripped.
+
+    Args:
+        content: The file content that may contain prompd content frontmatter
+
+    Returns:
+        The content with prompd content frontmatter stripped, or original content
+        if no prompd content frontmatter is present.
+    """
+    # Must start with frontmatter delimiter
+    if not content.startswith('---\n'):
+        return content
+
+    # Find closing delimiter
+    end_index = content.find('\n---\n', 4)
+    if end_index == -1:
+        return content
+
+    # Check for prompd content file marker
+    frontmatter = content[4:end_index]
+    if 'prompd_content_file: true' not in frontmatter:
+        return content  # Regular frontmatter, don't strip
+
+    # Strip the prompd content frontmatter
+    return content[end_index + 5:]
+
+
 from typing import Union, Dict, Any, Optional, List
 from abc import ABC, abstractmethod
 
@@ -334,23 +373,26 @@ class YAMLExtractor(FileExtractor):
 
 class TextExtractor(FileExtractor):
     """Extract content from plain text files."""
-    
+
     def can_extract(self, file_path: Path) -> bool:
         """Check if file is a text file."""
         return file_path.suffix.lower() in ['.txt', '.md', '.py', '.js', '.ts', '.sql', '.css', '.html', '.xml', '.env', '.csv']
-    
+
     def extract(self, file_path: Path) -> str:
         """Extract text content."""
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read().strip()
-                
+
+                # Strip prompd content frontmatter if present (for packaged code files)
+                content = strip_content_frontmatter(content)
+
                 # Add syntax highlighting hint for code files
                 ext = file_path.suffix.lower()
                 if ext in ['.py', '.js', '.ts', '.sql', '.css', '.html', '.xml', '.csv']:
                     lang_map = {
                         '.py': 'python',
-                        '.js': 'javascript', 
+                        '.js': 'javascript',
                         '.ts': 'typescript',
                         '.sql': 'sql',
                         '.css': 'css',
@@ -362,7 +404,7 @@ class TextExtractor(FileExtractor):
                     return f"# {file_path.name}\n\n```{lang}\n{content}\n```"
                 else:
                     return f"# {file_path.name}\n\n{content}"
-                
+
         except Exception as e:
             return f"# Error extracting text file: {e}\n# File: {file_path}"
     

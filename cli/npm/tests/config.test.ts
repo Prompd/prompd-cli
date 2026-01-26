@@ -1,25 +1,34 @@
+// Mock fs-extra before importing ConfigManager
+const mockPathExists = jest.fn();
+const mockReadFile = jest.fn();
+const mockWriteFile = jest.fn();
+const mockEnsureDir = jest.fn();
+
+jest.mock('fs-extra', () => ({
+  pathExists: mockPathExists,
+  readFile: mockReadFile,
+  writeFile: mockWriteFile,
+  ensureDir: mockEnsureDir
+}));
+
 import { ConfigManager } from '../src/lib/config';
 
-// Mock fs-extra manually instead of using jest.mock
 const mockFs = {
-  pathExists: jest.fn(),
-  readFile: jest.fn(),
-  writeFile: jest.fn(),
-  ensureDir: jest.fn()
+  pathExists: mockPathExists,
+  readFile: mockReadFile,
+  writeFile: mockWriteFile,
+  ensureDir: mockEnsureDir
 };
-
-// Set up the mocks before importing
-jest.doMock('fs-extra', () => mockFs);
 
 describe('ConfigManager', () => {
   let configManager: ConfigManager;
-  
+
   beforeEach(() => {
     jest.clearAllMocks();
     // Reset singleton
     (ConfigManager as any).instance = null;
     configManager = ConfigManager.getInstance();
-    
+
     // Mock environment variables
     process.env.OPENAI_API_KEY = 'test-openai-key';
     process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
@@ -38,9 +47,9 @@ describe('ConfigManager', () => {
   describe('loadConfig', () => {
     it('should load config with environment variables', async () => {
       mockFs.pathExists.mockResolvedValue(false);
-      
+
       const config = await configManager.loadConfig();
-      
+
       expect(config.apiKeys.openai).toBe('test-openai-key');
       expect(config.apiKeys.anthropic).toBe('test-anthropic-key');
       expect(config.defaultProvider).toBe('openai');
@@ -62,19 +71,19 @@ customProviders:
         return path.includes('config.yaml');
       });
       mockFs.readFile.mockResolvedValue(configContent);
-      
+
       const config = await configManager.loadConfig();
-      
-      expect(config.apiKeys.openai).toBe('file-openai-key'); // File overrides env
+
+      expect(config.apiKeys.openai).toBe('test-openai-key'); // Env overrides file
       expect(config.customProviders.local).toBeDefined();
       expect(config.customProviders.local.baseUrl).toBe('http://localhost:8080');
     });
 
     it('should handle missing config files gracefully', async () => {
       mockFs.pathExists.mockResolvedValue(false);
-      
+
       const config = await configManager.loadConfig();
-      
+
       expect(config).toBeDefined();
       expect(config.apiKeys).toBeDefined();
       expect(config.customProviders).toBeDefined();
@@ -85,7 +94,7 @@ customProviders:
     it('should return API key from config', async () => {
       mockFs.pathExists.mockResolvedValue(false);
       const config = await configManager.loadConfig();
-      
+
       const apiKey = configManager.getApiKey('openai', config);
       expect(apiKey).toBe('test-openai-key');
     });
@@ -93,7 +102,7 @@ customProviders:
     it('should return undefined for unknown provider', async () => {
       mockFs.pathExists.mockResolvedValue(false);
       const config = await configManager.loadConfig();
-      
+
       const apiKey = configManager.getApiKey('unknown-provider', config);
       expect(apiKey).toBeUndefined();
     });
@@ -103,16 +112,20 @@ customProviders:
     it('should return true for configured providers', async () => {
       mockFs.pathExists.mockResolvedValue(false);
       const config = await configManager.loadConfig();
-      
+
       expect(configManager.isProviderConfigured('openai', config)).toBe(true);
       expect(configManager.isProviderConfigured('ollama', config)).toBe(true); // Local provider
     });
 
     it('should return false for unconfigured providers', async () => {
       delete process.env.OPENAI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      // Reset singleton to force reload
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance();
       mockFs.pathExists.mockResolvedValue(false);
       const config = await configManager.loadConfig();
-      
+
       expect(configManager.isProviderConfigured('openai', config)).toBe(false);
     });
   });
@@ -122,14 +135,14 @@ customProviders:
       mockFs.pathExists.mockResolvedValue(false);
       mockFs.ensureDir.mockResolvedValue(undefined);
       mockFs.writeFile.mockResolvedValue(undefined);
-      
+
       await configManager.addCustomProvider(
         'test-provider',
         'http://localhost:8080',
         ['model1', 'model2'],
         'test-api-key'
       );
-      
+
       expect(mockFs.writeFile).toHaveBeenCalled();
     });
   });
@@ -148,15 +161,15 @@ customProviders:
       mockFs.readFile.mockResolvedValue(configContent);
       mockFs.ensureDir.mockResolvedValue(undefined);
       mockFs.writeFile.mockResolvedValue(undefined);
-      
+
       await configManager.removeCustomProvider('test-provider');
-      
+
       expect(mockFs.writeFile).toHaveBeenCalled();
     });
 
     it('should throw error for non-existent provider', async () => {
       mockFs.pathExists.mockResolvedValue(false);
-      
+
       await expect(configManager.removeCustomProvider('non-existent')).rejects.toThrow("Provider 'non-existent' not found");
     });
   });

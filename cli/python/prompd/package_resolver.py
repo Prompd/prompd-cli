@@ -321,7 +321,7 @@ class BasePackageCache:
     def is_cached(self, package_ref: PackageReference) -> bool:
         """Check if package is cached."""
         package_dir = self.get_package_dir(package_ref)
-        return package_dir.exists() and (package_dir / 'manifest.json').exists()
+        return package_dir.exists() and (package_dir / 'prompd.json').exists() or (package_dir / 'manifest.json').exists()
     
     def get_cached_package(self, package_ref: PackageReference) -> Path:
         """Get path to cached package directory."""
@@ -533,16 +533,18 @@ class BasePackageCache:
     
     def _validate_extracted_package(self, package_dir: Path, package_ref: PackageReference):
         """Validate extracted package contents."""
-        # Must have manifest.json
-        manifest_file = package_dir / 'manifest.json'
+        # Must have prompd.json (preferred) or manifest.json (legacy compatibility)
+        manifest_file = package_dir / 'prompd.json'
         if not manifest_file.exists():
-            raise PrompdError(f"Package missing manifest.json: {package_ref.to_string()}")
-        
+            manifest_file = package_dir / 'manifest.json'
+            if not manifest_file.exists():
+                raise PrompdError(f"Package missing prompd.json: {package_ref.to_string()}")
+
         try:
             with open(manifest_file, 'r', encoding='utf-8') as f:
                 manifest = json.load(f)
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise PrompdError(f"Invalid manifest.json: {e}")
+            raise PrompdError(f"Invalid {manifest_file.name}: {e}")
         
         # Validate manifest structure
         required_fields = ['name', 'version']
@@ -652,7 +654,7 @@ class BasePackageCache:
                     for pkg_dir in item.iterdir():
                         if pkg_dir.is_dir():
                             for version_dir in pkg_dir.iterdir():
-                                if version_dir.is_dir() and (version_dir / 'manifest.json').exists():
+                                if version_dir.is_dir() and (version_dir / 'prompd.json').exists() or (version_dir / 'manifest.json').exists():
                                     packages.append(PackageReference(
                                         namespace=namespace,
                                         name=pkg_dir.name,
@@ -661,7 +663,7 @@ class BasePackageCache:
                 else:
                     # Unscoped package
                     for version_dir in item.iterdir():
-                        if version_dir.is_dir() and (version_dir / 'manifest.json').exists():
+                        if version_dir.is_dir() and (version_dir / 'prompd.json').exists() or (version_dir / 'manifest.json').exists():
                             packages.append(PackageReference(
                                 name=item.name,
                                 version=version_dir.name
@@ -1019,16 +1021,18 @@ class PackageResolver:
                     return bytes(content), version
     
     def get_package_manifest(self, package_path: Path) -> Dict[str, Any]:
-        """Load package manifest.json."""
-        manifest_file = package_path / 'manifest.json'
+        """Load package prompd.json (or legacy manifest.json)."""
+        manifest_file = package_path / 'prompd.json'
         if not manifest_file.exists():
-            raise PrompdError(f"Package manifest not found: {manifest_file}")
-        
+            manifest_file = package_path / 'manifest.json'
+            if not manifest_file.exists():
+                raise PrompdError(f"Package prompd.json not found: {package_path}")
+
         try:
             with open(manifest_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
-            raise PrompdError(f"Invalid package manifest: {e}")
+            raise PrompdError(f"Invalid package manifest ({manifest_file.name}): {e}")
     
     def resolve_dependencies(self, package_path: Path) -> Dict[str, Path]:
         """Resolve all dependencies for a package."""

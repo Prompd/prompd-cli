@@ -12,6 +12,7 @@ describe('PrompdParser', () => {
   describe('parseContent', () => {
     it('should parse valid prompd content', () => {
       const content = `---
+id: test-prompt
 name: test-prompt
 description: A test prompt
 version: 1.0.0
@@ -27,7 +28,8 @@ parameters:
 Please discuss {topic} in detail.`;
 
       const result = parser.parseContent(content);
-      
+
+      expect(result.metadata.id).toBe('test-prompt');
       expect(result.metadata.name).toBe('test-prompt');
       expect(result.metadata.description).toBe('A test prompt');
       expect(result.metadata.version).toBe('1.0.0');
@@ -63,6 +65,7 @@ Content here`;
   describe('validateFile', () => {
     it('should validate file with no issues', async () => {
       const content = `---
+id: valid-prompt
 name: valid-prompt
 description: A valid prompt
 version: 1.0.0
@@ -75,13 +78,14 @@ parameters:
 Process this input: {input}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
-      
+
       const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(0);
     });
 
     it('should detect missing required name field', async () => {
       const content = `---
+id: test-prompt
 description: Missing name field
 parameters:
   - name: input
@@ -91,7 +95,7 @@ parameters:
 Content with {input}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
-      
+
       const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
@@ -100,6 +104,7 @@ Content with {input}`;
 
     it('should detect invalid semantic version', async () => {
       const content = `---
+id: test-prompt
 name: test-prompt
 version: invalid-version
 ---
@@ -107,7 +112,7 @@ version: invalid-version
 Content`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
-      
+
       const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
@@ -116,6 +121,7 @@ Content`;
 
     it('should detect undefined variable references', async () => {
       const content = `---
+id: test-prompt
 name: test-prompt
 parameters:
   - name: input
@@ -125,7 +131,7 @@ parameters:
 Content with {input} and {undefined_var}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
-      
+
       const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
@@ -134,6 +140,7 @@ Content with {input} and {undefined_var}`;
 
     it('should validate parameter types', async () => {
       const content = `---
+id: test-prompt
 name: test-prompt
 parameters:
   - name: param1
@@ -145,7 +152,7 @@ parameters:
 Content with {param1} and {param2}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
-      
+
       const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(1);
       expect(issues[0].level).toBe('error');
@@ -154,6 +161,7 @@ Content with {param1} and {param2}`;
 
     it('should handle backward compatibility with variables field', async () => {
       const content = `---
+id: test-prompt
 name: test-prompt
 variables:
   - name: old_var
@@ -163,7 +171,7 @@ variables:
 Content with {old_var}`;
 
       jest.spyOn(parser, 'parseFile').mockResolvedValue(parser.parseContent(content));
-      
+
       const issues = await parser.validateFile('test.prmd');
       expect(issues).toHaveLength(0);
     });

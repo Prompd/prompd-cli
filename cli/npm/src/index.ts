@@ -27,7 +27,7 @@ const program = new Command();
 program
   .name('prompd')
   .description('CLI for structured prompt definitions')
-  .version('0.3.3');
+  .version('0.3.4');
 
 // Core commands
 program.addCommand(createConfigCommand());

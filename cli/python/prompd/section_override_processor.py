@@ -362,6 +362,10 @@ class SectionOverrideProcessor:
             # Load content with encoding detection
             content = self._load_file_with_encoding(file_path)
 
+            # Strip prompd content frontmatter if present (for packaged code files)
+            from .extractors import strip_content_frontmatter
+            content = strip_content_frontmatter(content)
+
             return content.strip()
 
         except ValidationError:

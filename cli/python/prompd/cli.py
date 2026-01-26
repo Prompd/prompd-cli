@@ -663,29 +663,79 @@ def chat_command():
 
 @cli.command("compile", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.argument("source", type=str)
-@click.option("--to", "output_format", default="markdown", help="Output format (markdown | provider-json [openai|anthropic] | provider-json:openai)")
+@click.option("--to", "output_format", default="markdown", help="Output format (markdown | provider-json | pdflow-compiled | langflow | n8n | trim)")
 @click.option("--to-markdown", is_flag=True, help="Shorthand for --to markdown")
 @click.option("--to-provider-json", type=click.Choice(["openai", "anthropic"]), help="Shorthand for --to provider-json <provider>")
+@click.option("--format", "workflow_format", type=click.Choice(["pdflow-compiled", "langflow", "n8n", "trim", "plain"]), help="Workflow output format (for .pdflow files)")
+@click.option("--preserve-runtime-vars/--no-preserve-runtime-vars", default=True, help="Keep {{ }} variables for runtime substitution")
+@click.option("--trim", is_flag=True, help="Remove visual/editor metadata from output")
 @click.option("-p", "--param", multiple=True, help="Parameter in format key=value (repeat for multiple)")
 @click.option("-f", "--params-file", type=click.Path(exists=True, path_type=Path), multiple=True, help="Load parameters from JSON file (repeatable)")
 @click.option("-o", "--output", type=click.Path(), help="Write compiled output to file")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.pass_context
-def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_provider_json: Optional[str], param: tuple, params_file: tuple, output: Optional[str], verbose: bool):
-    """Compile a .prmd file or package reference to a target format.
-    
-    Supports package references like:
+def compile_command(ctx, source: str, output_format: str, to_markdown: bool, to_provider_json: Optional[str], workflow_format: Optional[str], preserve_runtime_vars: bool, trim: bool, param: tuple, params_file: tuple, output: Optional[str], verbose: bool):
+    """Compile a .prmd file, .pdflow workflow, or package reference to a target format.
+
+    For .prmd files:
     - @namespace/package@version/path/to/file.prmd
     - @prompd.io/security@1.0.0/prompts/audit.prmd
     - package@version/file.prmd
+
+    For .pdflow workflows:
+    - Compiles all prompt nodes (Stage 1)
+    - Preserves runtime variables like {{ previous_output }}
+    - Exports to pdflow-compiled, langflow, n8n, or trim format
     """
     try:
+        import re
+
         # Check if source is a package reference with path
         source_path = Path(source)
-        
+
+        # =====================================================================
+        # WORKFLOW COMPILATION (.pdflow files)
+        # =====================================================================
+        if source.endswith('.pdflow') or (source_path.exists() and source_path.suffix == '.pdflow'):
+            from .workflow_compiler import WorkflowCompiler
+
+            if not source_path.exists():
+                console.print(f"[red]Workflow file not found:[/red] {source}")
+                sys.exit(1)
+
+            # Determine workflow output format
+            wf_format = workflow_format or output_format
+            if wf_format in ('markdown', 'provider-json') or wf_format.startswith('provider-json:'):
+                wf_format = 'pdflow-compiled'  # Default for workflows
+
+            if verbose:
+                console.print(f"[dim]Compiling workflow {source} -> {wf_format}[/dim]")
+
+            compiler = WorkflowCompiler(verbose=verbose)
+            result, metadata = compiler.compile(
+                source_path,
+                output_format=wf_format,
+                preserve_runtime_vars=preserve_runtime_vars,
+                trim=trim or (wf_format in ('trim', 'plain'))
+            )
+
+            if output:
+                Path(output).write_text(result, encoding='utf-8')
+                console.print(f"[green]OK[/green] Compiled workflow written to {output}")
+                if verbose:
+                    console.print(f"[dim]  Format: {wf_format}[/dim]")
+                    console.print(f"[dim]  Steps: {metadata.get('compiled_steps', 0)}[/dim]")
+            else:
+                print(result)
+
+            return
+
+        # =====================================================================
+        # PRMD FILE COMPILATION
+        # =====================================================================
+
         # Pattern to detect package references: @namespace/package@version/path or package@version/path
         package_pattern = r'^(@[\w.-]+/[\w.-]+|[\w.-]+)@([\w.-]+)/(.+\.prmd)$'
-        import re
         match = re.match(package_pattern, source)
         
         if match:

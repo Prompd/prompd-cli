@@ -23,7 +23,7 @@ npm run build
 - **Library** for programmatic use in TypeScript/React/Node.js apps
 
 ✅ **Core capabilities:**
-- `.prmpd` file parsing and validation
+- `.prmd` file parsing and validation
 - Package management (create, validate, publish)
 - Registry operations (login, search, install)
 - Provider configuration and management

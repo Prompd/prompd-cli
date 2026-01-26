@@ -47,7 +47,7 @@ Hello, world!`;
 
     const result = await formatter.format(context);
 
-    expect(result).toContain('---');
+    expect(result).toContain('<!-- PROMPD METADATA');
     expect(result).toContain('id: test-prompt');
     expect(result).toContain('name: Test Prompt');
     expect(result).toContain('version: 1.0.0');

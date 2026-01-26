@@ -23,7 +23,7 @@ You are a helpful assistant.
 
 # User
 
-Hello, {name}! You are {age} years old.`;
+Hello, {{name}}! You are {{age}} years old.`;
 
 export const TEMPLATE_PRMD = `---
 id: template-test
@@ -43,10 +43,10 @@ parameters:
 {% if show_details %}
 Items:
 {% for item in items %}
-- {item}
+- {{item}}
 {% endfor %}
 {% else %}
-Count: {items|length}
+Count: {{items|length}}
 {% endif %}`;
 
 export const INHERITANCE_PRMD = `---
@@ -62,7 +62,7 @@ parameters:
 
 # User
 
-Topic: {topic}`;
+Topic: {{topic}}`;
 
 export const PARENT_PRMD = `---
 id: parent-prompt
@@ -76,7 +76,7 @@ parameters:
 
 # System
 
-You are an expert in {context}.
+You are an expert in {{context}}.
 
 # User
 
@@ -132,7 +132,7 @@ parameters:
 
 # User
 
-User: {user.name}, Age: {user.age}`;
+User: {{user.name}}, Age: {{user.age}}`;
 
 export const CUSTOM_SYSTEM_MD = `This is a custom system prompt from an external file.`;
 

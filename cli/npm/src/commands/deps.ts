@@ -69,10 +69,10 @@ async function analyzeDependencies(target: string, showTree: boolean, showConfli
 }
 
 async function analyzeProjectDeps(projectPath: string, showTree: boolean, showConflicts: boolean): Promise<void> {
-  const manifestPath = path.join(projectPath, 'manifest.json');
+  const manifestPath = path.join(projectPath, 'prompd.json');
 
   if (!await fs.pathExists(manifestPath)) {
-    throw new Error(`No manifest.json found in ${projectPath}`);
+    throw new Error(`No prompd.json found in ${projectPath}`);
   }
 
   const manifest: Manifest = await fs.readJSON(manifestPath);

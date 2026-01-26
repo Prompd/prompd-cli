@@ -15,7 +15,7 @@ describe('AssetExtractionStage', () => {
     stage = new AssetExtractionStage();
   });
 
-  describe('execute()', () => {
+  describe('process()', () => {
     it('should extract content from placeholder references', async () => {
       const tempDir = await createTempFiles({
         'data.json': JSON.stringify({ name: 'Alice', age: 30 })
@@ -27,7 +27,7 @@ describe('AssetExtractionStage', () => {
 Load data: [file:./data.json]`;
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.content).toContain('"name": "Alice"');
       expect(context.content).toContain('"age": 30');
@@ -49,7 +49,7 @@ First: [file:./file1.txt]
 Second: [file:./file2.txt]`;
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.content).toContain('Content 1');
       expect(context.content).toContain('Content 2');
@@ -62,7 +62,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:../../etc/passwd]';
       context.sourceFile = '/tmp/test.prmd';
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.errors.length).toBeGreaterThan(0);
       expect(context.errors[0]).toMatch(/path traversal/i);
@@ -77,7 +77,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:./large.txt]';
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.errors.length).toBeGreaterThan(0);
       expect(context.errors[0]).toMatch(/too large/i);
@@ -90,7 +90,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:./nonexistent.txt]';
       context.sourceFile = '/tmp/test.prmd';
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.errors.length).toBeGreaterThan(0);
       expect(context.errors[0]).toMatch(/not found/i);
@@ -100,7 +100,7 @@ Second: [file:./file2.txt]`;
       const context = createMockContext('/tmp/test.prmd');
       context.content = '# User\n\nNo file references here';
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.content).toBe('# User\n\nNo file references here');
       expect(context.errors.length).toBe(0);
@@ -304,7 +304,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:/etc/passwd]';
       context.sourceFile = '/tmp/test.prmd';
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.errors.length).toBeGreaterThan(0);
       expect(context.errors[0]).toMatch(/absolute path/i);
@@ -315,7 +315,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:../../../etc/passwd]';
       context.sourceFile = '/tmp/test.prmd';
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.errors.length).toBeGreaterThan(0);
       expect(context.errors[0]).toMatch(/path traversal/i);
@@ -330,7 +330,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:./safe.txt]';
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.errors.length).toBe(0);
       expect(context.content).toContain('Safe content');
@@ -348,7 +348,7 @@ Second: [file:./file2.txt]`;
       context.sourceFile = join(tempDir, 'test.prmd');
 
       // .sh files should be allowed (text extraction)
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.errors.length).toBe(0);
 
@@ -366,7 +366,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:./data.json]';
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.content).toContain('"test"');
 
@@ -382,7 +382,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:./data.xlsx]';
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       // Should attempt Excel extraction
       expect(typeof context.content).toBe('string');
@@ -399,7 +399,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:./doc.pdf]';
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(typeof context.content).toBe('string');
 
@@ -419,7 +419,7 @@ Second: [file:./file2.txt]`;
       context.content = '[file:./image.png]';
       context.sourceFile = join(tempDir, 'test.prmd');
 
-      await stage.execute(context);
+      await stage.process(context);
 
       expect(context.content).toContain('Image:');
 

@@ -260,13 +260,13 @@ System content`);
     it('should throw error for non-existent file', async () => {
       await expect(
         processor.loadOverrideContent('./nonexistent.md', '/tmp')
-      ).rejects.toThrow(/not found/i);
+      ).rejects.toThrow(/escapes base directory|not found/i);
     });
 
     it('should detect path traversal attempts', async () => {
       await expect(
         processor.loadOverrideContent('../../../etc/passwd', '/tmp')
-      ).rejects.toThrow(/traversal/i);
+      ).rejects.toThrow(/escapes base directory|traversal/i);
     });
 
     it('should reject files that are too large', async () => {

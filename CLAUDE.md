@@ -134,6 +134,20 @@ prompd logout
 prompd search "database helper"
 prompd versions @namespace/package
 prompd registry info @namespace/package
+
+# Dependency Management (Python/Go/Node.js)
+prompd deps [package]                    # Analyze dependencies
+prompd deps --tree                       # Show dependency tree
+prompd deps --conflicts                  # Check for version conflicts
+
+# Namespace Management (Python/Go/Node.js)
+prompd namespace list                    # List your namespaces
+prompd namespace current                 # Show current namespace
+prompd namespace use @namespace          # Switch namespace
+prompd namespace create @namespace       # Create namespace
+
+# Package Uninstallation (Python/Go/Node.js)
+prompd uninstall <package>              # Uninstall package from local cache
 ```
 
 ## High-Level Architecture
@@ -148,6 +162,50 @@ The Python and Go CLIs implement a sophisticated compilation system:
 4. **Asset Extraction**: Extract content from Excel, Word, PDF, PowerPoint, Images
 5. **Template Processing**: Process Jinja2 templates and parameter substitution
 6. **Code Generation**: Output to markdown or provider-specific JSON formats
+
+### Workflow Compilation (.pdflow files)
+
+The Python CLI includes a sophisticated workflow compiler that transforms .pdflow files into multiple formats:
+
+**Supported Output Formats:**
+- `pdflow-compiled`: Native Prompd format for execution
+- `langflow`: LangFlow compatible JSON
+- `n8n`: n8n workflow format
+- `trim/plain`: Minimal JSON without visual metadata
+
+**Two-Stage Compilation:**
+1. **Stage 1 (compile-time)**: Resolve packages, compile .prmd files, preserve runtime variables
+2. **Stage 2 (runtime)**: Substitute runtime values during execution
+
+**Usage:**
+```bash
+prompd compile workflow.pdflow --to langflow
+prompd compile workflow.pdflow --to n8n --trim
+prompd compile workflow.pdflow --to pdflow-compiled
+```
+
+**Architecture:**
+- Compiles all prompt nodes by reading and compiling .prmd sources
+- Resolves package references and inheritance chains
+- Preserves runtime variables ({{ previous_output }}) for execution
+- Supports condition, loop, parallel, callback, transformer, and API nodes
+
+### Include Directives
+
+.prmd files support Jinja2 `{% include %}` directives for composing prompts:
+
+```markdown
+# User
+{% include "./shared/user-context.prmd" %}
+{{ user_input }}
+```
+
+**Features:**
+- Workspace-aware path resolution (relative to source file)
+- Circular include detection
+- Maximum depth limits (default: 10)
+- `.prmd` files: Only body content included (frontmatter stripped)
+- Other files (`.md`, `.txt`): Raw content included as-is
 
 ### Package System Architecture
 
@@ -279,7 +337,10 @@ When releasing new versions, update version strings in:
 - `cli/npm/package.json` (version field, line 3)
 - `vscode-extension/package.json` (version field)
 
-Current version: **0.3.4** (Python CLI leads versioning)
+Current versions:
+- Python CLI: **0.3.4** (leads versioning, v0.4.0 in development)
+- Go CLI: **0.3.3**
+- Node.js CLI: **0.3.3**
 
 ## Feature Parity Status
 
@@ -292,11 +353,24 @@ All three CLI implementations now have complete feature parity for core operatio
 
 See [CLI-FEATURE-PARITY.md](CLI-FEATURE-PARITY.md) and [SESSION-SUMMARY.md](SESSION-SUMMARY.md) for detailed feature matrix.
 
-## What's New in v0.3.4
+## What's New
 
-### Python CLI Updates (v0.3.4)
-- Latest improvements to compilation pipeline
-- Enhanced package resolution
+### Python CLI v0.4.0 (In Development - Unreleased)
+- **MAJOR ARCHITECTURAL REFACTORING**: Modular CLI design
+  - Reduced main CLI from 2,648 lines to 168 lines (93.6% reduction)
+  - Extracted commands into specialized modules: `commands/provider.py`, `commands/git_ops.py`, `commands/version.py`, `commands/package.py`
+  - Shell system refactored into `shell/assistant.py` and `shell/interactive.py`
+  - New `security.py` module with comprehensive input validation
+  - Path traversal, command injection, and git message sanitization
+- **Registry Integration Fix**: Search endpoint now uses proper `/-/v1/search`
+- **Grade A- Architecture**: Significant upgrade in code quality and maintainability
+
+### Python CLI v0.3.4 (Current Stable)
+- **Workflow Compiler**: Compile .pdflow files to langflow, n8n, and native formats
+- **Include Directives**: {% include %} support in .prmd files with circular detection
+- **New Commands**: `explain` (detailed file/package info), `deps` (dependency analysis), `namespace` (namespace management), `uninstall` (package removal)
+- **Enhanced Compilation**: Binary asset extraction, package resolution improvements
+- Restored `prompd config` command with full configuration management
 - Bug fixes and stability improvements
 
 ### Go CLI Enhancements (v0.3.3)
@@ -342,13 +416,18 @@ See [CLI-FEATURE-PARITY.md](CLI-FEATURE-PARITY.md) and [SESSION-SUMMARY.md](SESS
 - Security features validated
 - Cross-platform compatibility verified
 
-### npm CLI Enhancements (completed in previous work)
-
+### Node.js CLI v0.3.4+ (In Development)
+- **In-Memory Package System**: Install and compile packages entirely in memory (serverless-ready)
+- **File System Abstraction**: IFileSystem interface supporting disk and memory backends
+- **Enhanced Security**: Comprehensive secrets scanning, size limits, path traversal protection
+- **New Commands**: `explain`, `deps`, `namespace`, `uninstall`
+- **Pack & Publish from Memory**: Create and publish packages without disk I/O
+- **MCP Server Integration**: Memory-based compilation for Model Context Protocol
 - Security hardening with secrets detection
 - Input validation system
 - `prompd pack` dual mode
 - `prompd config` command structure
-- 106 new security/validation tests
+- 106+ security/validation tests
 
 ## Testing Strategy
 
@@ -380,7 +459,10 @@ prompd validate examples/advanced/research-assistant.prmd # Complex prompt
 ## Common Development Tasks
 
 ### Adding a New Command
-1. **Python**: Add Click command in `cli/python/prompd/commands/`
+1. **Python**:
+   - For modular commands: Add to appropriate module in `cli/python/prompd/commands/` (provider, git_ops, version, package)
+   - For new command categories: Create new module and register in `cli/python/prompd/cli.py`
+   - Ensure all user inputs use `security.py` validation functions
 2. **Go**: Add handler in `cli/go/cmd/prompd/` and update switch in main.go
 3. **Node.js**: Create command module in `cli/npm/src/commands/`
 
@@ -420,14 +502,24 @@ Memory usage for large packages:
 ## Key Implementation Files
 
 ### Python CLI (`cli/python/prompd/`)
+- `cli.py` - Main CLI entry point (168 lines after modular refactoring)
 - `compiler.py` - 6-stage compilation pipeline with binary asset extraction
 - `package_resolver.py` - Registry discovery and package resolution
 - `parser.py` - YAML frontmatter + Markdown parsing with Jinja2
 - `validator.py` - Validation rules and schema enforcement
-- `shell.py` - Interactive AI shell and chat mode
+- `security.py` - **NEW v0.4.0** - Input validation, path traversal protection, command injection prevention
 - `config.py` - Configuration management for providers and registries
 - `registry.py` - Registry operations (login, publish, search, install)
-- `commands/` - Click command implementations
+- `commands/` - Modular command implementations:
+  - `provider.py` - LLM provider management (6 commands)
+  - `git_ops.py` - Git operations with security (5 commands)
+  - `version.py` - Version management (5 commands)
+  - `package.py` - Package operations (2 commands)
+- `shell/` - Interactive shell system:
+  - `assistant.py` - ConversationalAssistant for NLP (1,125 lines)
+  - `interactive.py` - PrompdShell for REPL interface (1,775 lines)
+- `workflow_compiler.py` - **NEW v0.3.4+** - Workflow compilation for .pdflow files (langflow, n8n, pdflow-compiled formats)
+- `prompd_loader.py` - **NEW v0.3.4+** - Custom Jinja2 loader for {% include %} directives with circular detection
 
 ### Go CLI (`cli/go/cmd/prompd/`)
 - `main.go` - Entry point and command dispatcher (v0.3.3)
@@ -449,6 +541,26 @@ Memory usage for large packages:
 - `validators/` - Validation rules
 - `security.ts` - Secrets detection (matching Go CLI implementation)
 - `validation.ts` - Input validation functions
+- `lib/compiler/file-system.ts` - **NEW** - File system abstraction (IFileSystem, NodeFileSystem, MemoryFileSystem)
+- `lib/compiler/package-resolver.ts` - **ENHANCED** - Supports both disk and in-memory package resolution
+- `lib/registry.ts` - **ENHANCED** - downloadPackageBuffer(), publish() with memory support
+
+**In-Memory Package System:**
+The npm CLI supports installing and using packages entirely in memory without disk access.
+
+**Use Cases:**
+- MCP Server Mode: Compile prompts without disk access
+- Serverless Environments: AWS Lambda, Google Cloud Functions
+- Testing: Fast execution without file system I/O
+- Browser/WASM: Future support for browser-based compilation
+
+**Core Components:**
+- `MemoryFileSystem` - Stores files in Map<string, string>
+- `IFileSystem` interface - Abstraction for disk vs memory
+- Package security (50MB max, 10MB per file, 1000 files max)
+- ZIP slip protection and secrets scanning
+
+See [IN-MEMORY-PACKAGES.md](cli/npm/IN-MEMORY-PACKAGES.md) for complete documentation.
 
 ### VS Code Extension (`vscode-extension/`)
 - `src/extension.ts` - Main extension entry point
@@ -468,6 +580,21 @@ When adding features, implement in this order:
 - Package format (.pdpkg) must be cross-compatible
 - Registry API calls must use same endpoints/authentication
 - File format parsing (.prmd) must produce identical results
+
+### File System Abstraction (Node.js CLI)
+
+The Node.js CLI uses a file system abstraction layer:
+- **IFileSystem**: Interface defining file operations
+- **NodeFileSystem**: Standard disk-based implementation
+- **MemoryFileSystem**: In-memory implementation for serverless/MCP
+
+This enables:
+- Testing without disk I/O
+- Serverless function deployment
+- MCP server mode with zero disk writes
+- Browser/WASM future compatibility
+
+When implementing file operations, always use `fileSystem` parameter instead of direct fs calls.
 
 ### Build Artifacts
 - Python: PyPI package (`pip install prompd`)

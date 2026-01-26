@@ -17,6 +17,7 @@ from .models import PrompdFile, PrompdMetadata
 from .parser import PrompdParser
 from .exceptions import PrompdError
 from .section_override_processor import SectionOverrideProcessor
+from .extractors import strip_content_frontmatter
 
 
 class CompilationStage(str, Enum):
@@ -453,7 +454,7 @@ class FileValidationStage(CompilerStage):
 
 
 class TemplateProcessingStage(CompilerStage):
-    """Process Handlebars-style templates, package references, and section overrides."""
+    """Process Jinja2/Nunjucks templates, package references, and section overrides."""
 
     def __init__(self):
         """Initialize the template processing stage."""
@@ -503,46 +504,330 @@ class TemplateProcessingStage(CompilerStage):
 
         return content
 
+    def _parse_csv(self, csv_string: str) -> list:
+        """Parse CSV string into list of record dictionaries."""
+        if not csv_string or not isinstance(csv_string, str):
+            return []
+
+        lines = csv_string.strip().split('\n')
+        if len(lines) == 0:
+            return []
+
+        # Parse header row
+        headers = self._parse_csv_line(lines[0])
+
+        # Parse data rows
+        records = []
+        for i in range(1, len(lines)):
+            line = lines[i].strip()
+            if not line:
+                continue  # Skip empty lines
+
+            values = self._parse_csv_line(line)
+            record = {}
+
+            for j, header in enumerate(headers):
+                header = header.strip()
+                value = values[j].strip() if j < len(values) else ''
+                record[header] = value
+
+            records.append(record)
+
+        return records
+
+    def _parse_csv_line(self, line: str) -> list:
+        """Parse a single CSV line, handling quoted values."""
+        result = []
+        current = ''
+        in_quotes = False
+        i = 0
+
+        while i < len(line):
+            char = line[i]
+
+            if char == '"':
+                if in_quotes and i + 1 < len(line) and line[i + 1] == '"':
+                    # Escaped quote
+                    current += '"'
+                    i += 1
+                else:
+                    # Toggle quote mode
+                    in_quotes = not in_quotes
+            elif char == ',' and not in_quotes:
+                result.append(current)
+                current = ''
+            else:
+                current += char
+
+            i += 1
+
+        result.append(current)
+        return result
+
+    def _register_custom_filters(self, env) -> None:
+        """Register custom Jinja2 filters for data transformation."""
+        import json
+        import random
+        import urllib.parse
+
+        # Safe string filters that handle None/undefined
+        def safe_trim(value):
+            if value is None:
+                return ''
+            return str(value).strip()
+
+        def safe_lower(value):
+            if value is None:
+                return ''
+            return str(value).lower()
+
+        def safe_upper(value):
+            if value is None:
+                return ''
+            return str(value).upper()
+
+        def safe_capitalize(value):
+            if value is None:
+                return ''
+            s = str(value)
+            return s[0].upper() + s[1:].lower() if s else ''
+
+        def safe_title(value):
+            if value is None:
+                return ''
+            return str(value).title()
+
+        def safe_replace(value, old, new, count=None):
+            if value is None:
+                return ''
+            s = str(value)
+            if count is not None:
+                return s.replace(old, new, count)
+            return s.replace(old, new)
+
+        def safe_striptags(value):
+            if value is None:
+                return ''
+            import re
+            return re.sub(r'<[^>]*>', '', str(value))
+
+        def safe_urlencode(value):
+            if value is None:
+                return ''
+            return urllib.parse.quote(str(value))
+
+        # fromcsv - Parse CSV string into array of objects
+        def fromcsv(csv_string):
+            if not csv_string or not isinstance(csv_string, str):
+                return []
+            return self._parse_csv(csv_string)
+
+        # fromjson - Parse JSON string into object/array
+        def fromjson(json_string):
+            if not json_string or not isinstance(json_string, str):
+                return None
+            try:
+                return json.loads(json_string)
+            except json.JSONDecodeError:
+                return None
+
+        # tojson - Convert object to JSON string
+        def tojson(obj, indent=None):
+            try:
+                return json.dumps(obj, indent=indent)
+            except (TypeError, ValueError):
+                return '{}'
+
+        # lines - Split string into array of lines
+        def lines(s):
+            if not s or not isinstance(s, str):
+                return []
+            return s.split('\n')
+
+        # dedent - Remove common leading whitespace from text
+        def dedent(s):
+            if not s or not isinstance(s, str):
+                return ''
+            import textwrap
+            return textwrap.dedent(s)
+
+        # truncate - Truncate string with ellipsis
+        def truncate(s, length=80, suffix='...'):
+            if not s or not isinstance(s, str):
+                return ''
+            if len(s) <= length:
+                return s
+            return s[:length - len(suffix)] + suffix
+
+        # codeblock - Wrap content in fenced code block
+        def codeblock(s, language=''):
+            if not s or not isinstance(s, str):
+                return ''
+            return f'```{language}\n{s}\n```'
+
+        # unique - Remove duplicate items from array
+        def unique(arr):
+            if not isinstance(arr, list):
+                return []
+            seen = set()
+            result = []
+            for item in arr:
+                # Handle unhashable items
+                try:
+                    if item not in seen:
+                        seen.add(item)
+                        result.append(item)
+                except TypeError:
+                    # For unhashable items, just append (may have duplicates)
+                    result.append(item)
+            return result
+
+        # pluck - Extract single field from array of objects
+        def pluck(arr, field):
+            if not isinstance(arr, list):
+                return []
+            return [item.get(field) for item in arr if isinstance(item, dict) and field in item]
+
+        # where - Filter objects by field value
+        def where(arr, field, value):
+            if not isinstance(arr, list):
+                return []
+            return [item for item in arr if isinstance(item, dict) and item.get(field) == value]
+
+        # groupby - Group array items by field value
+        def groupby(arr, field):
+            if not isinstance(arr, list):
+                return {}
+            result = {}
+            for item in arr:
+                if isinstance(item, dict):
+                    key = str(item.get(field, 'undefined'))
+                    if key not in result:
+                        result[key] = []
+                    result[key].append(item)
+            return result
+
+        # shuffle - Randomize array order
+        def shuffle(arr):
+            if not isinstance(arr, list):
+                return []
+            result = arr.copy()
+            random.shuffle(result)
+            return result
+
+        # sample - Pick random N items from array
+        def sample(arr, count=1):
+            if not isinstance(arr, list):
+                return []
+            count = min(count, len(arr))
+            return random.sample(arr, count) if arr else []
+
+        # wordwrap - Wrap text at specified width
+        def wordwrap(s, width=80):
+            if not s or not isinstance(s, str):
+                return ''
+            import textwrap
+            return '\n'.join(textwrap.wrap(s, width=width))
+
+        # bulletlist - Convert array/lines to bullet list
+        def bulletlist(input_val):
+            if isinstance(input_val, list):
+                items = input_val
+            else:
+                items = str(input_val).split('\n')
+            return '\n'.join(f'- {item}' for item in items if str(item).strip())
+
+        # numberedlist - Convert array/lines to numbered list
+        def numberedlist(input_val):
+            if isinstance(input_val, list):
+                items = input_val
+            else:
+                items = str(input_val).split('\n')
+            filtered = [item for item in items if str(item).strip()]
+            return '\n'.join(f'{i + 1}. {item}' for i, item in enumerate(filtered))
+
+        # Register all filters
+        env.filters['trim'] = safe_trim
+        env.filters['lower'] = safe_lower
+        env.filters['upper'] = safe_upper
+        env.filters['capitalize'] = safe_capitalize
+        env.filters['title'] = safe_title
+        env.filters['replace'] = safe_replace
+        env.filters['striptags'] = safe_striptags
+        env.filters['urlencode'] = safe_urlencode
+        env.filters['fromcsv'] = fromcsv
+        env.filters['fromjson'] = fromjson
+        env.filters['tojson'] = tojson
+        env.filters['lines'] = lines
+        env.filters['dedent'] = dedent
+        env.filters['truncate'] = truncate
+        env.filters['codeblock'] = codeblock
+        env.filters['unique'] = unique
+        env.filters['pluck'] = pluck
+        env.filters['where'] = where
+        env.filters['groupby'] = groupby
+        env.filters['shuffle'] = shuffle
+        env.filters['sample'] = sample
+        env.filters['wordwrap'] = wordwrap
+        env.filters['bulletlist'] = bulletlist
+        env.filters['numberedlist'] = numberedlist
+
     def _enhanced_simple_substitution(self, content: str, parameters: dict) -> str:
-        """Enhanced simple substitution that handles nested object properties."""
+        """
+        Enhanced simple substitution with nested property access.
+        Supports both single brace {var} and double brace {{var}} syntax for backward compatibility.
+        """
         import re
 
-        def replace_nested(match):
-            """Replace nested property references like {obj.prop}."""
-            full_path = match.group(1)
+        # Guard against None/undefined content
+        if content is None:
+            return ''
 
-            # Split the path (e.g., "meeting_info.title" -> ["meeting_info", "title"])
+        def resolve_value(full_path: str):
+            """Helper to resolve nested property path."""
             parts = full_path.split('.')
-
-            # Start with the root parameter
             value = parameters.get(parts[0])
-            if value is None:
-                return f"[Missing: {full_path}]"
 
-            # Navigate through nested properties
+            if value is None:
+                return None
+
             try:
                 for part in parts[1:]:
                     if isinstance(value, dict):
                         value = value.get(part)
                     else:
-                        # If it's not a dict, try to get the attribute (for objects)
                         value = getattr(value, part, None)
-
                     if value is None:
-                        return f"[Missing: {full_path}]"
-
+                        return None
                 return str(value)
             except (AttributeError, KeyError, TypeError):
-                return f"[Missing: {full_path}]"
+                return None
 
-        # Handle nested properties like {obj.prop} or {obj.nested.prop}
-        content = re.sub(r'\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}', replace_nested, content)
+        # First pass: Handle double braces {{ obj.prop }} (Jinja2/Nunjucks standard)
+        # Supports optional whitespace and whitespace trimming markers (-~)
+        def replace_double_brace(match):
+            full_path = match.group(1)
+            resolved = resolve_value(full_path)
+            return resolved if resolved is not None else f"[Missing: {full_path}]"
 
-        # Handle simple properties like {variable}
-        for key, value in parameters.items():
-            if not isinstance(value, (dict, list)):  # Don't substitute complex objects directly
-                placeholder = f"{{{key}}}"
-                content = content.replace(placeholder, str(value))
+        content = re.sub(
+            r'\{\{[-~]?\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*[-~]?\}\}',
+            replace_double_brace,
+            content
+        )
+
+        # Second pass: Handle single braces {obj.prop} (legacy syntax)
+        # Only match single braces that aren't part of {{ }} or {% %}
+        def replace_single_brace(match):
+            full_path = match.group(1)
+            resolved = resolve_value(full_path)
+            return resolved if resolved is not None else f"[Missing: {full_path}]"
+
+        content = re.sub(
+            r'(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}(?!\})',
+            replace_single_brace,
+            content
+        )
 
         return content
 
@@ -583,7 +868,7 @@ class TemplateProcessingStage(CompilerStage):
                                 if file_path.exists():
                                     try:
                                         content_data = file_path.read_text(encoding='utf-8')
-                                        
+
                                         # If it's a .prmd file, parse and extract content
                                         if file_path.suffix == '.prmd':
                                             from .parser import PrompdParser
@@ -596,8 +881,9 @@ class TemplateProcessingStage(CompilerStage):
                                                 # If parsing fails, return raw content
                                                 return content_data
                                         else:
-                                            # For other files, return as-is
-                                            return content_data
+                                            # For other files, strip prompd content frontmatter if present
+                                            # (used for packaged code files with security frontmatter)
+                                            return strip_content_frontmatter(content_data)
                                     except Exception as e:
                                         if context.verbose:
                                             print(f"Warning: Failed to load {file_path}: {e}")
@@ -799,29 +1085,52 @@ class TemplateProcessingStage(CompilerStage):
                     if context.verbose:
                         print(f"Warning: Standalone override processing failed: {e}")
 
-        # Process templates with both Handlebars/Jinja2 control structures and variable substitution
+        # Process templates with Jinja2/Nunjucks (with {% include %} support)
         if content:
             try:
-                from jinja2 import Environment, Template, TemplateSyntaxError
+                from jinja2 import Environment, TemplateSyntaxError
+                from .prompd_loader import PrompdLoader, cleanup_compilation
 
                 # First, try to convert Handlebars syntax to Jinja2 for broader compatibility
                 converted_content = self._convert_handlebars_to_jinja2(content)
                 if converted_content != content and context.verbose:
                     context.warnings.append("Converted Handlebars syntax to Jinja2 for processing")
 
-                # Configure Jinja2 to use single braces for variables
+                # Create a context-aware Jinja2 environment with the PrompdLoader
+                # This enables {% include "file.prmd" %} directives
+                base_dir = context.source_file.parent if context.source_file else Path.cwd()
+                loader = PrompdLoader(
+                    base_dir=base_dir,
+                    verbose=context.verbose,
+                    max_depth=10
+                )
+
+                # Configure Jinja2 with double braces for variables (Nunjucks/Jinja2 standard)
+                # This matches the npm CLI behavior
                 env = Environment(
-                    variable_start_string='{',
-                    variable_end_string='}',
+                    loader=loader,
+                    autoescape=False,  # Don't escape HTML - we're doing markdown
+                    trim_blocks=True,
+                    lstrip_blocks=True,
+                    variable_start_string='{{',
+                    variable_end_string='}}',
                     block_start_string='{%',
                     block_end_string='%}',
                     comment_start_string='{#',
                     comment_end_string='#}'
                 )
 
-                # Create template and render with parameters
-                template = env.from_string(converted_content)
-                content = template.render(**context.parameters)
+                # Register custom filters
+                self._register_custom_filters(env)
+
+                try:
+                    # Create template and render with parameters
+                    template = env.from_string(converted_content)
+                    content = template.render(**context.parameters)
+                finally:
+                    # Clean up the compilation stack
+                    cleanup_compilation(loader.get_compilation_id())
+
             except TemplateSyntaxError as e:
                 # If Jinja2 fails, fall back to enhanced simple substitution
                 context.warnings.append(f"Jinja2 template error, using simple substitution: {e}")
