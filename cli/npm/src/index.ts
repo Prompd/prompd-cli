@@ -3,7 +3,10 @@
 import { Command } from 'commander';
 import { spawn } from 'child_process';
 import chalk from 'chalk';
+import packageJson from '../package.json';
 import { createCreateCommand } from './commands/create';
+
+const VERSION = packageJson.version;
 import { createInitCommand } from './commands/init';
 import { createValidateCommand } from './commands/validate';
 import { createListCommand } from './commands/list';
@@ -21,13 +24,14 @@ import { createCacheCommand } from './commands/cache';
 import { createUninstallCommand } from './commands/uninstall';
 import { createNamespaceCommand } from './commands/namespace';
 import { createDepsCommand } from './commands/deps';
+import { createWorkflowCommand } from './commands/workflow';
 
 const program = new Command();
 
 program
   .name('prompd')
   .description('CLI for structured prompt definitions')
-  .version('0.3.4');
+  .version(VERSION);
 
 // Core commands
 program.addCommand(createConfigCommand());
@@ -45,6 +49,7 @@ program.addCommand(createCacheCommand());
 program.addCommand(createVersionCommand());
 program.addCommand(createGitCommand());
 program.addCommand(createMCPCommand());
+program.addCommand(createWorkflowCommand());
 
 // Registry operations (top-level for convenience)
 program.addCommand(createLoginCommand());

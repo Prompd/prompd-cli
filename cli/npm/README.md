@@ -24,9 +24,10 @@ npm run build
 
 ✅ **Core capabilities:**
 - `.prmd` file parsing and validation
+- `.pdflow` workflow execution with LLM support
 - Package management (create, validate, publish)
 - Registry operations (login, search, install)
-- Provider configuration and management
+- Provider configuration and management with custom endpoints
 - Security scanning (secrets detection)
 - Input validation and sanitization
 
@@ -55,9 +56,31 @@ const isValid = validatePackageName('@myorg/my-prompt');
 
 **See [examples/library-usage.ts](examples/library-usage.ts) and [examples/library-usage.js](examples/library-usage.js) for complete examples.**
 
+## What's New in v0.4.5
+
+✨ **Provider Configuration Enhancements** - Full parity with Python CLI
+- Custom base URLs for proxies and private deployments
+- Per-provider timeout overrides
+- Custom HTTP headers for authentication and tracing
+- Provider-specific request parameters
+- `--api-key` CLI option for all execution commands
+
+🚀 **Workflow Execution**
+- Execute `.pdflow` workflow files with `prompd run` or `prompd workflow run`
+- Support for agent nodes, chat agents, and tool calling
+- Command execution with whitelisted security controls
+- Real-time checkpoint tracking with `--trace` and `--verbose` flags
+
 ## CLI Commands
 
 ```bash
+# Execution
+prompd run <file>                  # Run .prmd or .pdflow file
+prompd run <file> --provider openai --model gpt-4o-mini
+prompd run <file> --api-key <key> # Override API key
+prompd run <file> --param key=value -p key2=value2
+prompd workflow run <file>         # Execute .pdflow workflow
+
 # Validation & Display
 prompd validate <file>            # Validate .prmd file
 prompd list [directory]            # List all .prmd files
@@ -89,27 +112,86 @@ prompd config registry add <name> <url>
 prompd config registry remove <name>
 ```
 
+### Execution Examples
+
+```bash
+# Execute a .prmd file with default config
+prompd run ./prompts/my-prompt.prmd
+
+# Override provider and model
+prompd run ./prompts/my-prompt.prmd --provider anthropic --model claude-3-5-haiku-20241022
+
+# Pass parameters
+prompd run ./prompts/my-prompt.prmd --param topic="AI ethics" --param format="report"
+
+# Override API key
+prompd run ./prompts/my-prompt.prmd --api-key sk-...
+
+# Execute a workflow
+prompd run ./workflows/chat-agent.pdflow
+
+# Execute with trace and verbose output
+prompd workflow run ./workflows/chat-agent.pdflow --trace --verbose
+```
+
 ## Configuration
 
-Configuration is stored in `~/.prompd/config.yaml` or via environment variables:
+Configuration is stored in `~/.prompd/config.yaml` or via environment variables.
+
+### API Key Priority Order
+1. **CLI parameters**: `--api-key <key>` (highest priority)
+2. **Environment variables**: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.
+3. **Config file**: `~/.prompd/config.yaml` (lowest priority)
+
+### Configuration File
 
 ```yaml
+# API Keys
 apiKeys:
   openai: your-api-key
   anthropic: your-api-key
+  groq: your-api-key
+
+# Default Provider & Model
 defaultProvider: openai
-defaultModel: gpt-4
+defaultModel: gpt-4o-mini
+
+# Custom Providers
 customProviders:
   local:
     baseUrl: http://localhost:8080
     models: [model1, model2]
+    apiKey: optional-api-key
+
+# Provider-Specific Configurations (v0.4.4+)
+providerConfigs:
+  openai:
+    baseUrl: https://custom-openai-proxy.com/v1  # Custom endpoint
+    timeout: 90000                                 # 90 seconds
+    extraHeaders:
+      X-Custom-Header: value
+    extraParams:
+      temperature: 0.7
+  anthropic:
+    timeout: 120000                                # 120 seconds
+  ollama:
+    baseUrl: http://192.168.1.100:11434/api/chat  # Remote Ollama
 ```
 
-Environment variables:
+### Provider Config Options
+
+- **`baseUrl`**: Custom API endpoint (e.g., proxy, different region, or private deployment)
+- **`timeout`**: Provider-specific timeout override (milliseconds)
+- **`extraHeaders`**: Custom HTTP headers (authentication, tracing, etc.)
+- **`extraParams`**: Provider-specific request parameters
+
+### Environment Variables
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
+- `GROQ_API_KEY`
 - `PROMPD_DEFAULT_PROVIDER`
 - `PROMPD_DEFAULT_MODEL`
+- `PROMPD_VERBOSE`
 
 ## Development
 

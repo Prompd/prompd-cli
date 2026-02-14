@@ -198,11 +198,20 @@ export interface RegistryConfig {
   username?: string;
 }
 
+export interface ProviderConfig {
+  baseUrl?: string;           // Custom API endpoint (e.g., proxy, different region)
+  timeout?: number;            // Provider-specific timeout override
+  maxRetries?: number;         // Provider-specific retry count override
+  extraHeaders?: Record<string, string>;  // Custom headers (auth, tracing, etc.)
+  extraParams?: Record<string, any>;      // Provider-specific request parameters
+}
+
 export interface Config {
   apiKeys: Record<string, string>;
   defaultProvider?: string;
   defaultModel?: string;
   customProviders: Record<string, CustomProvider>;
+  providerConfigs?: Record<string, ProviderConfig>; // Per-provider config overrides
   registry: {
     default?: string;
     registries: Record<string, RegistryConfig>;

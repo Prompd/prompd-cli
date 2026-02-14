@@ -794,9 +794,21 @@ export async function createPackageFromPrompdJson(
       }
 
       // Verify all referenced files exist
+      // Resolve relative to workflow file directory (handles ../prompts/file.prmd)
+      // with fallback to workspace root for backward compatibility (./prompts/file.prmd)
+      const workflowDir = path.dirname(fullPath);
       for (const refFile of referencedFiles) {
-        const refFullPath = path.join(workspacePath, refFile);
-        const refFileExists = await fs.pathExists(refFullPath);
+        let refFullPath = path.resolve(workflowDir, refFile);
+        let refFileExists = await fs.pathExists(refFullPath);
+
+        // Fallback: try workspace root for old-format paths
+        if (!refFileExists) {
+          const workspaceRelativePath = path.join(workspacePath, refFile);
+          if (await fs.pathExists(workspaceRelativePath)) {
+            refFullPath = workspaceRelativePath;
+            refFileExists = true;
+          }
+        }
 
         if (!refFileExists) {
           errors.push(`Referenced file not found: ${refFile}`);
