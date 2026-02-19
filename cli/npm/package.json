@@ -1,6 +1,6 @@
 {
   "name": "@prompd/cli",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "description": "Node.js CLI for structured prompt definitions with universal LLM provider support. Also usable as a library in TypeScript/React apps.",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
@@ -28,6 +28,11 @@
       "types": "./dist/lib/workflowValidator.d.ts",
       "import": "./dist/lib/workflowValidator.js",
       "default": "./dist/lib/workflowValidator.js"
+    },
+    "./providers": {
+      "types": "./dist/lib/providers/types.d.ts",
+      "import": "./dist/lib/providers/types.js",
+      "require": "./dist/lib/providers/types.js"
     }
   },
   "files": [

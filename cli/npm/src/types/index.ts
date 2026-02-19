@@ -255,4 +255,7 @@ export interface ExecuteOptions {
   metaContext?: string;
   metaUser?: string;
   verbose?: boolean;
+  registryUrl?: string;
+  workspaceRoot?: string;
+  fileSystem?: import('../lib/compiler/file-system').IFileSystem;
 }

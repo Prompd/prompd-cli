@@ -13,8 +13,8 @@ export function createRunCommand(): Command {
   const command = new Command('run');
 
   command
-    .description('Run a .prmd or .pdflow file')
-    .argument('<file>', 'Path to the .prmd or .pdflow file')
+    .description('Run a .prmd, .pdflow, .txt, or .md file')
+    .argument('<file>', 'Path to the .prmd, .pdflow, .txt, or .md file')
     .option('--provider <provider>', 'LLM provider (openai, anthropic, ollama) - for .prmd files')
     .option('--model <model>', 'Model name - for .prmd files')
     .option('-p, --param <param>', 'Parameter in format key=value', (value, previous: Record<string, string>) => {
@@ -45,13 +45,75 @@ export function createRunCommand(): Command {
 
         // Forward .pdflow files to workflow execution
         if (ext === '.pdflow') {
-          console.log(chalk.blue('ℹ Detected workflow file, forwarding to workflow executor...'));
+          console.log(chalk.blue('Detected workflow file, forwarding to workflow executor...'));
           console.log();
           return await executeWorkflowFile(file, options);
         }
 
-        // Continue with .prmd execution
         const executor = new PrompdExecutor();
+
+        // For .txt, .md, or no-extension files: wrap with frontmatter and run through the prmd pipeline
+        const isRawText = ext === '.txt' || ext === '.md' || ext === '';
+        if (isRawText) {
+          if (options.verbose) {
+            console.log(chalk.gray(`Detected ${ext || 'no-extension'} file, wrapping as .prmd for execution...`));
+          }
+          const rawContent = await fs.readFile(file, 'utf-8');
+
+          const configManager = ConfigManager.getInstance();
+          const config = await configManager.loadConfig();
+          const provider = options.provider || configManager.getDefaultProvider(config);
+          const model = options.model || configManager.getDefaultModel(provider, config);
+
+          const executeOptions = {
+            provider,
+            model,
+            apiKey: options.apiKey,
+            output: options.output,
+            format: options.format,
+            params: options.param,
+            paramFiles: options.paramFile,
+            verbose: options.verbose
+          };
+
+          const response = await executor.executeRawText(rawContent, executeOptions);
+          const responseText = response.response || response.content || 'No response received';
+
+          if (options.format === 'json') {
+            const result: Record<string, unknown> = {
+              response: responseText,
+              provider,
+              model,
+              file: path.resolve(file)
+            };
+            if (response.usage) result.usage = response.usage;
+            const jsonOutput = JSON.stringify(result, null, 2);
+
+            if (options.output) {
+              await fs.writeFile(options.output, jsonOutput, 'utf-8');
+              console.log(chalk.green(`Response written to ${options.output}`));
+            } else {
+              console.log(jsonOutput);
+            }
+          } else {
+            if (options.output) {
+              await fs.writeFile(options.output, responseText, 'utf-8');
+              console.log(chalk.green(`Response written to ${options.output}`));
+            } else {
+              console.log('\n' + chalk.cyan('Response:'));
+              console.log('-'.repeat(50));
+              console.log(responseText);
+              console.log('-'.repeat(50));
+            }
+
+            if ((options.verbose || options.showUsage) && response.usage) {
+              console.log(chalk.gray(`\nUsage: ${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion = ${response.usage.totalTokens} total tokens`));
+            }
+          }
+          return;
+        }
+
+        // Continue with .prmd execution
         const configManager = ConfigManager.getInstance();
         const config = await configManager.loadConfig();
         

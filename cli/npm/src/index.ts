@@ -13,6 +13,7 @@ import { createListCommand } from './commands/list';
 import { createShowCommand } from './commands/show';
 import { createExplainCommand } from './commands/explain';
 import { createRunCommand } from './commands/run';
+import { createAskCommand } from './commands/ask';
 import { createCompileCommand } from './commands/compile';
 import { createVersionCommand } from './commands/version';
 import { createGitCommand } from './commands/git';
@@ -42,6 +43,7 @@ program.addCommand(createListCommand());
 program.addCommand(createShowCommand());
 program.addCommand(createExplainCommand());
 program.addCommand(createRunCommand());
+program.addCommand(createAskCommand());
 program.addCommand(createCompileCommand());
 program.addCommand(createPackageCommand());
 program.addCommand(createPackCommand()); // Alias for 'package create'
