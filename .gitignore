@@ -66,8 +66,12 @@ venv.bak/
 *~
 .DS_Store
 
-# Project specific
+# Claude Code / AI agent files
 .claude/
+CLAUDE.md
+AGENTS.md
+
+# Project specific
 *.prmd.bak
 *.prompd
 *.prompd.bak
