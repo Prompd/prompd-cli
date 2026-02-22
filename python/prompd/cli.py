@@ -628,7 +628,8 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
     try:
         from textwrap import dedent
 
-        dockerfile_content = dedent(f"""
+        dockerfile_content = dedent(
+            f"""
         # Prompd MCP server image
         FROM python:3.11-slim
         WORKDIR /app
@@ -640,9 +641,11 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
         EXPOSE {port}
         # Serve any mounted file under /data; override the path with docker run args or compose command
         CMD ["prompd", "mcp", "serve", "/data/prompt.prmd", "--host", "0.0.0.0", "--port", "{port}"]
-        """)
+        """
+        )
 
-        compose_content = dedent(f"""
+        compose_content = dedent(
+            f"""
         version: "3.9"
         services:
           prompd-mcp:
@@ -660,7 +663,8 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
               - "{port}:{port}"
             # Example override: serve a different file
             # command: ["prompd", "mcp", "serve", "/data/workflow.pdflow", "--host", "0.0.0.0", "--port", "{port}"]
-        """)
+        """
+        )
 
         Path(dockerfile).write_text(dockerfile_content, encoding="utf-8")
         Path(compose).write_text(compose_content, encoding="utf-8")

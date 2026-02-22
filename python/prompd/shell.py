@@ -774,7 +774,9 @@ class ConversationalAssistant:
             prompt_name = topic.title()
 
             # Create template content
-            template = self.pending_prompt_template or f"""---
+            template = (
+                self.pending_prompt_template
+                or f"""---
 id: {topic_id}
 name: {prompt_name}
 version: 1.0.0
@@ -794,6 +796,7 @@ Context: {{{{context}}}}
 
 Please provide helpful guidance on {topic}.
 """
+            )
 
             # Write to file
             file_path = shell_instance.current_dir / filename

@@ -65,7 +65,7 @@ Issues = "https://github.com/Logikbug/prompd-cli/issues"
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "black>=26.0,<27",
+    "black>=25.0,<26",
     "ruff>=0.1.0",
 ]
 mcp = [
