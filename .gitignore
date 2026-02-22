@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -66,8 +66,12 @@ venv.bak/
 *~
 .DS_Store
 
-# Project specific
+# Claude Code / AI agent files
 .claude/
+CLAUDE.md
+AGENTS.md
+
+# Project specific
 *.prmd.bak
 *.prompd
 *.prompd.bak
@@ -95,4 +99,4 @@ vscode-extension/.vscode-test/
 # Test outputs
 test-results/
 *.log
-/cli/npm/node_modules
+/typescript/node_modules

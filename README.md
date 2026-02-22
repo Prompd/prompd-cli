@@ -15,10 +15,10 @@ pip install prompd
 
 # Option 2: Go CLI (Zero Dependencies, Single Binary)
 # Download from releases or build:
-cd cli/go && go build -o prompd ./cmd/prompd
+cd go && go build -o prompd ./cmd/prompd
 
-# Option 3: Node.js CLI (Developer Focused)
-cd cli/npm && npm install && npm run build
+# Option 3: Node.js/TypeScript CLI (Developer Focused)
+cd typescript && npm install && npm run build
 ```
 
 **Choose based on your deployment needs:**
@@ -43,10 +43,10 @@ git clone https://github.com/Prompd/prompd-cli.git
 cd prompd-cli
 
 # Python CLI
-pip install -e cli/python/
+pip install -e python/
 
 # Or with development dependencies
-pip install -e "cli/python/[dev]"
+pip install -e "python/[dev]"
 ```
 
 ### Requirements
@@ -388,14 +388,10 @@ Or create `~/.prompd/config.json`:
 
 ## Documentation
 
-For comprehensive documentation, see the [**Prompd Documentation Repository**](../prompd-docs/README.md).
-
-Key documentation:
-
-- [**CLI Reference**](../prompd-docs/cli.md) - Complete command reference and usage guide
-- [**GitHub Repository**](https://github.com/Prompd/prompd-cli) - Source code and CLI implementation
-- [**Examples**](https://github.com/Prompd/prompd-cli/tree/main/examples) - Sample .prmd files
-- [**VS Code Extension**](https://github.com/Prompd/prompd-cli/tree/main/vscode-extension) - IDE integration
+- [Prompd Docs](https://github.com/Prompd/prompd-docs) — Format spec, guides, and reference documentation
+- [Examples](https://github.com/Prompd/prompds) — Community prompt packages and templates
+- [Desktop App](https://github.com/Prompd/prompd-app) — Visual IDE for building and deploying AI workflows
+- [VS Code Extension](https://github.com/Prompd/prompd-vscode) — Syntax highlighting and IntelliSense for .prmd files
 
 ## Development
 
@@ -418,14 +414,16 @@ Contributions welcome! Please:
 
 ## Roadmap
 
-- **Phase 1** ✅: Core CLI and file format
-- **Phase 2** 🚧: [Package Registry](REGISTRY_ROADMAP.md) (npm for prompts)
-- **Phase 3** 📋: Web UI and collaboration features
+- **Phase 1**: Core CLI and file format
+- **Phase 2**: Package registry and composition pipeline
+- **Phase 3**: Web UI and collaboration features
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) file.
 
-## Author
+## Related
 
-Created by [Prompd](https://github.com/Prompd)
+- [Prompd Desktop App](https://github.com/Prompd/prompd-app) — Visual IDE for building and deploying AI workflows
+- [Community Prompts](https://github.com/Prompd/prompds) — Open-source prompt packages and templates
+- [Prompd Registry](https://www.prompdhub.ai/registry) — Browse and install community packages

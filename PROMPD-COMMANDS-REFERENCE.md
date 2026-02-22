@@ -1,3 +1,5 @@
+# !!READONLY!!
+
 # Complete Prompd Commands Reference
 
 ## Core Commands
@@ -98,6 +100,30 @@ prompd show examples/basic/example.prmd --sections
 
 # Show with detailed section information
 prompd show examples/basic/example.prmd --verbose
+```
+
+### `prompd explain` - Detailed information about files and packages
+```bash
+# Explain .prmd file
+prompd explain examples/src/prompts/base-prompt.prmd
+prompd explain examples/src/prompts/team-project-planner.prmd -d
+prompd explain examples/src/prompts/api-development.prmd -dsh
+
+# Explain package file
+prompd explain my-package.pdpkg
+prompd explain my-package.pdpkg -d
+
+# Explain registry package
+prompd explain @namespace/package
+prompd explain @namespace/package -d
+prompd explain @namespace/package -r custom-registry
+
+Options:
+  -d, --detailed          Show detailed information (full output)
+  -s, --sections          Show section content previews (for .prmd)
+  -h, --history           Show git version history (for .prmd)
+  -r, --registry <name>   Specify registry (for package lookup)
+  -v, --verbose           Enable verbose logging (debug output)
 ```
 
 ## Compilation & Execution
