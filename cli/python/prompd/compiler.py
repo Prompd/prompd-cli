@@ -5,19 +5,20 @@ This module implements the multi-stage compilation pipeline that transforms
 .prmd files into various output formats (markdown, provider JSON, etc.)
 """
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Union, Protocol
-from pathlib import Path
-import json
-import yaml
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Protocol, Union
 
-from .models import PrompdFile, PrompdMetadata
-from .parser import PrompdParser
+import yaml
+
 from .exceptions import PrompdError
-from .section_override_processor import SectionOverrideProcessor
 from .extractors import strip_content_frontmatter
+from .models import PrompdMetadata
+from .parser import PrompdParser
+from .section_override_processor import SectionOverrideProcessor
 
 
 class CompilationStage(str, Enum):
@@ -44,7 +45,7 @@ class CompilationContext:
     output_format: str = "markdown"
     compiled_result: Optional[Union[str, bytes]] = None
     verbose: bool = False
-    
+
     def __post_init__(self):
         if self.dependencies is None:
             self.dependencies = {}
@@ -60,12 +61,12 @@ class CompilationContext:
 
 class CompilerStage(ABC):
     """Abstract base class for compiler pipeline stages."""
-    
+
     @abstractmethod
     def process(self, context: CompilationContext) -> None:
         """Process the compilation context through this stage."""
         pass
-    
+
     @abstractmethod
     def get_name(self) -> str:
         """Get the name of this compilation stage."""
@@ -74,10 +75,10 @@ class CompilerStage(ABC):
 
 class LexicalAnalysisStage(CompilerStage):
     """Parse YAML frontmatter + Markdown content."""
-    
+
     def __init__(self):
         self.parser = PrompdParser()
-    
+
     def process(self, context: CompilationContext) -> None:
         """Parse the .prmd file into metadata and content."""
         try:
@@ -86,44 +87,44 @@ class LexicalAnalysisStage(CompilerStage):
             context.content = prompd_file.content
         except Exception as e:
             context.errors.append(f"Lexical analysis failed: {e}")
-    
+
     def get_name(self) -> str:
         return "Lexical Analysis"
 
 
 class DependencyResolutionStage(CompilerStage):
     """Resolve 'using:' imports and 'inherits:' chains."""
-    
+
     def __init__(self):
         from .package_resolver import package_resolver
         self.resolver = package_resolver
-    
+
     def process(self, context: CompilationContext) -> None:
         """Resolve package dependencies and inheritance."""
         if not context.metadata:
             return
-        
+
         # Initialize resolved packages dict
         resolved_packages = {}
 
         # Process 'using' field (package imports with optional prefixes)
-        if hasattr(context.metadata, 'using') and context.metadata.using:
+        if hasattr(context.metadata, "using") and context.metadata.using:
             using_imports = context.metadata.using
-            
+
             # Handle different using formats
             if isinstance(using_imports, str):
                 # Simple string: using: "@package@version"
                 try:
                     package_path = self.resolver.resolve_package(using_imports)
                     resolved_packages[using_imports] = {
-                        'path': package_path,
-                        'prefix': None
+                        "path": package_path,
+                        "prefix": None
                     }
                     if context.verbose:
                         print(f"Resolved package: {using_imports} -> {package_path}")
                 except Exception as e:
                     context.warnings.append(f"Failed to resolve package {using_imports}: {e}")
-                    
+
             elif isinstance(using_imports, list):
                 # List of packages (can be strings, dicts, or UsingPackage objects)
                 for item in using_imports:
@@ -132,14 +133,14 @@ class DependencyResolutionStage(CompilerStage):
                         try:
                             package_path = self.resolver.resolve_package(item)
                             resolved_packages[item] = {
-                                'path': package_path,
-                                'prefix': None
+                                "path": package_path,
+                                "prefix": None
                             }
                             if context.verbose:
                                 print(f"Resolved package: {item} -> {package_path}")
                         except Exception as e:
                             context.warnings.append(f"Failed to resolve package {item}: {e}")
-                    elif hasattr(item, 'name') and hasattr(item, 'prefix'):
+                    elif hasattr(item, "name") and hasattr(item, "prefix"):
                         # UsingPackage object
                         package_ref = item.name
                         prefix = item.prefix
@@ -152,8 +153,8 @@ class DependencyResolutionStage(CompilerStage):
                         try:
                             package_path = self.resolver.resolve_package(package_ref)
                             resolved_packages[package_ref] = {
-                                'path': package_path,
-                                'prefix': prefix
+                                "path": package_path,
+                                "prefix": prefix
                             }
                             if context.verbose:
                                 print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
@@ -161,8 +162,8 @@ class DependencyResolutionStage(CompilerStage):
                             context.warnings.append(f"Failed to resolve package {package_ref}: {e}")
                     elif isinstance(item, dict):
                         # Dict with name and REQUIRED prefix
-                        package_ref = item.get('name', item.get('package', ''))
-                        prefix = item.get('prefix')
+                        package_ref = item.get("name", item.get("package", ""))
+                        prefix = item.get("prefix")
 
                         if package_ref:
                             # Prefix is required for 'using' - the whole point is to create a shorthand
@@ -173,14 +174,14 @@ class DependencyResolutionStage(CompilerStage):
                             try:
                                 package_path = self.resolver.resolve_package(package_ref)
                                 resolved_packages[package_ref] = {
-                                    'path': package_path,
-                                    'prefix': prefix
+                                    "path": package_path,
+                                    "prefix": prefix
                                 }
                                 if context.verbose:
                                     print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
                             except Exception as e:
                                 context.warnings.append(f"Failed to resolve package {package_ref}: {e}")
-                                
+
             elif isinstance(using_imports, dict):
                 # Dict format: {package: prefix} or structured format
                 for key, value in using_imports.items():
@@ -189,33 +190,33 @@ class DependencyResolutionStage(CompilerStage):
                         try:
                             package_path = self.resolver.resolve_package(key)
                             resolved_packages[key] = {
-                                'path': package_path,
-                                'prefix': value
+                                "path": package_path,
+                                "prefix": value
                             }
                             if context.verbose:
                                 print(f"Resolved package: {key} -> {package_path} (prefix: {value})")
                         except Exception as e:
                             context.warnings.append(f"Failed to resolve package {key}: {e}")
-                    elif isinstance(value, dict) and 'prefix' in value:
+                    elif isinstance(value, dict) and "prefix" in value:
                         # Format: {"@package@version": {"prefix": "alias"}}
                         try:
                             package_path = self.resolver.resolve_package(key)
                             resolved_packages[key] = {
-                                'path': package_path,
-                                'prefix': value.get('prefix')
+                                "path": package_path,
+                                "prefix": value.get("prefix")
                             }
                             if context.verbose:
-                                if value.get('prefix'):
+                                if value.get("prefix"):
                                     print(f"Resolved package: {key} -> {package_path} (prefix: {value.get('prefix')})")
                                 else:
                                     print(f"Resolved package: {key} -> {package_path}")
                         except Exception as e:
                             context.warnings.append(f"Failed to resolve package {key}: {e}")
-            
-            context.dependencies['imports'] = resolved_packages
-        
+
+            context.dependencies["imports"] = resolved_packages
+
         # Process 'inherits' field (can be package reference or direct file path)
-        if hasattr(context.metadata, 'inherits') and context.metadata.inherits:
+        if hasattr(context.metadata, "inherits") and context.metadata.inherits:
             inherits_ref = context.metadata.inherits
 
             # Resolve aliases in inherits field (e.g., "@pkg/templates/file.prmd" -> "@scope/package@version/templates/file.prmd")
@@ -227,14 +228,14 @@ class DependencyResolutionStage(CompilerStage):
                 context.metadata.inherits = inherits_ref
                 if context.verbose:
                     print(f"Resolved alias in inherits: {inherits_ref}")
-            
+
             # Check if it's a local file path (starts with . or / or doesn't start with @)
-            if inherits_ref.startswith(('./', '../', '/')) or (not inherits_ref.startswith('@') and '.prmd' in inherits_ref):
+            if inherits_ref.startswith(("./", "../", "/")) or (not inherits_ref.startswith("@") and ".prmd" in inherits_ref):
                 # Direct file path - resolve relative to source file
                 from pathlib import Path
                 source_dir = Path(context.source_file).parent if context.source_file else Path.cwd()
                 parent_path = source_dir / inherits_ref
-                context.dependencies['inherits'] = str(parent_path.resolve())
+                context.dependencies["inherits"] = str(parent_path.resolve())
                 if context.verbose:
                     print(f"Resolved inheritance file: {inherits_ref} -> {parent_path.resolve()}")
             else:
@@ -243,7 +244,7 @@ class DependencyResolutionStage(CompilerStage):
                     # Parse package reference and file path
                     # Format: @namespace/package@version/path/to/file.prmd
                     import re
-                    pattern = r'^(@[\w.-]+/[\w.-]+@[\w.-]+)/(.+)$'
+                    pattern = r"^(@[\w.-]+/[\w.-]+@[\w.-]+)/(.+)$"
                     match = re.match(pattern, inherits_ref)
 
                     if match:
@@ -258,14 +259,14 @@ class DependencyResolutionStage(CompilerStage):
 
                         # Construct full path to the inherited file
                         full_file_path = package_path / file_path_in_package
-                        context.dependencies['inherits'] = str(full_file_path)
+                        context.dependencies["inherits"] = str(full_file_path)
 
                         if context.verbose:
                             print(f"Resolved inheritance package: {inherits_ref} -> {full_file_path}")
                     else:
                         # Fallback: try as direct package reference
                         parent_path = self.resolver.resolve_package(inherits_ref)
-                        context.dependencies['inherits'] = parent_path
+                        context.dependencies["inherits"] = parent_path
                         if context.verbose:
                             print(f"Resolved inheritance package (direct): {inherits_ref} -> {parent_path}")
 
@@ -273,7 +274,7 @@ class DependencyResolutionStage(CompilerStage):
                     context.warnings.append(f"Failed to resolve inheritance {inherits_ref}: {e}")
 
         # Process content reference fields (system, context, user, assistant, response) for alias resolution
-        content_fields = ['system', 'assistant', 'context', 'user', 'response']
+        content_fields = ["system", "assistant", "context", "user", "response"]
         for field_name in content_fields:
             if hasattr(context.metadata, field_name):
                 field_value = getattr(context.metadata, field_name)
@@ -306,17 +307,17 @@ class DependencyResolutionStage(CompilerStage):
         - "@pkg/templates/file.prmd" with "@pkg" aliased to "@scope/package@version"
           becomes "@scope/package@version/templates/file.prmd"
         """
-        if not path.startswith('@') or '/' not in path:
+        if not path.startswith("@") or "/" not in path:
             return path
 
         # Extract the potential alias (everything before the first '/')
-        parts = path.split('/', 1)
+        parts = path.split("/", 1)
         potential_alias = parts[0]  # e.g., "@pkg"
         remaining_path = parts[1]   # e.g., "templates/file.prmd"
 
         # Look for this alias in resolved packages
         for package_name, package_info in resolved_packages.items():
-            if isinstance(package_info, dict) and package_info.get('prefix') == potential_alias:
+            if isinstance(package_info, dict) and package_info.get("prefix") == potential_alias:
                 # Found the alias! Replace it with the full package name
                 resolved_path = f"{package_name}/{remaining_path}"
                 return resolved_path
@@ -330,7 +331,7 @@ class DependencyResolutionStage(CompilerStage):
 
 class SemanticAnalysisStage(CompilerStage):
     """Validate parameters and references."""
-    
+
     def process(self, context: CompilationContext) -> None:
         """Validate semantic correctness of the prompt and merge default values."""
         if not context.metadata:
@@ -348,39 +349,39 @@ class SemanticAnalysisStage(CompilerStage):
                 # Validate required parameters
                 if param.required and param.name not in context.parameters:
                     context.warnings.append(f"Required parameter '{param.name}' not provided")
-    
+
     def get_name(self) -> str:
         return "Semantic Analysis"
 
 
 class AssetExtractionStage(CompilerStage):
     """Extract content from binary files (Excel, Word, PDF, etc.)."""
-    
+
     def __init__(self):
         from .extractors import binary_extractor
         self.extractor = binary_extractor
-    
+
     def process(self, context: CompilationContext) -> None:
         """Extract text from binary file formats."""
         if not context.metadata:
             return
-        
+
         # Process context files from metadata
         context_files = []
-        if hasattr(context.metadata, 'context') and context.metadata.context:
+        if hasattr(context.metadata, "context") and context.metadata.context:
             if isinstance(context.metadata.context, list):
                 context_files.extend([str(f) for f in context.metadata.context])
             else:
                 context_files.append(str(context.metadata.context))
-        
+
         # Extract content from each context file
         for ctx_file_str in context_files:
             ctx_file = Path(ctx_file_str)
-            
+
             # Resolve relative paths relative to source file
             if not ctx_file.is_absolute():
                 ctx_file = context.source_file.parent / ctx_file
-            
+
             if ctx_file.exists():
                 try:
                     extracted_content = self.extractor.extract(ctx_file)
@@ -391,64 +392,64 @@ class AssetExtractionStage(CompilerStage):
             else:
                 context.errors.append(f"Context file not found: {ctx_file}")
                 return  # Stop processing on missing file
-    
+
     def get_name(self) -> str:
         return "Asset Extraction"
 
 
 class FileValidationStage(CompilerStage):
     """Validate that all referenced files exist."""
-    
+
     def process(self, context: CompilationContext) -> None:
         """Validate all file references in metadata."""
         if not context.metadata:
             return
-            
+
         source_dir = context.source_file.parent if context.source_file else Path.cwd()
-        
+
         # Validate system files
         if context.metadata.system:
             self._validate_file_reference(context, source_dir, context.metadata.system, "system")
-            
-        # Validate assistant files  
+
+        # Validate assistant files
         if context.metadata.assistant:
             self._validate_file_reference(context, source_dir, context.metadata.assistant, "assistant")
-            
+
         # Validate context files
         if context.metadata.context:
             self._validate_file_reference(context, source_dir, context.metadata.context, "context")
-            
+
         # Validate user files
         if context.metadata.user:
             self._validate_file_reference(context, source_dir, context.metadata.user, "user")
-            
+
         # Validate response files
         if context.metadata.response:
             self._validate_file_reference(context, source_dir, context.metadata.response, "response")
-            
+
         # Validate inherits files (local file paths only, not package references)
-        if context.metadata.inherits and not context.metadata.inherits.startswith('@'):
+        if context.metadata.inherits and not context.metadata.inherits.startswith("@"):
             self._validate_file_reference(context, source_dir, context.metadata.inherits, "inherits")
-    
-    def _validate_file_reference(self, context: CompilationContext, source_dir: Path, 
+
+    def _validate_file_reference(self, context: CompilationContext, source_dir: Path,
                                 file_ref: Union[str, List[str]], ref_type: str) -> None:
         """Validate a file reference (single file or list of files)."""
         if isinstance(file_ref, str):
             file_refs = [file_ref]
         else:
             file_refs = file_ref
-            
+
         for file_path_str in file_refs:
             file_path = Path(file_path_str)
-            
+
             # Resolve relative paths relative to source file
             if not file_path.is_absolute():
                 file_path = source_dir / file_path
-                
+
             if not file_path.exists():
                 context.errors.append(f"Referenced {ref_type} file not found: {file_path}")
                 return  # Stop on first missing file
-    
+
     def get_name(self) -> str:
         return "File Validation"
 
@@ -465,24 +466,24 @@ class TemplateProcessingStage(CompilerStage):
         import re
 
         # Convert {{#if condition}} to {% if condition %}
-        content = re.sub(r'\{\{#if\s+([^}]+)\}\}', r'{% if \1 %}', content)
+        content = re.sub(r"\{\{#if\s+([^}]+)\}\}", r"{% if \1 %}", content)
 
         # Convert {{#unless condition}} to {% if not condition %}
-        content = re.sub(r'\{\{#unless\s+([^}]+)\}\}', r'{% if not \1 %}', content)
+        content = re.sub(r"\{\{#unless\s+([^}]+)\}\}", r"{% if not \1 %}", content)
 
         # Convert {{#each items}} to {% for item in items %}
-        content = re.sub(r'\{\{#each\s+([^}]+)\}\}', r'{% for item in \1 %}', content)
+        content = re.sub(r"\{\{#each\s+([^}]+)\}\}", r"{% for item in \1 %}", content)
 
         # Convert {{/if}}, {{/unless}}, {{/each}} to {% endif %}, {% endfor %}
-        content = re.sub(r'\{\{/(if|unless)\}\}', r'{% endif %}', content)
-        content = re.sub(r'\{\{/each\}\}', r'{% endfor %}', content)
+        content = re.sub(r"\{\{/(if|unless)\}\}", r"{% endif %}", content)
+        content = re.sub(r"\{\{/each\}\}", r"{% endfor %}", content)
 
         # Handle {{#switch}} and {{#case}} - convert to if/elif chain
         # This is complex, so we'll do a more sophisticated conversion
 
         # First, convert {{#switch var}} to set the switch variable
-        switch_pattern = r'\{\{#switch\s+([^}]+)\}\}'
-        content = re.sub(switch_pattern, r'{% set _switch_var = \1 %}', content)
+        switch_pattern = r"\{\{#switch\s+([^}]+)\}\}"
+        content = re.sub(switch_pattern, r"{% set _switch_var = \1 %}", content)
 
         # Convert {{#case "value"}} to {% if _switch_var == "value" %}
         # Handle quoted cases first, then unquoted
@@ -491,16 +492,16 @@ class TemplateProcessingStage(CompilerStage):
 
         # Handle unquoted cases (but not if they were already converted)
         case_pattern_unquoted = r'\{\{#case\s+([^}"]+)\}\}'
-        content = re.sub(case_pattern_unquoted, r'{% if _switch_var == \1 %}', content)
+        content = re.sub(case_pattern_unquoted, r"{% if _switch_var == \1 %}", content)
 
         # Convert {{#default}} to {% else %}
-        content = re.sub(r'\{\{#default\}\}', r'{% else %}', content)
+        content = re.sub(r"\{\{#default\}\}", r"{% else %}", content)
 
         # Convert {{/case}} to {% endif %} - but be careful with nesting
-        content = re.sub(r'\{\{/case\}\}', r'{% endif %}', content)
+        content = re.sub(r"\{\{/case\}\}", r"{% endif %}", content)
 
         # Convert {{/switch}} to empty (the last case's endif handles it)
-        content = re.sub(r'\{\{/switch\}\}', '', content)
+        content = re.sub(r"\{\{/switch\}\}", "", content)
 
         return content
 
@@ -509,7 +510,7 @@ class TemplateProcessingStage(CompilerStage):
         if not csv_string or not isinstance(csv_string, str):
             return []
 
-        lines = csv_string.strip().split('\n')
+        lines = csv_string.strip().split("\n")
         if len(lines) == 0:
             return []
 
@@ -528,7 +529,7 @@ class TemplateProcessingStage(CompilerStage):
 
             for j, header in enumerate(headers):
                 header = header.strip()
-                value = values[j].strip() if j < len(values) else ''
+                value = values[j].strip() if j < len(values) else ""
                 record[header] = value
 
             records.append(record)
@@ -538,7 +539,7 @@ class TemplateProcessingStage(CompilerStage):
     def _parse_csv_line(self, line: str) -> list:
         """Parse a single CSV line, handling quoted values."""
         result = []
-        current = ''
+        current = ""
         in_quotes = False
         i = 0
 
@@ -553,9 +554,9 @@ class TemplateProcessingStage(CompilerStage):
                 else:
                     # Toggle quote mode
                     in_quotes = not in_quotes
-            elif char == ',' and not in_quotes:
+            elif char == "," and not in_quotes:
                 result.append(current)
-                current = ''
+                current = ""
             else:
                 current += char
 
@@ -573,33 +574,33 @@ class TemplateProcessingStage(CompilerStage):
         # Safe string filters that handle None/undefined
         def safe_trim(value):
             if value is None:
-                return ''
+                return ""
             return str(value).strip()
 
         def safe_lower(value):
             if value is None:
-                return ''
+                return ""
             return str(value).lower()
 
         def safe_upper(value):
             if value is None:
-                return ''
+                return ""
             return str(value).upper()
 
         def safe_capitalize(value):
             if value is None:
-                return ''
+                return ""
             s = str(value)
-            return s[0].upper() + s[1:].lower() if s else ''
+            return s[0].upper() + s[1:].lower() if s else ""
 
         def safe_title(value):
             if value is None:
-                return ''
+                return ""
             return str(value).title()
 
         def safe_replace(value, old, new, count=None):
             if value is None:
-                return ''
+                return ""
             s = str(value)
             if count is not None:
                 return s.replace(old, new, count)
@@ -607,13 +608,13 @@ class TemplateProcessingStage(CompilerStage):
 
         def safe_striptags(value):
             if value is None:
-                return ''
+                return ""
             import re
-            return re.sub(r'<[^>]*>', '', str(value))
+            return re.sub(r"<[^>]*>", "", str(value))
 
         def safe_urlencode(value):
             if value is None:
-                return ''
+                return ""
             return urllib.parse.quote(str(value))
 
         # fromcsv - Parse CSV string into array of objects
@@ -636,34 +637,34 @@ class TemplateProcessingStage(CompilerStage):
             try:
                 return json.dumps(obj, indent=indent)
             except (TypeError, ValueError):
-                return '{}'
+                return "{}"
 
         # lines - Split string into array of lines
         def lines(s):
             if not s or not isinstance(s, str):
                 return []
-            return s.split('\n')
+            return s.split("\n")
 
         # dedent - Remove common leading whitespace from text
         def dedent(s):
             if not s or not isinstance(s, str):
-                return ''
+                return ""
             import textwrap
             return textwrap.dedent(s)
 
         # truncate - Truncate string with ellipsis
-        def truncate(s, length=80, suffix='...'):
+        def truncate(s, length=80, suffix="..."):
             if not s or not isinstance(s, str):
-                return ''
+                return ""
             if len(s) <= length:
                 return s
             return s[:length - len(suffix)] + suffix
 
         # codeblock - Wrap content in fenced code block
-        def codeblock(s, language=''):
+        def codeblock(s, language=""):
             if not s or not isinstance(s, str):
-                return ''
-            return f'```{language}\n{s}\n```'
+                return ""
+            return f"```{language}\n{s}\n```"
 
         # unique - Remove duplicate items from array
         def unique(arr):
@@ -701,7 +702,7 @@ class TemplateProcessingStage(CompilerStage):
             result = {}
             for item in arr:
                 if isinstance(item, dict):
-                    key = str(item.get(field, 'undefined'))
+                    key = str(item.get(field, "undefined"))
                     if key not in result:
                         result[key] = []
                     result[key].append(item)
@@ -725,52 +726,52 @@ class TemplateProcessingStage(CompilerStage):
         # wordwrap - Wrap text at specified width
         def wordwrap(s, width=80):
             if not s or not isinstance(s, str):
-                return ''
+                return ""
             import textwrap
-            return '\n'.join(textwrap.wrap(s, width=width))
+            return "\n".join(textwrap.wrap(s, width=width))
 
         # bulletlist - Convert array/lines to bullet list
         def bulletlist(input_val):
             if isinstance(input_val, list):
                 items = input_val
             else:
-                items = str(input_val).split('\n')
-            return '\n'.join(f'- {item}' for item in items if str(item).strip())
+                items = str(input_val).split("\n")
+            return "\n".join(f"- {item}" for item in items if str(item).strip())
 
         # numberedlist - Convert array/lines to numbered list
         def numberedlist(input_val):
             if isinstance(input_val, list):
                 items = input_val
             else:
-                items = str(input_val).split('\n')
+                items = str(input_val).split("\n")
             filtered = [item for item in items if str(item).strip()]
-            return '\n'.join(f'{i + 1}. {item}' for i, item in enumerate(filtered))
+            return "\n".join(f"{i + 1}. {item}" for i, item in enumerate(filtered))
 
         # Register all filters
-        env.filters['trim'] = safe_trim
-        env.filters['lower'] = safe_lower
-        env.filters['upper'] = safe_upper
-        env.filters['capitalize'] = safe_capitalize
-        env.filters['title'] = safe_title
-        env.filters['replace'] = safe_replace
-        env.filters['striptags'] = safe_striptags
-        env.filters['urlencode'] = safe_urlencode
-        env.filters['fromcsv'] = fromcsv
-        env.filters['fromjson'] = fromjson
-        env.filters['tojson'] = tojson
-        env.filters['lines'] = lines
-        env.filters['dedent'] = dedent
-        env.filters['truncate'] = truncate
-        env.filters['codeblock'] = codeblock
-        env.filters['unique'] = unique
-        env.filters['pluck'] = pluck
-        env.filters['where'] = where
-        env.filters['groupby'] = groupby
-        env.filters['shuffle'] = shuffle
-        env.filters['sample'] = sample
-        env.filters['wordwrap'] = wordwrap
-        env.filters['bulletlist'] = bulletlist
-        env.filters['numberedlist'] = numberedlist
+        env.filters["trim"] = safe_trim
+        env.filters["lower"] = safe_lower
+        env.filters["upper"] = safe_upper
+        env.filters["capitalize"] = safe_capitalize
+        env.filters["title"] = safe_title
+        env.filters["replace"] = safe_replace
+        env.filters["striptags"] = safe_striptags
+        env.filters["urlencode"] = safe_urlencode
+        env.filters["fromcsv"] = fromcsv
+        env.filters["fromjson"] = fromjson
+        env.filters["tojson"] = tojson
+        env.filters["lines"] = lines
+        env.filters["dedent"] = dedent
+        env.filters["truncate"] = truncate
+        env.filters["codeblock"] = codeblock
+        env.filters["unique"] = unique
+        env.filters["pluck"] = pluck
+        env.filters["where"] = where
+        env.filters["groupby"] = groupby
+        env.filters["shuffle"] = shuffle
+        env.filters["sample"] = sample
+        env.filters["wordwrap"] = wordwrap
+        env.filters["bulletlist"] = bulletlist
+        env.filters["numberedlist"] = numberedlist
 
     def _enhanced_simple_substitution(self, content: str, parameters: dict) -> str:
         """
@@ -781,11 +782,11 @@ class TemplateProcessingStage(CompilerStage):
 
         # Guard against None/undefined content
         if content is None:
-            return ''
+            return ""
 
         def resolve_value(full_path: str):
             """Helper to resolve nested property path."""
-            parts = full_path.split('.')
+            parts = full_path.split(".")
             value = parameters.get(parts[0])
 
             if value is None:
@@ -811,7 +812,7 @@ class TemplateProcessingStage(CompilerStage):
             return resolved if resolved is not None else f"[Missing: {full_path}]"
 
         content = re.sub(
-            r'\{\{[-~]?\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*[-~]?\}\}',
+            r"\{\{[-~]?\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*[-~]?\}\}",
             replace_double_brace,
             content
         )
@@ -824,7 +825,7 @@ class TemplateProcessingStage(CompilerStage):
             return resolved if resolved is not None else f"[Missing: {full_path}]"
 
         content = re.sub(
-            r'(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}(?!\})',
+            r"(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}(?!\})",
             replace_single_brace,
             content
         )
@@ -837,25 +838,25 @@ class TemplateProcessingStage(CompilerStage):
             return
 
         content = context.content
-        
+
         # Process package references with prefixes (e.g., @security/prompts/audit)
-        if 'imports' in context.dependencies:
-            for package_ref, package_info in context.dependencies['imports'].items():
+        if "imports" in context.dependencies:
+            for _package_ref, package_info in context.dependencies["imports"].items():
                 if isinstance(package_info, dict):
-                    prefix = package_info.get('prefix')
-                    package_path = package_info.get('path')
-                    
+                    prefix = package_info.get("prefix")
+                    package_path = package_info.get("path")
+
                     if prefix and package_path:
                         # Replace references like @security/prompts/audit with actual content
                         # Pattern: @prefix/path/to/resource
                         import re
-                        pattern = re.compile(f'@{re.escape(prefix)}/([^\\s]+)')
-                        
+                        pattern = re.compile(f"@{re.escape(prefix)}/([^\\s]+)")
+
                         def replace_ref(match):
                             resource_path = match.group(1)
                             # Load the actual file from the package
                             from pathlib import Path
-                            
+
                             # Try different extensions
                             possible_files = [
                                 Path(package_path) / resource_path,
@@ -863,14 +864,14 @@ class TemplateProcessingStage(CompilerStage):
                                 Path(package_path) / f"{resource_path}.md",
                                 Path(package_path) / f"{resource_path}.txt",
                             ]
-                            
+
                             for file_path in possible_files:
                                 if file_path.exists():
                                     try:
-                                        content_data = file_path.read_text(encoding='utf-8')
+                                        content_data = file_path.read_text(encoding="utf-8")
 
                                         # If it's a .prmd file, parse and extract content
-                                        if file_path.suffix == '.prmd':
+                                        if file_path.suffix == ".prmd":
                                             from .parser import PrompdParser
                                             parser = PrompdParser()
                                             try:
@@ -888,20 +889,21 @@ class TemplateProcessingStage(CompilerStage):
                                         if context.verbose:
                                             print(f"Warning: Failed to load {file_path}: {e}")
                                         return f"[Error loading @{prefix}/{resource_path}]"
-                            
+
                             # File not found
                             if context.verbose:
                                 print(f"Warning: Could not find @{prefix}/{resource_path} in {package_path}")
                             return f"[Not found: @{prefix}/{resource_path}]"
-                        
+
                         content = pattern.sub(replace_ref, content)
-        
+
         # Process inheritance with section-aware override support
-        if 'inherits' in context.dependencies:
-            parent_path = context.dependencies['inherits']
+        if "inherits" in context.dependencies:
+            parent_path = context.dependencies["inherits"]
 
             try:
                 from pathlib import Path
+
                 from .parser import PrompdParser
 
                 parser = PrompdParser()
@@ -909,17 +911,17 @@ class TemplateProcessingStage(CompilerStage):
 
                 # Check if it's a direct file path
                 parent_path_obj = Path(parent_path)
-                if parent_path_obj.suffix == '.prmd' and parent_path_obj.exists():
+                if parent_path_obj.suffix == ".prmd" and parent_path_obj.exists():
                     # Direct file path
                     parent_file = parent_path_obj
                 elif parent_path_obj.is_dir():
                     # Package directory - find main .prmd file
-                    prompd_files = list(parent_path_obj.glob('*.prmd'))
+                    prompd_files = list(parent_path_obj.glob("*.prmd"))
 
                     if prompd_files:
                         # Use the first .prmd file or look for main.prmd
                         for f in prompd_files:
-                            if f.name == 'main.prmd':
+                            if f.name == "main.prmd":
                                 parent_file = f
                                 break
                         if not parent_file:
@@ -932,7 +934,7 @@ class TemplateProcessingStage(CompilerStage):
 
                     # Get overrides from child metadata
                     overrides = {}
-                    if context.metadata and hasattr(context.metadata, 'override'):
+                    if context.metadata and hasattr(context.metadata, "override"):
                         overrides = context.metadata.override or {}
 
                     # Process content with section-aware merging
@@ -999,7 +1001,7 @@ class TemplateProcessingStage(CompilerStage):
 
                             if not param_exists:
                                 # Add parent parameter to child
-                                if context.metadata and hasattr(context.metadata, 'parameters'):
+                                if context.metadata and hasattr(context.metadata, "parameters"):
                                     if context.metadata.parameters is None:
                                         context.metadata.parameters = []
                                     context.metadata.parameters.append(parent_param)
@@ -1014,9 +1016,9 @@ class TemplateProcessingStage(CompilerStage):
 
         # Process standalone overrides (without inheritance)
         # This allows overriding sections in the current file itself
-        if context.metadata and hasattr(context.metadata, 'override') and context.metadata.override:
+        if context.metadata and hasattr(context.metadata, "override") and context.metadata.override:
             # Only process if not already handled by inheritance
-            if 'inherits' not in context.dependencies:
+            if "inherits" not in context.dependencies:
                 overrides = context.metadata.override
 
                 if context.verbose:
@@ -1066,7 +1068,7 @@ class TemplateProcessingStage(CompilerStage):
                         else:
                             context.warnings.append(f"Override section '{section_id}' not found in current content")
                             if context.verbose:
-                                available = ', '.join(sorted(current_sections.keys()))
+                                available = ", ".join(sorted(current_sections.keys()))
                                 print(f"Warning: Override section '{section_id}' not found. Available: {available}")
 
                     # Reconstruct content from modified sections
@@ -1074,7 +1076,7 @@ class TemplateProcessingStage(CompilerStage):
                     for section_info in current_sections.values():
                         content_parts.append(section_info.content)
 
-                    context.content = '\n\n'.join(content_parts)
+                    context.content = "\n\n".join(content_parts)
                     content = context.content
 
                     if context.verbose:
@@ -1089,6 +1091,7 @@ class TemplateProcessingStage(CompilerStage):
         if content:
             try:
                 from jinja2 import Environment, TemplateSyntaxError
+
                 from .prompd_loader import PrompdLoader, cleanup_compilation
 
                 # First, try to convert Handlebars syntax to Jinja2 for broader compatibility
@@ -1112,12 +1115,12 @@ class TemplateProcessingStage(CompilerStage):
                     autoescape=False,  # Don't escape HTML - we're doing markdown
                     trim_blocks=True,
                     lstrip_blocks=True,
-                    variable_start_string='{{',
-                    variable_end_string='}}',
-                    block_start_string='{%',
-                    block_end_string='%}',
-                    comment_start_string='{#',
-                    comment_end_string='#}'
+                    variable_start_string="{{",
+                    variable_end_string="}}",
+                    block_start_string="{%",
+                    block_end_string="%}",
+                    comment_start_string="{#",
+                    comment_end_string="#}"
                 )
 
                 # Register custom filters
@@ -1141,38 +1144,38 @@ class TemplateProcessingStage(CompilerStage):
                 content = self._enhanced_simple_substitution(content, context.parameters)
 
         context.content = content
-    
+
     def get_name(self) -> str:
         return "Template Processing"
 
 
 class CodeGenerationStage(CompilerStage):
     """Generate output in the target format."""
-    
-    def __init__(self, formatters: Optional[Dict[str, 'OutputFormatter']] = None):
+
+    def __init__(self, formatters: Optional[Dict[str, "OutputFormatter"]] = None):
         self.formatters = formatters or {}
         # Register default formatters
         self.register_formatter("markdown", MarkdownFormatter())
         self.register_formatter("provider-json:openai", OpenAIFormatter())
         self.register_formatter("provider-json:anthropic", AnthropicFormatter())
-    
-    def register_formatter(self, name: str, formatter: 'OutputFormatter'):
+
+    def register_formatter(self, name: str, formatter: "OutputFormatter"):
         """Register a new output formatter."""
         self.formatters[name] = formatter
-    
+
     def process(self, context: CompilationContext) -> None:
         """Generate the final output in the requested format."""
         format_name = context.output_format
-        
+
         # Handle --to-markdown as just "markdown"
         if format_name.startswith("to-"):
             format_name = format_name[3:]
-        
+
         formatter = self.formatters.get(format_name)
         if not formatter:
             context.errors.append(f"Unknown output format: {format_name}")
             return
-        
+
         try:
             compiled = CompiledPrompt(
                 metadata=context.metadata,
@@ -1184,7 +1187,7 @@ class CodeGenerationStage(CompilerStage):
             context.compiled_result = formatter.format(compiled)
         except Exception as e:
             context.errors.append(f"Code generation failed: {e}")
-    
+
     def get_name(self) -> str:
         return "Code Generation"
 
@@ -1204,7 +1207,7 @@ class OutputFormatter(Protocol):
     name: str
     file_extension: str
     mime_type: str
-    
+
     def format(self, compiled: CompiledPrompt) -> Union[str, bytes]:
         """Format the compiled prompt into the target format."""
         ...
@@ -1215,7 +1218,7 @@ class MarkdownFormatter:
     name = "markdown"
     file_extension = ".md"
     mime_type = "text/markdown"
-    
+
     def format(self, compiled: CompiledPrompt) -> str:
         """Format as human-readable markdown."""
         output = []
@@ -1245,7 +1248,7 @@ class MarkdownFormatter:
             output.append(compiled.content)
 
         return "\n".join(output)
-    
+
     def _clean_metadata_for_display(self, metadata_dict):
         """Clean metadata dictionary for YAML display, converting enums to strings."""
         if isinstance(metadata_dict, dict):
@@ -1255,12 +1258,12 @@ class MarkdownFormatter:
             return cleaned
         elif isinstance(metadata_dict, list):
             return [self._clean_metadata_for_display(item) for item in metadata_dict]
-        elif hasattr(metadata_dict, 'value'):
+        elif hasattr(metadata_dict, "value"):
             # Enum object - return its string value
             return metadata_dict.value
-        elif hasattr(metadata_dict, '__str__') and hasattr(metadata_dict, '__class__'):
+        elif hasattr(metadata_dict, "__str__") and hasattr(metadata_dict, "__class__"):
             # Check if it's a Pydantic model or enum by looking for specific attributes
-            if 'ParameterType' in str(type(metadata_dict)):
+            if "ParameterType" in str(type(metadata_dict)):
                 return str(metadata_dict)
             return metadata_dict
         else:
@@ -1272,11 +1275,11 @@ class OpenAIFormatter:
     name = "provider-json:openai"
     file_extension = ".json"
     mime_type = "application/json"
-    
+
     def format(self, compiled: CompiledPrompt) -> str:
         """Format for OpenAI API."""
         messages = []
-        
+
         # Extract system message if present
         if compiled.content and "## System" in compiled.content:
             # Simple extraction - TODO: improve parsing
@@ -1291,25 +1294,25 @@ class OpenAIFormatter:
                     break
                 elif in_system:
                     system_content.append(line)
-            
+
             if system_content:
                 messages.append({
                     "role": "system",
                     "content": "\n".join(system_content).strip()
                 })
-        
+
         # Add user message
         messages.append({
             "role": "user",
             "content": compiled.content or ""
         })
-        
+
         api_request = {
             "model": "gpt-4",
             "messages": messages,
             "temperature": 0.1
         }
-        
+
         return json.dumps(api_request, indent=2)
 
 
@@ -1318,12 +1321,12 @@ class AnthropicFormatter:
     name = "provider-json:anthropic"
     file_extension = ".json"
     mime_type = "application/json"
-    
+
     def format(self, compiled: CompiledPrompt) -> str:
         """Format for Anthropic API."""
         system_message = None
         user_message = compiled.content or ""
-        
+
         # Extract system message if present
         if compiled.content and "## System" in compiled.content:
             lines = compiled.content.split("\n")
@@ -1337,10 +1340,10 @@ class AnthropicFormatter:
                     break
                 elif in_system:
                     system_content.append(line)
-            
+
             if system_content:
                 system_message = "\n".join(system_content).strip()
-        
+
         api_request = {
             "model": "claude-3-sonnet-20240229",
             "system": system_message,
@@ -1351,16 +1354,16 @@ class AnthropicFormatter:
                 }
             ]
         }
-        
+
         return json.dumps(api_request, indent=2)
 
 
 class CompilerPipeline:
     """The main compiler pipeline orchestrator."""
-    
+
     def __init__(self, stages: Optional[List[CompilerStage]] = None):
         self.stages = stages or self._default_stages()
-    
+
     def _default_stages(self) -> List[CompilerStage]:
         """Create the default compilation pipeline."""
         return [
@@ -1372,17 +1375,17 @@ class CompilerPipeline:
             TemplateProcessingStage(),
             CodeGenerationStage()
         ]
-    
+
     def execute(self, source: Union[str, Path], **options) -> CompilationContext:
         """Execute the compilation pipeline."""
         # Handle package references vs file paths
-        if isinstance(source, str) and source.startswith('@'):
+        if isinstance(source, str) and source.startswith("@"):
             # This is a package reference, resolve it
             from .package_resolver import package_resolver
             try:
                 package_path = package_resolver.resolve_package(source)
                 # Find the main .prmd file in the package
-                prompd_files = list(package_path.glob('**/*.prmd'))
+                prompd_files = list(package_path.glob("**/*.prmd"))
                 if not prompd_files:
                     raise PrompdError(f"No .prmd files found in package: {source}")
                 # Use the first .prmd file found (or could be specified in manifest)
@@ -1391,29 +1394,29 @@ class CompilerPipeline:
                 raise PrompdError(f"Failed to resolve package {source}: {e}")
         else:
             source_path = Path(source) if isinstance(source, str) else source
-        
+
         context = CompilationContext(
             source_file=source_path,
-            output_format=options.get('output_format', 'markdown'),
-            parameters=options.get('parameters', {}),
-            verbose=options.get('verbose', False)
+            output_format=options.get("output_format", "markdown"),
+            parameters=options.get("parameters", {}),
+            verbose=options.get("verbose", False)
         )
-        
+
         # Run each stage
         for stage in self.stages:
             if context.errors:
                 break  # Stop on first error
             stage.process(context)
-        
+
         return context
 
 
 class PrompdCompiler:
     """High-level compiler interface."""
-    
+
     def __init__(self):
         self.pipeline = CompilerPipeline()
-    
+
     def compile(
         self,
         source: Union[str, Path],
@@ -1424,16 +1427,16 @@ class PrompdCompiler:
     ) -> Union[str, bytes]:
         """
         Compile a .prmd file to the specified format.
-        
+
         Args:
             source: Path to .prmd file or package reference
             output_format: Target format (markdown, provider-json:openai, etc.)
             parameters: Parameters to substitute
             output_file: Optional output file path
-            
+
         Returns:
             Compiled content as string or bytes
-            
+
         Raises:
             PrompdError: If compilation fails
         """
@@ -1443,21 +1446,21 @@ class PrompdCompiler:
             parameters=parameters or {},
             verbose=verbose
         )
-        
+
         if context.errors:
             raise PrompdError(f"Compilation failed: {', '.join(context.errors)}")
-        
+
         if context.warnings:
             for warning in context.warnings:
                 print(f"Warning: {warning}")
-        
+
         result = context.compiled_result
-        
+
         if output_file and result:
             output_path = Path(output_file)
             if isinstance(result, bytes):
                 output_path.write_bytes(result)
             else:
-                output_path.write_text(result, encoding='utf-8')
-        
+                output_path.write_text(result, encoding="utf-8")
+
         return result or ""

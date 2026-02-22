@@ -1,13 +1,12 @@
 """Configuration management commands for prompd CLI."""
 
+from typing import Optional
+
 import click
 import yaml
-import json
-from pathlib import Path
-from typing import Dict, Any, Optional, List
 
-from prompd.exceptions import PrompdError
 from prompd.config import PrompdConfig
+from prompd.exceptions import PrompdError
 
 
 @click.group()
@@ -34,18 +33,18 @@ def show():
     try:
         config_obj = PrompdConfig.load()
         config_dict = {
-            'defaults': {
-                'provider': config_obj.default_provider or 'not set',
-                'model': config_obj.default_model or 'not set',
-                'registry': config_obj.default_registry or 'not set'
+            "defaults": {
+                "provider": config_obj.default_provider or "not set",
+                "model": config_obj.default_model or "not set",
+                "registry": config_obj.default_registry or "not set"
             },
-            'custom_providers': config_obj.custom_providers,
-            'registries': config_obj.registries,
-            'api_keys': {name: '***' if key else None for name, key in config_obj.api_keys.items()},
-            'settings': {
-                'timeout': config_obj.timeout,
-                'max_retries': config_obj.max_retries,
-                'verbose': config_obj.verbose
+            "custom_providers": config_obj.custom_providers,
+            "registries": config_obj.registries,
+            "api_keys": {name: "***" if key else None for name, key in config_obj.api_keys.items()},
+            "settings": {
+                "timeout": config_obj.timeout,
+                "max_retries": config_obj.max_retries,
+                "verbose": config_obj.verbose
             }
         }
 
@@ -70,7 +69,7 @@ def providers(ctx):
 
 
 # Registry Commands
-@registry.command('list')
+@registry.command("list")
 def registry_list():
     """List all configured registries."""
     try:
@@ -85,18 +84,18 @@ def registry_list():
             default_marker = " (default)" if name == config_obj.default_registry else ""
             click.echo(f"  {name}{default_marker}")
             click.echo(f"    URL: {registry_config.get('url', 'N/A')}")
-            api_key_status = "configured" if registry_config.get('api_key') else "not configured"
+            api_key_status = "configured" if registry_config.get("api_key") else "not configured"
             click.echo(f"    API Key: {api_key_status}")
 
     except Exception as e:
         raise PrompdError(f"Failed to list registries: {e}")
 
 
-@registry.command('add')
-@click.argument('name')
-@click.argument('url')
-@click.option('--api-key', help='Registry authentication API key')
-@click.option('--set-default', is_flag=True, help='Set as default registry')
+@registry.command("add")
+@click.argument("name")
+@click.argument("url")
+@click.option("--api-key", help="Registry authentication API key")
+@click.option("--set-default", is_flag=True, help="Set as default registry")
 def registry_add(name: str, url: str, api_key: Optional[str], set_default: bool):
     """Add a new registry configuration."""
     try:
@@ -119,8 +118,8 @@ def registry_add(name: str, url: str, api_key: Optional[str], set_default: bool)
         raise PrompdError(f"Failed to add registry: {e}")
 
 
-@registry.command('remove')
-@click.argument('name')
+@registry.command("remove")
+@click.argument("name")
 def registry_remove(name: str):
     """Remove a registry configuration."""
     try:
@@ -139,8 +138,8 @@ def registry_remove(name: str):
         raise PrompdError(f"Failed to remove registry: {e}")
 
 
-@registry.command('set-default')
-@click.argument('name')
+@registry.command("set-default")
+@click.argument("name")
 def registry_set_default(name: str):
     """Set the default registry."""
     try:
@@ -158,8 +157,8 @@ def registry_set_default(name: str):
         raise PrompdError(f"Failed to set default registry: {e}")
 
 
-@registry.command('show')
-@click.argument('name', required=False)
+@registry.command("show")
+@click.argument("name", required=False)
 def registry_show(name: Optional[str]):
     """Show registry details."""
     try:
@@ -176,7 +175,7 @@ def registry_show(name: Optional[str]):
             default_marker = " (default)" if reg_name == config_obj.default_registry else ""
             click.echo(f"Registry: {reg_name}{default_marker}")
             click.echo(f"  URL: {reg_config.get('url', 'N/A')}")
-            api_key_status = "configured" if reg_config.get('api_key') else "not configured"
+            api_key_status = "configured" if reg_config.get("api_key") else "not configured"
             click.echo(f"  API Key: {api_key_status}")
             click.echo()
 
@@ -185,7 +184,7 @@ def registry_show(name: Optional[str]):
 
 
 # Provider Commands
-@provider.command('list')
+@provider.command("list")
 def provider_list():
     """List all configured providers."""
     try:
@@ -200,7 +199,7 @@ def provider_list():
                 provider_class = provider_registry.get_provider_class(provider_name)
                 temp_provider = provider_class({})
                 models = temp_provider.supported_models[:3]  # Show first 3 models
-                models_str = ', '.join(models) + ('...' if len(temp_provider.supported_models) > 3 else '')
+                models_str = ", ".join(models) + ("..." if len(temp_provider.supported_models) > 3 else "")
                 click.echo(f"  {provider_name}: {models_str}")
             except Exception:
                 click.echo(f"  {provider_name}: (models unavailable)")
@@ -208,9 +207,14 @@ def provider_list():
         if config_obj.custom_providers:
             click.echo("\nCustom providers:")
             for name, provider_config in config_obj.custom_providers.items():
-                enabled = "(enabled)" if provider_config.get('enabled', True) else "(disabled)"
-                models = provider_config.get('models', [])
-                models_str = ', '.join(models[:3]) + ('...' if len(models) > 3 else '')
+                enabled = "(enabled)" if provider_config.get("enabled", True) else "(disabled)"
+                models = provider_config.get("models", [])
+                # Models may be strings or dicts with 'id'/'name' keys
+                model_names = [
+                    m["id"] if isinstance(m, dict) else str(m)
+                    for m in models
+                ]
+                models_str = ", ".join(model_names[:3]) + ("..." if len(model_names) > 3 else "")
                 click.echo(f"  {name} {enabled}: {models_str}")
 
         # Show API key status
@@ -227,12 +231,12 @@ def provider_list():
         raise PrompdError(f"Failed to list providers: {e}")
 
 
-@provider.command('add')
-@click.argument('name')
-@click.argument('url')
-@click.argument('models', nargs=-1, required=True)
-@click.option('--api-key', help='API key for the provider')
-@click.option('--enabled/--disabled', default=True, help='Enable or disable the provider')
+@provider.command("add")
+@click.argument("name")
+@click.argument("url")
+@click.argument("models", nargs=-1, required=True)
+@click.option("--api-key", help="API key for the provider")
+@click.option("--enabled/--disabled", default=True, help="Enable or disable the provider")
 def provider_add(name: str, url: str, models: tuple, api_key: Optional[str], enabled: bool):
     """Add a custom provider configuration."""
     try:
@@ -240,9 +244,9 @@ def provider_add(name: str, url: str, models: tuple, api_key: Optional[str], ena
 
         # Add custom provider
         config_obj.custom_providers[name] = {
-            'base_url': url,
-            'models': list(models),
-            'enabled': enabled
+            "base_url": url,
+            "models": list(models),
+            "enabled": enabled
         }
 
         # Set API key if provided
@@ -260,8 +264,8 @@ def provider_add(name: str, url: str, models: tuple, api_key: Optional[str], ena
         raise PrompdError(f"Failed to add provider: {e}")
 
 
-@provider.command('remove')
-@click.argument('name')
+@provider.command("remove")
+@click.argument("name")
 def provider_remove(name: str):
     """Remove a custom provider configuration."""
     try:
@@ -284,9 +288,9 @@ def provider_remove(name: str):
         raise PrompdError(f"Failed to remove provider: {e}")
 
 
-@provider.command('setkey')
-@click.argument('name')
-@click.argument('api_key')
+@provider.command("setkey")
+@click.argument("name")
+@click.argument("api_key")
 def provider_setkey(name: str, api_key: str):
     """Set API key for a provider."""
     try:

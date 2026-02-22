@@ -15,21 +15,21 @@ Auth (optional):
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.responses import JSONResponse
 import uvicorn
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from .compiler import PrompdCompiler
-from .executor import PrompdExecutor
-from .parser import PrompdParser
 from .config import PrompdConfig
 from .exceptions import PrompdError
+from .executor import PrompdExecutor
+from .parser import PrompdParser
 
 
-def _require_auth(oauth: Optional[Dict[str, Any]]):
+def _require_auth(oauth: dict[str, Any] | None):
     async def dependency(req: Request):
         if oauth and oauth.get("client_id"):
             auth = req.headers.get("Authorization", "")
@@ -39,7 +39,7 @@ def _require_auth(oauth: Optional[Dict[str, Any]]):
     return dependency
 
 
-def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastAPI:
+def create_app(file_path: Path, oauth: dict[str, Any] | None = None) -> FastAPI:
     app = FastAPI(title="Prompd MCP Server", version="1.0.0")
     source = Path(file_path).resolve()
     if not source.exists():
@@ -62,17 +62,17 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
             raise HTTPException(status_code=400, detail=str(e))
 
     @app.get("/compile", dependencies=[Depends(auth_dep)])
-    async def compile_endpoint(to: str = "markdown", params: Optional[str] = None):
+    async def compile_endpoint(to: str = "markdown", params: str | None = None):
         try:
-            parameters: Dict[str, Any] = {}
+            parameters: dict[str, Any] = {}
             if params:
                 try:
                     parameters = json.loads(params)
                 except Exception:
                     # also support key=value,key2=value2
-                    for pair in params.split(','):
-                        if '=' in pair:
-                            k, v = pair.split('=', 1)
+                    for pair in params.split(","):
+                        if "=" in pair:
+                            k, v = pair.split("=", 1)
                             parameters[k.strip()] = v.strip()
             result = PrompdCompiler().compile(source, output_format=to, parameters=parameters)
             return JSONResponse(content={"result": result})
@@ -82,14 +82,14 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/run", dependencies=[Depends(auth_dep)])
-    async def run_endpoint(body: Dict[str, Any]):
+    async def run_endpoint(body: dict[str, Any]):
         try:
             cfg = PrompdConfig.load()
             provider = body.get("provider") or (cfg.default_provider or "openai")
             model = body.get("model") or (cfg.default_model or ("gpt-3.5-turbo" if provider=="openai" else "claude-3-haiku-20240307"))
             params = body.get("params") or {}
             meta = body.get("meta") or {}  # metaSystem/metaContext/metaUser
-            version = body.get("version")
+            body.get("version")
 
             # Execute
             import asyncio
@@ -123,7 +123,7 @@ def create_app(file_path: Path, oauth: Optional[Dict[str, Any]] = None) -> FastA
     return app
 
 
-def serve_app(file_path: Path, host: str = "0.0.0.0", port: int = 3333, oauth: Optional[Dict[str, Any]] = None):
+def serve_app(file_path: Path, host: str = "0.0.0.0", port: int = 3333, oauth: dict[str, Any] | None = None):
     app = create_app(file_path, oauth)
     uvicorn.run(app, host=host, port=port)
 

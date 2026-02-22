@@ -11,11 +11,11 @@ Features:
 - Compile-on-demand for .prmd files
 """
 
-from pathlib import Path
-from typing import Optional, Set, Dict, Any, Tuple
-from jinja2 import BaseLoader, TemplateNotFound
 import threading
+from pathlib import Path
+from typing import Dict, Optional, Set, Tuple
 
+from jinja2 import BaseLoader, TemplateNotFound
 
 # Global include stack for circular dependency detection
 # Keyed by compilation ID to support concurrent compilations
@@ -115,7 +115,7 @@ class PrompdLoader(BaseLoader):
 
         # Check for circular includes
         if str(resolved_path) in include_stack:
-            stack = ' -> '.join(sorted(include_stack))
+            stack = " -> ".join(sorted(include_stack))
             raise TemplateNotFound(
                 f"Circular include detected: {stack} -> {resolved_path}"
             )
@@ -130,8 +130,8 @@ class PrompdLoader(BaseLoader):
         # Check if file exists
         if not resolved_path.exists():
             # Try with .prmd extension if not specified
-            if not str(resolved_path).endswith('.prmd'):
-                with_ext = resolved_path.parent / (resolved_path.name + '.prmd')
+            if not str(resolved_path).endswith(".prmd"):
+                with_ext = resolved_path.parent / (resolved_path.name + ".prmd")
                 if with_ext.exists():
                     resolved_path = with_ext
                 else:
@@ -161,14 +161,14 @@ class PrompdLoader(BaseLoader):
 
         # Read file content
         try:
-            content = file_path.read_text(encoding='utf-8')
+            content = file_path.read_text(encoding="utf-8")
         except Exception as e:
             raise TemplateNotFound(f"Failed to read {file_path}: {e}")
 
         # Process based on file extension
         ext = file_path.suffix.lower()
 
-        if ext == '.prmd':
+        if ext == ".prmd":
             # Parse .prmd file and extract body only
             processed_content = self._process_prompd_file(content, file_path)
         else:
@@ -176,7 +176,7 @@ class PrompdLoader(BaseLoader):
             processed_content = content
 
         if self.verbose:
-            preview = processed_content[:50].replace('\n', '\\n')
+            preview = processed_content[:50].replace("\n", "\\n")
             print(f"[include] Loaded {ext} file: {file_path} ({preview}...)")
 
         # Return (source, filename, uptodate_func)
@@ -205,7 +205,7 @@ class PrompdLoader(BaseLoader):
                 print(f"[include] Parsed .prmd: {file_path} ({param_count} params)")
 
             # Return just the body content (after frontmatter)
-            return parsed.content or ''
+            return parsed.content or ""
 
         except Exception as e:
             # If parsing fails, log warning and return raw content minus frontmatter
@@ -214,7 +214,7 @@ class PrompdLoader(BaseLoader):
 
             # Simple regex to strip frontmatter
             import re
-            without_frontmatter = re.sub(r'^---\r?\n[\s\S]*?\r?\n---\r?\n?', '', content)
+            without_frontmatter = re.sub(r"^---\r?\n[\s\S]*?\r?\n---\r?\n?", "", content)
             return without_frontmatter
 
     def _resolve_path(self, name: str) -> Path:
@@ -236,7 +236,7 @@ class PrompdLoader(BaseLoader):
         # Handle relative paths (./file.prmd, ../file.prmd, file.prmd)
         return self.base_dir / path
 
-    def create_child_loader(self, new_base_dir: Path) -> 'PrompdLoader':
+    def create_child_loader(self, new_base_dir: Path) -> "PrompdLoader":
         """
         Create a child loader for nested includes.
         The child loader shares the compilation ID to use the same include stack.

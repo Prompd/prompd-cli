@@ -129,7 +129,7 @@ def test_config_loading():
     config = PrompdConfig.load()
     
     # Check default values
-    assert config.config_dir == Path.home() / ".prmd"
+    assert config.config_dir == Path.home() / ".prompd"
     assert config.timeout == 30
     assert config.max_retries == 3
     assert isinstance(config.api_keys, dict)

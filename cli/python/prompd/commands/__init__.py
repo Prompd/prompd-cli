@@ -1,9 +1,9 @@
 """Modular command structure for Prompd CLI."""
 
-from .provider import provider
 from .git_ops import git_group
-from .version import version  
 from .package import package
+from .provider import provider
 from .registry import registry
+from .version import version
 
-__all__ = ['provider', 'git_group', 'version', 'package', 'registry']
+__all__ = ["provider", "git_group", "version", "package", "registry"]

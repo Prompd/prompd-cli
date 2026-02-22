@@ -1,10 +1,10 @@
 """Create command for generating new .prmd files"""
 
 from pathlib import Path
-from typing import Optional, Dict, Any
-import click
+from typing import Optional
+
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm, Prompt
 
 console = Console()
 
@@ -21,20 +21,20 @@ def create_prmd_file(
     """Create a new .prmd file with the specified options."""
 
     # Ensure .prmd extension
-    if not str(file_path).endswith('.prmd'):
-        file_path = Path(str(file_path) + '.prmd')
+    if not str(file_path).endswith(".prmd"):
+        file_path = Path(str(file_path) + ".prmd")
 
     # Interactive mode
     params = []
     if interactive:
         # Show just the filename with .prmd extension
         display_name = file_path.name
-        if not display_name.endswith('.prmd'):
-            display_name += '.prmd'
+        if not display_name.endswith(".prmd"):
+            display_name += ".prmd"
         console.print(f"[bold blue]Creating new ./{display_name} interactively[/bold blue]")
         console.print()
 
-        name = Prompt.ask("Prompt name", default=name or file_path.stem.replace('-', ' ').title())
+        name = Prompt.ask("Prompt name", default=name or file_path.stem.replace("-", " ").title())
         description = Prompt.ask("Description", default=description or "")
         author = Prompt.ask("Author", default=author or "")
         version = Prompt.ask("Version", default=version)
@@ -87,7 +87,7 @@ def create_prmd_file(
         if not template:
             use_template = Confirm.ask("Use a template?", default=False)
             if use_template:
-                template = Prompt.ask("Template", choices=['basic', 'analysis', 'security', 'code-review', 'creative'])
+                template = Prompt.ask("Template", choices=["basic", "analysis", "security", "code-review", "creative"])
 
     # Validate required fields in direct mode (unless template provides defaults)
     elif not interactive:
@@ -96,18 +96,18 @@ def create_prmd_file(
             if template:
                 name = f"{template.title()} Prompt"
             else:
-                name = file_path.stem.replace('-', ' ').title()
+                name = file_path.stem.replace("-", " ").title()
 
         if not description:
             if template:
                 template_descriptions = {
-                    'basic': 'A basic prompt template',
-                    'analysis': 'Analysis framework for structured evaluation',
-                    'security': 'Comprehensive security analysis and review',
-                    'code-review': 'Code quality and security review template',
-                    'creative': 'Creative content generation template'
+                    "basic": "A basic prompt template",
+                    "analysis": "Analysis framework for structured evaluation",
+                    "security": "Comprehensive security analysis and review",
+                    "code-review": "Code quality and security review template",
+                    "creative": "Creative content generation template"
                 }
-                description = template_descriptions.get(template, 'Generated from template')
+                description = template_descriptions.get(template, "Generated from template")
             else:
                 raise ValueError("--description is required when no template is specified")
 
@@ -133,7 +133,7 @@ def create_prmd_file(
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Write file
-    file_path.write_text(content, encoding='utf-8')
+    file_path.write_text(content, encoding="utf-8")
 
 
 def generate_prmd_content(
@@ -161,7 +161,7 @@ def generate_prmd_content(
             yaml_lines.append(f'  - name: {param["name"]}')
             yaml_lines.append(f'    type: {param["type"]}')
             if param["required"]:
-                yaml_lines.append(f'    required: true')
+                yaml_lines.append("    required: true")
             if param.get("description"):
                 yaml_lines.append(f'    description: {param["description"]}')
             if "default" in param:
@@ -192,7 +192,7 @@ def get_template_body(template: Optional[str], name: str, description: str, para
         param_section = f"\n\n## Parameters in Use\n\nThis prompt uses: {', '.join(param_examples)}\n"
 
     templates = {
-        'basic': f"""# {name}
+        "basic": f"""# {name}
 
 {description}{param_section}
 
@@ -208,7 +208,7 @@ def get_template_body(template: Optional[str], name: str, description: str, para
 
 [Describe the expected output format]""",
 
-        'analysis': f"""# {name}
+        "analysis": f"""# {name}
 
 {description}{param_section}
 
@@ -231,7 +231,7 @@ Based on the analysis, provide actionable recommendations.
 ## Output Format
 Structure your response with clear headings and bullet points for readability.""",
 
-        'security': f"""# Security Analysis: {name}
+        "security": f"""# Security Analysis: {name}
 
 {description}{param_section}
 
@@ -261,7 +261,7 @@ Perform a comprehensive security analysis focusing on:
 ## Output Format
 Provide a structured security report with clear severity ratings and actionable remediation steps.""",
 
-        'code-review': f"""# Code Review: {name}
+        "code-review": f"""# Code Review: {name}
 
 {description}{param_section}
 
@@ -295,7 +295,7 @@ Review against language-specific best practices and idioms.
 ## Output Format
 Provide specific line-by-line feedback with severity levels and suggested improvements.""",
 
-        'creative': f"""# {name}
+        "creative": f"""# {name}
 
 {description}{param_section}
 
@@ -326,6 +326,6 @@ Provide creative content that:
     }
 
     # Get template or use basic
-    template_body = templates.get(template, templates['basic'])
+    template_body = templates.get(template, templates["basic"])
 
     return template_body

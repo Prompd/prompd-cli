@@ -1,9 +1,10 @@
 """Core data models for prompd."""
 
 import re
-from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -31,11 +32,11 @@ class ParameterDefinition(BaseModel):
     max_value: Optional[Union[int, float]] = Field(None, alias="max")
     error_message: Optional[str] = None
 
-    @field_validator('name')
+    @field_validator("name")
     @classmethod
     def validate_name(cls, v):
         """Validate parameter name follows snake_case convention."""
-        if not v.replace('_', '').replace('-', '').isalnum():
+        if not v.replace("_", "").replace("-", "").isalnum():
             raise ValueError(f"Parameter name must be alphanumeric with underscores/hyphens: {v}")
         return v
 
@@ -89,9 +90,9 @@ class SectionReference(ContentReference):
 def parse_content_reference(value: Union[str, List[str], Dict[str, Any]]) -> ContentReference:
     """Parse content reference from various formats."""
     if isinstance(value, str):
-        if value.startswith('#'):
+        if value.startswith("#"):
             return SectionReference(section=value[1:])
-        elif value.startswith('./') or value.startswith('/'):
+        elif value.startswith("./") or value.startswith("/"):
             return FileReference(path=Path(value))
         else:
             return InlineContent(content=value)
@@ -122,7 +123,7 @@ class PrompdMetadata(BaseModel):
     parameters: List[ParameterDefinition] = Field(default_factory=list)
     requires: List[str] = Field(default_factory=list)
     inputs: Dict[str, Any] = Field(default_factory=dict)
-    
+
     # Composable architecture fields
     using: List[Union[str, UsingPackage]] = Field(default_factory=list)
     inherits: Optional[str] = None
@@ -135,15 +136,15 @@ class PrompdMetadata(BaseModel):
     user: Optional[Union[str, List[str]]] = None
     response: Optional[Union[str, List[str]]] = None
 
-    @field_validator('id')
+    @field_validator("id")
     @classmethod
     def validate_id(cls, v):
         """Validate id follows kebab-case convention."""
-        if v and not re.match(r'^[a-z0-9-]+$', v):
+        if v and not re.match(r"^[a-z0-9-]+$", v):
             raise ValueError(f"ID must use kebab-case (lowercase letters, numbers, hyphens): {v}")
         return v
 
-    @field_validator('override')
+    @field_validator("override")
     @classmethod
     def validate_override(cls, v):
         """
@@ -166,7 +167,7 @@ class PrompdMetadata(BaseModel):
             if not isinstance(section_id, str):
                 raise ValueError(f"Override section ID must be a string, got {type(section_id).__name__}: {section_id}")
 
-            if not re.match(r'^[a-z0-9-]+$', section_id):
+            if not re.match(r"^[a-z0-9-]+$", section_id):
                 raise ValueError(f"Override section ID must use kebab-case (lowercase letters, numbers, hyphens): {section_id}")
 
             # Validate override path (can be None for removal, or string for file path)
@@ -179,18 +180,18 @@ class PrompdMetadata(BaseModel):
                     raise ValueError(f"Override path cannot be empty for section '{section_id}'")
 
                 # Check for obvious path issues
-                invalid_chars = ['<', '>', '"', '|', '\0']
+                invalid_chars = ["<", ">", '"', "|", "\0"]
                 for char in invalid_chars:
                     if char in override_path:
                         raise ValueError(f"Override path contains invalid character '{char}' for section '{section_id}': {override_path}")
 
         return v
-    
+
     def model_post_init(self, __context):
         """Auto-generate id from name if not provided."""
         if not self.id and self.name:
             # Convert name to kebab-case
-            self.id = re.sub(r'[^a-z0-9]+', '-', self.name.lower()).strip('-')
+            self.id = re.sub(r"[^a-z0-9]+", "-", self.name.lower()).strip("-")
 
 
 class MessageRole(str, Enum):

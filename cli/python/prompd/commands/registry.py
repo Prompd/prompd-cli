@@ -1,6 +1,5 @@
 """Registry management commands."""
 
-from pathlib import Path
 from typing import Optional
 
 import click
@@ -16,78 +15,80 @@ def registry():
     pass
 
 
-@registry.command('list')
-@click.option('--limit', default=20, help='Number of packages to list')
-@click.option('--scope', help='Filter by scope (e.g., @prompd.io)')
+@registry.command("list")
+@click.option("--limit", default=20, help="Number of packages to list")
+@click.option("--scope", help="Filter by scope (e.g., @prompd.io)")
 def registry_list(limit: int, scope: Optional[str]):
     """List packages in the registry."""
     try:
-        from prompd.registry import RegistryClient
         from rich.table import Table
-        
+
+        from prompd.registry import RegistryClient
+
         client = RegistryClient()
-        
+
         # Use search with wildcard or scope
         if scope:
             query = f"scope:{scope}"
         else:
             query = "*"
-            
+
         packages = client.search(query, limit)
-        
+
         if not packages:
             console.print("[yellow]No packages found in registry[/yellow]")
             return
-        
+
         table = Table(title=f"Registry Packages{f' (scope: {scope})' if scope else ''}")
         table.add_column("Package", style="cyan")
         table.add_column("Version", style="green")
         table.add_column("Description", style="yellow", max_width=50)
         table.add_column("Downloads", style="red")
-        
+
         for pkg in packages:
-            name = pkg.get('name', 'Unknown')
-            version = pkg.get('version', 'Unknown')
-            desc = pkg.get('description', 'No description')
-            downloads = pkg.get('downloads', 0)
-            
+            name = pkg.get("name", "Unknown")
+            version = pkg.get("version", "Unknown")
+            desc = pkg.get("description", "No description")
+            downloads = pkg.get("downloads", 0)
+
             # Truncate long descriptions
             if len(desc) > 50:
                 desc = desc[:47] + "..."
-            
+
             table.add_row(name, version, desc, str(downloads))
-        
+
         console.print(table)
-        
+
     except Exception as e:
         console.print(f"[red]Error listing packages: {e}[/red]")
 
 
-@registry.command('status')
+@registry.command("status")
 def registry_status():
     """Show registry status and health."""
     try:
-        from prompd.registry import RegistryClient
         import requests
-        
+
+        from prompd.registry import RegistryClient
+
         client = RegistryClient()
-        
+
         # Check registry health
         health_url = f"{client.registry_url}/health"
         response = requests.get(health_url, timeout=5)
-        
+
         if response.status_code == 200:
             health_status = "🟢 Online"
         else:
             health_status = "🔴 Issues detected"
-        
+
         # Get registry info
         try:
             import requests
             registry_info_url = f"{client.registry_url}/.well-known/registry.json"
             registry_response = requests.get(registry_info_url, timeout=5)
             registry_data = registry_response.json()
-            
+
             info_content = f"""
 [bold cyan]Registry Status[/bold cyan]
 
@@ -114,8 +115,8 @@ def registry_status():
 [bold]Status:[/bold] {health_status}
 [bold]Details:[/bold] Unable to fetch registry information
 """
-        
+
         console.print(Panel(info_content.strip(), title="Registry Status"))
-        
+
     except Exception as e:
         console.print(f"[red]Error checking registry status: {e}[/red]")

@@ -9,7 +9,7 @@ sys.path.insert(0, r'C:\git\github\Logikbug\prompd-cli\cli\python')
 
 from prompd.shell import PrompdShell
 
-def test_chat_input(shell, input_text):
+def run_chat_input(shell, input_text):
     """Test a chat input and show results"""
     print(f"\n{'='*60}")
     print(f"USER: {input_text}")
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     ]
     
     for test_input in test_cases:
-        test_chat_input(shell, test_input)
+        run_chat_input(shell, test_input)
     
     print(f"\n{'='*60}")
     print("COMPREHENSIVE TEST COMPLETE!")

@@ -6,9 +6,9 @@ section-based content overrides in prompd template inheritance.
 """
 
 import re
-from typing import Dict, List, Optional, Tuple, Set
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 from .exceptions import ParseError, ValidationError
 
@@ -36,10 +36,10 @@ class SectionOverrideProcessor:
     def __init__(self):
         """Initialize the section override processor."""
         # Pattern to match markdown headings (# through ######)
-        self.heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
+        self.heading_pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
         # Pattern to match section ID comments
-        self.section_id_pattern = re.compile(r'<!--\s*section-id:\s*([a-z0-9-]+)\s*-->', re.IGNORECASE)
+        self.section_id_pattern = re.compile(r"<!--\s*section-id:\s*([a-z0-9-]+)\s*-->", re.IGNORECASE)
 
     def extract_sections(self, content: str) -> Dict[str, SectionInfo]:
         """
@@ -58,7 +58,7 @@ class SectionOverrideProcessor:
             return {}
 
         sections = {}
-        lines = content.split('\n')
+        lines = content.split("\n")
         current_section_id = None
         current_section_start = 0
         current_heading_text = ""
@@ -82,7 +82,7 @@ class SectionOverrideProcessor:
         for i, match in enumerate(heading_matches):
             heading_level = len(match.group(1))  # Number of # characters
             heading_text = match.group(2).strip()
-            heading_line = content[:match.start()].count('\n')
+            heading_line = content[:match.start()].count("\n")
 
             # Determine section ID
             section_id = None
@@ -112,7 +112,7 @@ class SectionOverrideProcessor:
             # Complete previous section if exists
             if current_section_id is not None:
                 end_line = heading_line - 1
-                section_content = '\n'.join(lines[current_section_start:end_line + 1]).strip()
+                section_content = "\n".join(lines[current_section_start:end_line + 1]).strip()
 
                 sections[current_section_id] = SectionInfo(
                     id=current_section_id,
@@ -132,7 +132,7 @@ class SectionOverrideProcessor:
         # Complete final section
         if current_section_id is not None:
             end_line = len(lines) - 1
-            section_content = '\n'.join(lines[current_section_start:end_line + 1]).strip()
+            section_content = "\n".join(lines[current_section_start:end_line + 1]).strip()
 
             sections[current_section_id] = SectionInfo(
                 id=current_section_id,
@@ -156,11 +156,11 @@ class SectionOverrideProcessor:
             Generated section ID in kebab-case format
         """
         # Convert to lowercase and replace non-alphanumeric with hyphens
-        section_id = re.sub(r'[^a-z0-9]+', '-', heading_text.lower()).strip('-')
+        section_id = re.sub(r"[^a-z0-9]+", "-", heading_text.lower()).strip("-")
 
         # Ensure it's not empty
         if not section_id:
-            section_id = 'untitled-section'
+            section_id = "untitled-section"
 
         return section_id
 
@@ -178,19 +178,19 @@ class SectionOverrideProcessor:
         if not section_id:
             raise ParseError(f"Empty section ID at line {line_number}")
 
-        if not re.match(r'^[a-z0-9-]+$', section_id):
+        if not re.match(r"^[a-z0-9-]+$", section_id):
             raise ParseError(
                 f"Invalid section ID '{section_id}' at line {line_number}. "
                 f"Section IDs must use kebab-case (lowercase letters, numbers, hyphens only)."
             )
 
-        if section_id.startswith('-') or section_id.endswith('-'):
+        if section_id.startswith("-") or section_id.endswith("-"):
             raise ParseError(
                 f"Invalid section ID '{section_id}' at line {line_number}. "
                 f"Section IDs cannot start or end with hyphens."
             )
 
-        if '--' in section_id:
+        if "--" in section_id:
             raise ParseError(
                 f"Invalid section ID '{section_id}' at line {line_number}. "
                 f"Section IDs cannot contain consecutive hyphens."
@@ -315,11 +315,11 @@ class SectionOverrideProcessor:
 
                     while depth < max_depth:
                         # Check for project markers
-                        if (search_dir / '.git').exists() or \
-                           (search_dir / '.prompd').exists() or \
-                           (search_dir / 'package.json').exists() or \
-                           (search_dir / 'pyproject.toml').exists() or \
-                           (search_dir / 'go.mod').exists():
+                        if (search_dir / ".git").exists() or \
+                           (search_dir / ".prompd").exists() or \
+                           (search_dir / "package.json").exists() or \
+                           (search_dir / "pyproject.toml").exists() or \
+                           (search_dir / "go.mod").exists():
                             project_root = search_dir
                             break
 
@@ -370,7 +370,7 @@ class SectionOverrideProcessor:
 
         except ValidationError:
             raise
-        except Exception as e:
+        except Exception:
             raise ValidationError(
                 f"Failed to load override content from '{override_path}'. "
                 f"Please verify the file exists and is accessible."
@@ -413,11 +413,11 @@ class SectionOverrideProcessor:
             raise ValidationError("Unable to verify file type for security validation.")
 
         # Try common encodings in order of preference
-        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
+        encodings = ["utf-8", "utf-8-sig", "latin-1", "cp1252"]
 
         for encoding in encodings:
             try:
-                with open(file_path, 'r', encoding=encoding) as f:
+                with open(file_path, encoding=encoding) as f:
                     return f.read()
             except UnicodeDecodeError:
                 continue
@@ -514,7 +514,7 @@ class SectionOverrideProcessor:
         for section_info in final_sections.values():
             content_parts.append(section_info.content)
 
-        final_content = '\n\n'.join(content_parts)
+        final_content = "\n\n".join(content_parts)
 
         if verbose:
             print(f"Generated final content with {len(final_sections)} sections")

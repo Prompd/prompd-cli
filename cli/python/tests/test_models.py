@@ -149,7 +149,7 @@ class TestExecutionContext:
             api_key="test-key"
         )
         
-        assert context.prmd.metadata.name == "test"
+        assert context.prompd.metadata.name == "test"
         assert context.parameters["name"] == "World"
         assert context.provider == "openai"
         assert context.model == "gpt-4"
