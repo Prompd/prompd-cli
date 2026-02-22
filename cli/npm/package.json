@@ -1,6 +1,6 @@
 {
   "name": "@prompd/cli",
-  "version": "0.4.11",
+  "version": "0.5.0-beta.1",
   "description": "Node.js CLI for structured prompt definitions with universal LLM provider support. Also usable as a library in TypeScript/React apps.",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
