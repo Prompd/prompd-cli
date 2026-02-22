@@ -4,16 +4,16 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'cli/npm/**'
-      - 'cli/python/**'
-      - 'cli/go/**'
+      - 'typescript/**'
+      - 'python/**'
+      - 'go/**'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'cli/npm/**'
-      - 'cli/python/**'
-      - 'cli/go/**'
+      - 'typescript/**'
+      - 'python/**'
+      - 'go/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: cli/npm
+        working-directory: typescript
     strategy:
       matrix:
         node-version: [18, 20]
@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-          cache-dependency-path: cli/npm/package-lock.json
+          cache-dependency-path: typescript/package-lock.json
 
       - name: Install dependencies
         run: npm install
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: cli/python
+        working-directory: python
     strategy:
       matrix:
         python-version: ['3.9', '3.11', '3.12']
@@ -65,7 +65,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: cli/python/pyproject.toml
+          cache-dependency-path: python/pyproject.toml
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: cli/go
+        working-directory: go
     strategy:
       matrix:
         go-version: ['1.21', '1.22']
@@ -95,7 +95,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
-          cache-dependency-path: cli/go/go.sum
+          cache-dependency-path: go/go.sum
 
       - name: Build
         run: go build -o prompd ./cmd/prompd
@@ -115,18 +115,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache-dependency-path: cli/go/go.sum
+          cache-dependency-path: go/go.sum
 
       - name: Build all platforms
-        working-directory: cli/go
+        working-directory: go
         run: |
-          mkdir -p ../../dist
-          GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ../../dist/prompd-windows-amd64.exe ./cmd/prompd
-          GOOS=windows GOARCH=arm64 go build -ldflags "-s -w" -o ../../dist/prompd-windows-arm64.exe ./cmd/prompd
-          GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ../../dist/prompd-linux-amd64 ./cmd/prompd
-          GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o ../../dist/prompd-linux-arm64 ./cmd/prompd
-          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ../../dist/prompd-darwin-amd64 ./cmd/prompd
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o ../../dist/prompd-darwin-arm64 ./cmd/prompd
+          mkdir -p ../dist
+          GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ../dist/prompd-windows-amd64.exe ./cmd/prompd
+          GOOS=windows GOARCH=arm64 go build -ldflags "-s -w" -o ../dist/prompd-windows-arm64.exe ./cmd/prompd
+          GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ../dist/prompd-linux-amd64 ./cmd/prompd
+          GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o ../dist/prompd-linux-arm64 ./cmd/prompd
+          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ../dist/prompd-darwin-amd64 ./cmd/prompd
+          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o ../dist/prompd-darwin-arm64 ./cmd/prompd
 
       - name: Upload Go binaries
         uses: actions/upload-artifact@v4
@@ -143,7 +143,7 @@ jobs:
     environment: production
     defaults:
       run:
-        working-directory: cli/npm
+        working-directory: typescript
     steps:
       - uses: actions/checkout@v4
 
@@ -169,7 +169,7 @@ jobs:
     environment: production
     defaults:
       run:
-        working-directory: cli/python
+        working-directory: python
     steps:
       - uses: actions/checkout@v4
 

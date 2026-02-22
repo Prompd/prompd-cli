@@ -99,4 +99,4 @@ vscode-extension/.vscode-test/
 # Test outputs
 test-results/
 *.log
-/cli/npm/node_modules
+/typescript/node_modules

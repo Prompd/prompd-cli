@@ -15,10 +15,10 @@ pip install prompd
 
 # Option 2: Go CLI (Zero Dependencies, Single Binary)
 # Download from releases or build:
-cd cli/go && go build -o prompd ./cmd/prompd
+cd go && go build -o prompd ./cmd/prompd
 
-# Option 3: Node.js CLI (Developer Focused)
-cd cli/npm && npm install && npm run build
+# Option 3: Node.js/TypeScript CLI (Developer Focused)
+cd typescript && npm install && npm run build
 ```
 
 **Choose based on your deployment needs:**
@@ -43,10 +43,10 @@ git clone https://github.com/Prompd/prompd-cli.git
 cd prompd-cli
 
 # Python CLI
-pip install -e cli/python/
+pip install -e python/
 
 # Or with development dependencies
-pip install -e "cli/python/[dev]"
+pip install -e "python/[dev]"
 ```
 
 ### Requirements
