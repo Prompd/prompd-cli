@@ -36,7 +36,7 @@ def show():
             "defaults": {
                 "provider": config_obj.default_provider or "not set",
                 "model": config_obj.default_model or "not set",
-                "registry": config_obj.default_registry or "not set"
+                "registry": config_obj.default_registry or "not set",
             },
             "custom_providers": config_obj.custom_providers,
             "registries": config_obj.registries,
@@ -44,8 +44,8 @@ def show():
             "settings": {
                 "timeout": config_obj.timeout,
                 "max_retries": config_obj.max_retries,
-                "verbose": config_obj.verbose
-            }
+                "verbose": config_obj.verbose,
+            },
         }
 
         click.echo(yaml.dump(config_dict, default_flow_style=False, sort_keys=False))
@@ -192,6 +192,7 @@ def provider_list():
 
         click.echo("Built-in providers:")
         from prompd.providers import registry as provider_registry
+
         builtin_providers = provider_registry.get_available_providers()
 
         for provider_name in sorted(builtin_providers):
@@ -210,10 +211,7 @@ def provider_list():
                 enabled = "(enabled)" if provider_config.get("enabled", True) else "(disabled)"
                 models = provider_config.get("models", [])
                 # Models may be strings or dicts with 'id'/'name' keys
-                model_names = [
-                    m["id"] if isinstance(m, dict) else str(m)
-                    for m in models
-                ]
+                model_names = [m["id"] if isinstance(m, dict) else str(m) for m in models]
                 models_str = ", ".join(model_names[:3]) + ("..." if len(model_names) > 3 else "")
                 click.echo(f"  {name} {enabled}: {models_str}")
 
@@ -243,11 +241,7 @@ def provider_add(name: str, url: str, models: tuple, api_key: Optional[str], ena
         config_obj = PrompdConfig.load()
 
         # Add custom provider
-        config_obj.custom_providers[name] = {
-            "base_url": url,
-            "models": list(models),
-            "enabled": enabled
-        }
+        config_obj.custom_providers[name] = {"base_url": url, "models": list(models), "enabled": enabled}
 
         # Set API key if provided
         if api_key:
@@ -298,6 +292,7 @@ def provider_setkey(name: str, api_key: str):
 
         # Check if provider exists (builtin or custom)
         from prompd.providers import registry as provider_registry
+
         builtin_providers = provider_registry.get_available_providers()
 
         if name not in builtin_providers and name not in config_obj.custom_providers:

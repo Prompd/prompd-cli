@@ -21,7 +21,7 @@ class AnthropicProvider(BaseProvider):
             "claude-3-5-haiku-20241022",
             "claude-3-opus-20240229",
             "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307"
+            "claude-3-haiku-20240307",
         ]
 
     async def execute(self, request: LLMRequest) -> LLMResponse:
@@ -41,16 +41,13 @@ class AnthropicProvider(BaseProvider):
             if msg.role == MessageRole.SYSTEM:
                 system_content += msg.content + "\n"
             else:
-                messages.append({
-                    "role": msg.role.value,
-                    "content": msg.content
-                })
+                messages.append({"role": msg.role.value, "content": msg.content})
 
         # Build request payload
         payload = {
             "model": request.model or self.get_default_model(),
             "max_tokens": request.max_tokens or 1024,
-            "messages": messages
+            "messages": messages,
         }
 
         # Add system message if present
@@ -69,11 +66,12 @@ class AnthropicProvider(BaseProvider):
             "x-api-key": api_key,
             "Content-Type": "application/json",
             "anthropic-version": "2023-06-01",
-            **self.config.extra_headers
+            **self.config.extra_headers,
         }
 
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
@@ -84,10 +82,7 @@ class AnthropicProvider(BaseProvider):
                 content = data["content"][0]["text"]
 
                 return LLMResponse(
-                    content=content,
-                    model=data.get("model"),
-                    usage=data.get("usage"),
-                    metadata={"raw_response": data}
+                    content=content, model=data.get("model"), usage=data.get("usage"), metadata={"raw_response": data}
                 )
 
         except httpx.HTTPStatusError as e:
@@ -108,10 +103,7 @@ class AnthropicProvider(BaseProvider):
 
         # Add system message if present
         if content.get("system"):
-            messages.append(LLMMessage(
-                role=MessageRole.SYSTEM,
-                content=content["system"]
-            ))
+            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=content["system"]))
 
         # Build user message (combine context and user if both present)
         user_content_parts = []
@@ -128,16 +120,12 @@ class AnthropicProvider(BaseProvider):
 
         if user_content_parts:
             user_content = "\n\n".join(user_content_parts)
-            messages.append(LLMMessage(
-                role=MessageRole.USER,
-                content=user_content
-            ))
+            messages.append(LLMMessage(role=MessageRole.USER, content=user_content))
 
         return LLMRequest(
             messages=messages,
             model=context.model,
             max_tokens=context.extra_config.get("max_tokens", 1024),
             temperature=context.extra_config.get("temperature"),
-            extra_params={k: v for k, v in context.extra_config.items()
-                         if k not in ["max_tokens", "temperature"]}
+            extra_params={k: v for k, v in context.extra_config.items() if k not in ["max_tokens", "temperature"]},
         )

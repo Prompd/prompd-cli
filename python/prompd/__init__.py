@@ -2,6 +2,7 @@
 
 __version__ = "0.5.0b1"
 
+
 def check_prompd_version():
     """Return the current version from __init__.py"""
     return __version__

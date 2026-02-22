@@ -44,10 +44,18 @@ cli.add_command(config)
 
 
 def _run_impl(
-    ctx, file: Path, provider: Optional[str], model: Optional[str],
-    param: tuple, param_file: tuple, api_key: Optional[str],
-    output: Optional[str], format: str, version: Optional[str],
-    verbose: bool, show_usage: bool,
+    ctx,
+    file: Path,
+    provider: Optional[str],
+    model: Optional[str],
+    param: tuple,
+    param_file: tuple,
+    api_key: Optional[str],
+    output: Optional[str],
+    format: str,
+    version: Optional[str],
+    verbose: bool,
+    show_usage: bool,
 ):
     import asyncio
     import tempfile
@@ -66,11 +74,7 @@ def _run_impl(
                 if _is_valid_semver(version):
                     tag_name = f"{file.stem}-v{version}"
                     # Check if tag exists
-                    tag_check = subprocess.run(
-                        ["git", "tag", "-l", tag_name],
-                        capture_output=True,
-                        text=True
-                    )
+                    tag_check = subprocess.run(["git", "tag", "-l", tag_name], capture_output=True, text=True)
                     version_ref = tag_name if tag_check.stdout.strip() else version
                 else:
                     version_ref = version
@@ -78,10 +82,7 @@ def _run_impl(
                 # Convert Windows paths to forward slashes for git
                 git_path = str(file).replace("\\", "/")
                 result = subprocess.run(
-                    ["git", "show", f"{version_ref}:{git_path}"],
-                    capture_output=True,
-                    text=True,
-                    check=True
+                    ["git", "show", f"{version_ref}:{git_path}"], capture_output=True, text=True, check=True
                 )
 
                 tmp.write(result.stdout)
@@ -102,7 +103,7 @@ def _run_impl(
                     section = token.split(":", 1)[1]
                     # Grab the next arg as the value if present
                     if i + 1 < len(extra_args):
-                        val = extra_args[i+1]
+                        val = extra_args[i + 1]
                         # Pass through as meta:{section} for executor to process dynamically
                         metadata_overrides[f"meta:{section}"] = str(val)
                         i += 2
@@ -115,6 +116,7 @@ def _run_impl(
         # Create executor
         from prompd.config import PrompdConfig
         from prompd.executor import PrompdExecutor
+
         executor = PrompdExecutor()
 
         # Resolve defaults for provider/model when omitted
@@ -155,15 +157,17 @@ def _run_impl(
         param_files = [Path(p) for p in param_file] if param_file else None
 
         # Execute
-        response = asyncio.run(executor.execute(
-            prompd_file=actual_file,
-            provider=provider,
-            model=model,
-            cli_params=cli_params,
-            param_files=param_files,
-            api_key=api_key,
-            metadata_overrides=metadata_overrides if metadata_overrides else None
-        ))
+        response = asyncio.run(
+            executor.execute(
+                prompd_file=actual_file,
+                provider=provider,
+                model=model,
+                cli_params=cli_params,
+                param_files=param_files,
+                api_key=api_key,
+                metadata_overrides=metadata_overrides if metadata_overrides else None,
+            )
+        )
 
         # Clean up temp file if created
         if temp_file and temp_file.exists():
@@ -172,12 +176,8 @@ def _run_impl(
         # Output result based on format
         if format == "json":
             import json
-            result = {
-                "response": response.content,
-                "provider": provider,
-                "model": model,
-                "file": str(file)
-            }
+
+            result = {"response": response.content, "provider": provider, "model": model, "file": str(file)}
             if response.usage:
                 result["usage"] = response.usage
 
@@ -203,11 +203,9 @@ def _run_impl(
                     print(f"OK - Response written to {output}")
             else:
                 try:
-                    console.print(Panel(
-                        response.content,
-                        title=f"Response from {provider}/{model}",
-                        border_style="green"
-                    ))
+                    console.print(
+                        Panel(response.content, title=f"Response from {provider}/{model}", border_style="green")
+                    )
                 except UnicodeEncodeError:
                     # Fallback for Windows console encoding issues
                     print(f"\n--- Response from {provider}/{model} ---")
@@ -243,29 +241,29 @@ def _run_impl(
             console.print(f"[red]Unexpected error:[/red] {e}")
             if verbose:
                 import traceback
+
                 console.print(traceback.format_exc())
         except UnicodeEncodeError:
             print(f"Unexpected error: {e}")
             if verbose:
                 import traceback
+
                 print(traceback.format_exc())
         sys.exit(1)
-
-
-
-
 
 
 @cli.command(name="run", context_settings=dict(ignore_unknown_options=True))
 @click.argument("source")  # Accept string to allow package references
 @click.option(
-    "--provider", required=False,
+    "--provider",
+    required=False,
     help="LLM provider (openai, anthropic, ollama). Defaults from config if omitted",
 )
 @click.option("--model", required=False, help="Model name. Defaults from config/provider if omitted")
 @click.option("--param", "-p", multiple=True, help="Parameter in format key=value")
-@click.option("--param-file", "-f", type=click.Path(exists=True, path_type=Path),
-              multiple=True, help="JSON parameter file")
+@click.option(
+    "--param-file", "-f", type=click.Path(exists=True, path_type=Path), multiple=True, help="JSON parameter file"
+)
 @click.option("--api-key", help="API key override")
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
 @click.option("--format", type=click.Choice(["text", "json"]), default="text", help="Output format")
@@ -274,10 +272,18 @@ def _run_impl(
 @click.option("--show-usage", is_flag=True, help="Show token usage statistics")
 @click.pass_context
 def run(
-    ctx, source: str, provider: Optional[str], model: Optional[str],
-    param: tuple, param_file: tuple, api_key: Optional[str],
-    output: Optional[str], format: str, version: Optional[str],
-    verbose: bool, show_usage: bool,
+    ctx,
+    source: str,
+    provider: Optional[str],
+    model: Optional[str],
+    param: tuple,
+    param_file: tuple,
+    api_key: Optional[str],
+    output: Optional[str],
+    format: str,
+    version: Optional[str],
+    verbose: bool,
+    show_usage: bool,
 ):
     """Run a .prmd file or package reference with an LLM provider.
 
@@ -290,6 +296,7 @@ def run(
     """
     # Check if source is a package reference with path
     import re
+
     package_pattern = r"^(@[\w.-]+/[\w.-]+|[\w.-]+)@([\w.-]+)/(.+\.prmd)$"
     match = re.match(package_pattern, source)
 
@@ -304,6 +311,7 @@ def run(
 
         # Resolve the package
         from .package_resolver import PackageResolver
+
         resolver = PackageResolver()
 
         try:
@@ -329,9 +337,21 @@ def run(
             sys.exit(1)
 
     return _run_impl(
-        ctx, file, provider, model, param, param_file,
-        api_key, output, format, version, verbose, show_usage,
+        ctx,
+        file,
+        provider,
+        model,
+        param,
+        param_file,
+        api_key,
+        output,
+        format,
+        version,
+        verbose,
+        show_usage,
     )
+
+
 @cli.command()
 @click.argument("source")  # Accept string to allow package references
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed validation results")
@@ -347,6 +367,7 @@ def validate(source: str, verbose: bool, git: bool, version_only: bool, check_ov
     """
     # Check if source is a package reference with path
     import re
+
     package_pattern = r"^(@[\w.-]+/[\w.-]+|[\w.-]+)@([\w.-]+)/(.+\.prmd)$"
     match = re.match(package_pattern, source)
 
@@ -361,6 +382,7 @@ def validate(source: str, verbose: bool, git: bool, version_only: bool, check_ov
 
         # Resolve the package
         from .package_resolver import PackageResolver
+
         resolver = PackageResolver()
 
         try:
@@ -387,6 +409,7 @@ def validate(source: str, verbose: bool, git: bool, version_only: bool, check_ov
 
     try:
         from prompd.validator import PrompdValidator
+
         validator = PrompdValidator()
 
         if version_only:
@@ -405,6 +428,7 @@ def validate(source: str, verbose: bool, git: bool, version_only: bool, check_ov
         if check_overrides:
             try:
                 from prompd.parser import PrompdParser
+
                 parser = PrompdParser()
                 prompd = parser.parse_file(file)
 
@@ -432,15 +456,9 @@ def validate(source: str, verbose: bool, git: bool, version_only: bool, check_ov
 
                             # Add as warnings to issues
                             for warning in override_warnings:
-                                issues.append({
-                                    "level": "warning",
-                                    "message": f"Override validation: {warning}"
-                                })
+                                issues.append({"level": "warning", "message": f"Override validation: {warning}"})
                         else:
-                            issues.append({
-                                "level": "error",
-                                "message": f"Parent template not found: {parent_file}"
-                            })
+                            issues.append({"level": "error", "message": f"Parent template not found: {parent_file}"})
                     else:
                         if verbose:
                             console.print(
@@ -452,10 +470,7 @@ def validate(source: str, verbose: bool, git: bool, version_only: bool, check_ov
                         console.print("\n[blue]Override Check:[/blue] File does not use inheritance")
 
             except Exception as e:
-                issues.append({
-                    "level": "error",
-                    "message": f"Override validation failed: {e}"
-                })
+                issues.append({"level": "error", "message": f"Override validation failed: {e}"})
 
         if not issues:
             console.print(f"[green]OK[/green] {file} is valid")
@@ -488,14 +503,20 @@ def validate(source: str, verbose: bool, git: bool, version_only: bool, check_ov
 
 
 @cli.command("list")
-@click.option("--path", "-p", type=click.Path(exists=True, path_type=Path),
-              default=Path("."), help="Directory to search for .prmd files")
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, path_type=Path),
+    default=Path("."),
+    help="Directory to search for .prmd files",
+)
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed information")
 @click.option("--recursive", "-r", is_flag=True, help="Search recursively in subdirectories")
 def list_prompts(path: Path, detailed: bool, recursive: bool):
     """List available .prmd files."""
     try:
         from prompd.parser import PrompdParser
+
         # Use recursive glob only if --recursive is specified
         if recursive:
             prompd_files = list(Path(path).glob("**/*.prmd"))
@@ -513,14 +534,16 @@ def list_prompts(path: Path, detailed: bool, recursive: bool):
                     prompd = parser.parse_file(prompd_file)
                     metadata = prompd.metadata
 
-                    console.print(Panel(
-                        f"[bold]{metadata.name or prompd_file.stem}[/bold]\n"
-                        f"[dim]File:[/dim] {prompd_file}\n"
-                        f"[dim]Description:[/dim] {metadata.description or 'No description'}\n"
-                        f"[dim]Version:[/dim] {metadata.version or 'N/A'}\n"
-                        f"[dim]Variables:[/dim] {', '.join(p.name for p in metadata.parameters)}",
-                        border_style="blue"
-                    ))
+                    console.print(
+                        Panel(
+                            f"[bold]{metadata.name or prompd_file.stem}[/bold]\n"
+                            f"[dim]File:[/dim] {prompd_file}\n"
+                            f"[dim]Description:[/dim] {metadata.description or 'No description'}\n"
+                            f"[dim]Version:[/dim] {metadata.version or 'N/A'}\n"
+                            f"[dim]Variables:[/dim] {', '.join(p.name for p in metadata.parameters)}",
+                            border_style="blue",
+                        )
+                    )
                 except Exception as e:
                     console.print(f"[red]Error reading {prompd_file}:[/red] {e}")
         else:
@@ -537,8 +560,11 @@ def list_prompts(path: Path, detailed: bool, recursive: bool):
                     table.add_row(
                         metadata.name or prompd_file.stem,
                         str(prompd_file),
-                        (metadata.description or "")[:60] + "..."
-                        if len(metadata.description or "") > 60 else (metadata.description or "")
+                        (
+                            (metadata.description or "")[:60] + "..."
+                            if len(metadata.description or "") > 60
+                            else (metadata.description or "")
+                        ),
                     )
                 except Exception:
                     table.add_row(prompd_file.stem, str(prompd_file), "[red]Error reading file[/red]")
@@ -571,8 +597,7 @@ def mcp_serve(path: Path, host: str, port: int, oauth_client_id: str, auth_url: 
             from prompd.mcp_server import serve_app
         except Exception as imp_err:
             console.print(
-                "[red]FastAPI/uvicorn not installed.[/red] "
-                "Install with: [cyan]pip install fastapi uvicorn[/cyan]"
+                "[red]FastAPI/uvicorn not installed.[/red] " "Install with: [cyan]pip install fastapi uvicorn[/cyan]"
             )
             console.print(f"[dim]{imp_err}[/dim]")
             sys.exit(1)
@@ -582,12 +607,7 @@ def mcp_serve(path: Path, host: str, port: int, oauth_client_id: str, auth_url: 
             file_path=path,
             host=host,
             port=port,
-            oauth={
-                "client_id": oauth_client_id,
-                "auth_url": auth_url,
-                "token_url": token_url,
-                "scopes": scope_list
-            }
+            oauth={"client_id": oauth_client_id, "auth_url": auth_url, "token_url": token_url, "scopes": scope_list},
         )
     except Exception as e:
         console.print(f"[red]Failed to start MCP server:[/red] {e}")
@@ -597,15 +617,19 @@ def mcp_serve(path: Path, host: str, port: int, oauth_client_id: str, auth_url: 
 @mcp.command("dockerize")
 @click.option("--dockerfile", default="Dockerfile.prmd-mcp", help="Output Dockerfile name", show_default=True)
 @click.option(
-    "--compose", default="docker-compose.prmd-mcp.yml",
-    help="Output docker-compose file name", show_default=True,
+    "--compose",
+    default="docker-compose.prmd-mcp.yml",
+    help="Output docker-compose file name",
+    show_default=True,
 )
 @click.option("--port", type=int, default=3333, help="Container port to expose", show_default=True)
 def mcp_dockerize(dockerfile: str, compose: str, port: int):
     """Scaffold Docker + Compose files to serve a .prmd/.pdflow via MCP."""
     try:
         from textwrap import dedent
-        dockerfile_content = dedent(f"""
+
+        dockerfile_content = dedent(
+            f"""
         # Prompd MCP server image
         FROM python:3.11-slim
         WORKDIR /app
@@ -617,9 +641,11 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
         EXPOSE {port}
         # Serve any mounted file under /data; override the path with docker run args or compose command
         CMD ["prompd", "mcp", "serve", "/data/prompt.prmd", "--host", "0.0.0.0", "--port", "{port}"]
-        """)
+        """
+        )
 
-        compose_content = dedent(f"""
+        compose_content = dedent(
+            f"""
         version: "3.9"
         services:
           prompd-mcp:
@@ -637,7 +663,8 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
               - "{port}:{port}"
             # Example override: serve a different file
             # command: ["prompd", "mcp", "serve", "/data/workflow.pdflow", "--host", "0.0.0.0", "--port", "{port}"]
-        """)
+        """
+        )
 
         Path(dockerfile).write_text(dockerfile_content, encoding="utf-8")
         Path(compose).write_text(compose_content, encoding="utf-8")
@@ -645,14 +672,14 @@ def mcp_dockerize(dockerfile: str, compose: str, port: int):
         console.print("Build + run:")
         console.print(f"  [dim]docker build -f {dockerfile} -t prompd-mcp .[/dim]")
         console.print(
-            f"  [dim]docker run -p {port}:{port} "
-            f"-v $PWD/prompds:/data -e OPENAI_API_KEY=sk-... prompd-mcp[/dim]"
+            f"  [dim]docker run -p {port}:{port} " f"-v $PWD/prompds:/data -e OPENAI_API_KEY=sk-... prompd-mcp[/dim]"
         )
         console.print("Or via compose:")
         console.print(f"  [dim]docker compose -f {compose} up --build[/dim]")
     except Exception as e:
         console.print(f"[red]Failed to scaffold Docker files:[/red] {e}")
         sys.exit(1)
+
 
 @cli.command("shell")
 @click.option("--simple", is_flag=True, help="Use the simple REPL (no AI chat UI)")
@@ -664,6 +691,7 @@ def shell_command(simple: bool):
         #     SimplePrompdREPL().start()
         # else:
         from prompd.shell import PrompdShell
+
         PrompdShell().start()
     except Exception as e:
         try:
@@ -678,6 +706,7 @@ def chat_command():
     """Start the Prompd shell directly in chat mode. [BETA FEATURE]"""
     try:
         from prompd.shell import PrompdShell
+
         sh = PrompdShell()
         sh.enter_chat_mode()
         sh.start()
@@ -688,40 +717,57 @@ def chat_command():
             print(f"Error launching chat: {e}")
         sys.exit(1)
 
+
 @cli.command("compile", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.argument("source", type=str)
 @click.option(
-    "--to", "output_format", default="markdown",
+    "--to",
+    "output_format",
+    default="markdown",
     help="Output format (markdown | provider-json | pdflow-compiled | langflow | n8n | trim)",
 )
 @click.option("--to-markdown", is_flag=True, help="Shorthand for --to markdown")
 @click.option(
-    "--to-provider-json", type=click.Choice(["openai", "anthropic"]),
+    "--to-provider-json",
+    type=click.Choice(["openai", "anthropic"]),
     help="Shorthand for --to provider-json <provider>",
 )
 @click.option(
-    "--format", "workflow_format",
+    "--format",
+    "workflow_format",
     type=click.Choice(["pdflow-compiled", "langflow", "n8n", "trim", "plain"]),
     help="Workflow output format (for .pdflow files)",
 )
 @click.option(
-    "--preserve-runtime-vars/--no-preserve-runtime-vars", default=True,
+    "--preserve-runtime-vars/--no-preserve-runtime-vars",
+    default=True,
     help="Keep {{ }} variables for runtime substitution",
 )
 @click.option("--trim", is_flag=True, help="Remove visual/editor metadata from output")
 @click.option("-p", "--param", multiple=True, help="Parameter in format key=value (repeat for multiple)")
 @click.option(
-    "-f", "--params-file", type=click.Path(exists=True, path_type=Path),
-    multiple=True, help="Load parameters from JSON file (repeatable)",
+    "-f",
+    "--params-file",
+    type=click.Path(exists=True, path_type=Path),
+    multiple=True,
+    help="Load parameters from JSON file (repeatable)",
 )
 @click.option("-o", "--output", type=click.Path(), help="Write compiled output to file")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.pass_context
 def compile_command(
-    ctx, source: str, output_format: str, to_markdown: bool,
-    to_provider_json: Optional[str], workflow_format: Optional[str],
-    preserve_runtime_vars: bool, trim: bool, param: tuple,
-    params_file: tuple, output: Optional[str], verbose: bool,
+    ctx,
+    source: str,
+    output_format: str,
+    to_markdown: bool,
+    to_provider_json: Optional[str],
+    workflow_format: Optional[str],
+    preserve_runtime_vars: bool,
+    trim: bool,
+    param: tuple,
+    params_file: tuple,
+    output: Optional[str],
+    verbose: bool,
 ):
     """Compile a .prmd file, .pdflow workflow, or package reference to a target format.
 
@@ -764,7 +810,7 @@ def compile_command(
                 source_path,
                 output_format=wf_format,
                 preserve_runtime_vars=preserve_runtime_vars,
-                trim=trim or (wf_format in ("trim", "plain"))
+                trim=trim or (wf_format in ("trim", "plain")),
             )
 
             if output:
@@ -797,6 +843,7 @@ def compile_command(
 
             # Resolve the package
             from .package_resolver import PackageResolver
+
             resolver = PackageResolver()
 
             try:
@@ -822,6 +869,7 @@ def compile_command(
             if "@" in source and "/" not in source.split("@")[-1]:
                 # Might be just a package reference, try to resolve it
                 from .package_resolver import PackageResolver
+
                 resolver = PackageResolver()
 
                 try:
@@ -830,6 +878,7 @@ def compile_command(
                     manifest_file = package_path / "manifest.json"
                     if manifest_file.exists():
                         import json
+
                         with open(manifest_file) as f:
                             manifest = json.load(f)
                         main_file = manifest.get("main")
@@ -855,7 +904,7 @@ def compile_command(
                     section = token.split(":", 1)[1]
                     # Grab the next arg as the value if present
                     if i + 1 < len(extra_args):
-                        val = extra_args[i+1]
+                        val = extra_args[i + 1]
                         # Store the section name without the meta: prefix
                         metadata_overrides[section] = str(val)
                         i += 2
@@ -869,6 +918,7 @@ def compile_command(
         parameters: Dict[str, Any] = {}
         if params_file:
             import json
+
             for pf in params_file:
                 try:
                     data = json.loads(Path(pf).read_text(encoding="utf-8"))
@@ -880,6 +930,7 @@ def compile_command(
 
         if param:
             import json
+
             for kv in param:
                 if "=" not in kv:
                     console.print(f"[red]Invalid parameter:[/red] {kv}. Use key=value")
@@ -931,8 +982,7 @@ def compile_command(
         if verbose:
             try:
                 console.print(
-                    f"[dim]Compiling {source} -> {output_format} "
-                    f"with params: {list(parameters.keys())}[/dim]"
+                    f"[dim]Compiling {source} -> {output_format} " f"with params: {list(parameters.keys())}[/dim]"
                 )
             except Exception:
                 pass
@@ -955,7 +1005,7 @@ def compile_command(
             output_format=output_format,
             parameters=parameters,
             output_file=Path(output) if output else None,
-            verbose=verbose
+            verbose=verbose,
         )
 
         if output:
@@ -972,7 +1022,6 @@ def compile_command(
         except Exception:
             print(f"Error compiling: {e}")
         sys.exit(1)
-
 
 
 # Removed provider commands - moved to prompd.commands.config
@@ -999,12 +1048,14 @@ def show(file: Path, sections: bool, verbose: bool):
     """Show the structure and parameters of a .prmd file."""
     try:
         from prompd.parser import PrompdParser
+
         parser = PrompdParser()
         prompd = parser.parse_file(file)
         metadata = prompd.metadata
 
-        console.print(Panel(f"[bold cyan]{metadata.name}[/bold cyan]",
-                           subtitle=f"Version: {metadata.version or 'N/A'}"))
+        console.print(
+            Panel(f"[bold cyan]{metadata.name}[/bold cyan]", subtitle=f"Version: {metadata.version or 'N/A'}")
+        )
 
         if metadata.description:
             console.print(f"\n[bold]Description:[/bold] {metadata.description}\n")
@@ -1023,7 +1074,7 @@ def show(file: Path, sections: bool, verbose: bool):
                     param.type.value,
                     "Yes" if param.required else "No",
                     str(param.default or "")[:20],
-                    param.description[:40] if param.description else ""
+                    param.description[:40] if param.description else "",
                 )
             console.print(table)
 
@@ -1155,6 +1206,7 @@ def _explain_prmd_file(file_path: Path, detailed: bool, show_sections: bool, sho
     try:
         # Parse file
         from prompd.parser import PrompdParser
+
         parser = PrompdParser()
         prompd = parser.parse_file(file_path)
         metadata = prompd.metadata
@@ -1255,11 +1307,15 @@ def _explain_prmd_file(file_path: Path, detailed: bool, show_sections: bool, sho
 
             try:
                 import subprocess
+
                 # Get git tags for this file
                 basename = file_path.stem
                 result = subprocess.run(
                     ["git", "tag", "-l", f"{basename}-v*"],
-                    capture_output=True, text=True, check=True, cwd=file_path.parent
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    cwd=file_path.parent,
                 )
                 tags = [t.strip() for t in result.stdout.split("\n") if t.strip()]
 
@@ -1272,7 +1328,9 @@ def _explain_prmd_file(file_path: Path, detailed: bool, show_sections: bool, sho
                         # Get commit info for tag
                         commit_info = subprocess.run(
                             ["git", "log", "-1", "--format=%cd - %s", "--date=short", tag],
-                            capture_output=True, text=True, cwd=file_path.parent
+                            capture_output=True,
+                            text=True,
+                            cwd=file_path.parent,
                         )
                         if commit_info.stdout:
                             output += f"  {tag} ({commit_info.stdout.strip()})\n"
@@ -1291,6 +1349,7 @@ def _explain_prmd_file(file_path: Path, detailed: bool, show_sections: bool, sho
                 line_count = len(f.readlines())
 
             from datetime import datetime
+
             mod_time = datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
 
             output += "\n[bold cyan]File Stats:[/bold cyan]\n"
@@ -1304,6 +1363,7 @@ def _explain_prmd_file(file_path: Path, detailed: bool, show_sections: bool, sho
         console.print(f"[red]Error explaining file: {e}[/red]")
         if verbose:
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         sys.exit(1)
 
@@ -1361,18 +1421,18 @@ def _explain_package_file(package_path: Path, detailed: bool, verbose: bool):
             max_display = 10 if not detailed else len(file_list)
             displayed = 0
 
-            for prompd_file in prompd_files[:max_display - displayed]:
+            for prompd_file in prompd_files[: max_display - displayed]:
                 size = zf.getinfo(prompd_file).file_size
                 output += f"  {prompd_file} ({size / 1024:.1f} KB)\n"
                 displayed += 1
 
-            for readme_file in readme_files[:max(1, max_display - displayed)]:
+            for readme_file in readme_files[: max(1, max_display - displayed)]:
                 size = zf.getinfo(readme_file).file_size
                 output += f"  {readme_file} ({size / 1024:.1f} KB)\n"
                 displayed += 1
 
             if detailed and other_files:
-                for other_file in other_files[:max_display - displayed]:
+                for other_file in other_files[: max_display - displayed]:
                     size = zf.getinfo(other_file).file_size
                     output += f"  {other_file} ({size / 1024:.1f} KB)\n"
                     displayed += 1
@@ -1399,10 +1459,12 @@ def _explain_package_file(package_path: Path, detailed: bool, verbose: bool):
             readme_file = next((f for f in file_list if f.lower() == "readme.md"), None)
             if readme_file:
                 from rich.prompt import Confirm
+
                 show_readme = Confirm.ask("\nView README?", default=False)
                 if show_readme:
                     readme_content = zf.read(readme_file).decode("utf-8")
                     from rich.markdown import Markdown
+
                     console.print("\n")
                     console.print(Markdown(readme_content))
 
@@ -1410,6 +1472,7 @@ def _explain_package_file(package_path: Path, detailed: bool, verbose: bool):
         console.print(f"[red]Error explaining package: {e}[/red]")
         if verbose:
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         sys.exit(1)
 
@@ -1488,9 +1551,11 @@ def _explain_registry_package(package_name: str, registry: Optional[str], detail
         # Offer to show README if available
         if info.get("readme"):
             from rich.prompt import Confirm
+
             show_readme = Confirm.ask("\nView README?", default=False)
             if show_readme:
                 from rich.markdown import Markdown
+
                 console.print("\n")
                 console.print(Markdown(info["readme"]))
         elif detailed and verbose:
@@ -1500,6 +1565,7 @@ def _explain_registry_package(package_name: str, registry: Optional[str], detail
         if verbose:
             console.print(f"[dim]Error details: {str(e)}[/dim]")
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
         console.print(f"[red]Error getting package info: {e}[/red]")
         sys.exit(1)
@@ -1523,12 +1589,7 @@ def git_add(files: tuple, verbose: bool):
                 console.print(f"[yellow]Skipping non-.prmd file:[/yellow] {file_path}")
                 continue
 
-            result = subprocess.run(
-                ["git", "add", str(file_path)],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(["git", "add", str(file_path)], capture_output=True, text=True, check=True)
 
             console.print(f"[green]OK[/green] Added {file_path}")
             if verbose and result.stdout:
@@ -1557,12 +1618,7 @@ def git_remove(files: tuple, cached: bool, verbose: bool):
                 cmd.append("--cached")
             cmd.append(str(file_path))
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             action = "Removed from index" if cached else "Removed"
             console.print(f"[green]OK[/green] {action}: {file_path}")
@@ -1575,8 +1631,7 @@ def git_remove(files: tuple, cached: bool, verbose: bool):
 
 
 @git.command("status")
-@click.option("--path", "-p", type=click.Path(exists=True, path_type=Path),
-              help="Check status for specific path")
+@click.option("--path", "-p", type=click.Path(exists=True, path_type=Path), help="Check status for specific path")
 def git_status(path: Optional[Path]):
     """Show git status for .prmd files."""
     try:
@@ -1584,12 +1639,7 @@ def git_status(path: Optional[Path]):
         if path:
             cmd.append(str(path))
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         if not result.stdout:
             console.print("[green]No changes to .prmd files[/green]")
@@ -1640,14 +1690,10 @@ def git_commit(message: str, all: bool):
     """Commit staged .prmd files."""
     try:
         from prompd.security import SecurityError, validate_git_file_path, validate_git_message
+
         if all:
             # First add all modified .prmd files
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True)
 
             for line in result.stdout.strip().split("\n"):
                 if line and ".prmd" in line and line[0] == " " and line[1] == "M":
@@ -1667,12 +1713,7 @@ def git_commit(message: str, all: bool):
             console.print(f"[red]Error: Invalid commit message: {e}[/red]")
             raise click.Abort() from e
 
-        result = subprocess.run(
-            ["git", "commit", "-m", safe_message],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(["git", "commit", "-m", safe_message], capture_output=True, text=True, check=True)
 
         console.print("[green]OK[/green] Committed changes")
         if result.stdout:
@@ -1714,11 +1755,7 @@ def git_checkout(file: Path, version: str, output: Optional[str]):
         if _is_valid_semver(version):
             tag_name = f"{file.stem}-v{version}"
             # Check if tag exists
-            tag_check = subprocess.run(
-                ["git", "tag", "-l", tag_name],
-                capture_output=True,
-                text=True
-            )
+            tag_check = subprocess.run(["git", "tag", "-l", tag_name], capture_output=True, text=True)
             if tag_check.stdout.strip():
                 version_ref = tag_name
             else:
@@ -1730,10 +1767,7 @@ def git_checkout(file: Path, version: str, output: Optional[str]):
         # Convert Windows paths to forward slashes for git
         git_path = str(file).replace("\\", "/")
         result = subprocess.run(
-            ["git", "show", f"{version_ref}:{git_path}"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "show", f"{version_ref}:{git_path}"], capture_output=True, text=True, check=True
         )
 
         if output:
@@ -1816,12 +1850,7 @@ def version_history(file: Path, limit: int):
         table.add_column("Message")
 
         for tag_info in tags:
-            table.add_row(
-                tag_info["tag"],
-                tag_info["date"],
-                tag_info["commit"][:8],
-                tag_info["message"][:60]
-            )
+            table.add_row(tag_info["tag"], tag_info["date"], tag_info["commit"][:8], tag_info["message"][:60])
 
         console.print(table)
 
@@ -1897,6 +1926,7 @@ def version_suggest(file: Path, changes: Optional[str]):
 
     from cli.python.prompd.parser import PrompdParser
     from cli.python.prompd.validator import PrompdValidator
+
     try:
         parser = PrompdParser()
         validator = PrompdValidator()
@@ -1905,17 +1935,19 @@ def version_suggest(file: Path, changes: Optional[str]):
         current_version = prompd.metadata.version or "0.0.0"
         suggestion = validator.suggest_version_bump(current_version, changes or "")
 
-        console.print(Panel(
-            f"[bold cyan]Current Version:[/bold cyan] {suggestion['suggestions']['current']}\\n\\n"
-            f"[bold green]Suggested Bump:[/bold green] {suggestion['recommended']} -> "
-            f"{suggestion['suggestions'][suggestion['recommended']]}\\n\\n"
-            f"[bold]All Options:[/bold]\\n"
-            f"  - Patch: {suggestion['suggestions']['patch']} (bug fixes)\\n"
-            f"  - Minor: {suggestion['suggestions']['minor']} (new features)\\n"
-            f"  - Major: {suggestion['suggestions']['major']} (breaking changes)\\n\\n"
-            f"[dim]{suggestion['reason']}[/dim]",
-            title="Version Bump Suggestions"
-        ))
+        console.print(
+            Panel(
+                f"[bold cyan]Current Version:[/bold cyan] {suggestion['suggestions']['current']}\\n\\n"
+                f"[bold green]Suggested Bump:[/bold green] {suggestion['recommended']} -> "
+                f"{suggestion['suggestions'][suggestion['recommended']]}\\n\\n"
+                f"[bold]All Options:[/bold]\\n"
+                f"  - Patch: {suggestion['suggestions']['patch']} (bug fixes)\\n"
+                f"  - Minor: {suggestion['suggestions']['minor']} (new features)\\n"
+                f"  - Major: {suggestion['suggestions']['major']} (breaking changes)\\n\\n"
+                f"[dim]{suggestion['reason']}[/dim]",
+                title="Version Bump Suggestions",
+            )
+        )
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -1946,6 +1978,7 @@ def _bump_version(version: str, bump_type: str) -> str:
 def _is_valid_semver(version: str) -> bool:
     """Check if version follows semantic versioning."""
     import re
+
     pattern = r"^(\d+)\.(\d+)\.(\d+)$"
     return bool(re.match(pattern, version))
 
@@ -1956,16 +1989,18 @@ def _update_version_in_file(file_path: Path, new_version: str):
 
     # Parse YAML frontmatter
     import re
+
     if content.startswith("---\n"):
         # Find the end of frontmatter
         end_match = re.search(r"\n---\n", content[4:])
         if end_match:
             yaml_end = end_match.end() + 4
-            frontmatter = content[4:yaml_end-5]  # Remove --- delimiters
+            frontmatter = content[4 : yaml_end - 5]  # Remove --- delimiters
             markdown_content = content[yaml_end:]
 
             # Update version in frontmatter
             import yaml
+
             metadata = yaml.safe_load(frontmatter) or {}
             metadata["version"] = new_version
 
@@ -1983,6 +2018,7 @@ def _git_commit_and_tag(file_path: Path, version: str, message: str):
             validate_git_message,
             validate_version_string,
         )
+
         # Validate inputs for security
         safe_path = validate_git_file_path(str(file_path))
         safe_message = validate_git_message(message)
@@ -2009,10 +2045,22 @@ def _get_git_tags(file_path: Path, limit: int) -> List[Dict[str, str]]:
     """Get git tags related to a file."""
     try:
         # Get tags with commit info
-        result = subprocess.run([
-            "git", "log", "--tags", "--simplify-by-decoration", "--pretty=format:%d|%H|%ai|%s",
-            "-n", str(limit), "--", str(file_path)
-        ], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            [
+                "git",
+                "log",
+                "--tags",
+                "--simplify-by-decoration",
+                "--pretty=format:%d|%H|%ai|%s",
+                "-n",
+                str(limit),
+                "--",
+                str(file_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
 
         tags = []
         for line in result.stdout.split("\n"):
@@ -2021,14 +2069,17 @@ def _get_git_tags(file_path: Path, limit: int) -> List[Dict[str, str]]:
                 if len(parts) == 4 and "tag:" in parts[0]:
                     # Extract tag name
                     import re
+
                     tag_match = re.search(r"tag: ([^,)]+)", parts[0])
                     if tag_match:
-                        tags.append({
-                            "tag": tag_match.group(1).strip(),
-                            "commit": parts[1],
-                            "date": parts[2][:10],  # Just the date part
-                            "message": parts[3]
-                        })
+                        tags.append(
+                            {
+                                "tag": tag_match.group(1).strip(),
+                                "commit": parts[1],
+                                "date": parts[2][:10],  # Just the date part
+                                "message": parts[3],
+                            }
+                        )
 
         return tags
 
@@ -2045,10 +2096,12 @@ def _get_latest_git_tag(file_path: Path) -> Optional[str]:
 def _git_diff_versions(file_path: Path, version1: str, version2: str) -> str:
     """Get git diff between versions."""
     try:
-        result = subprocess.run([
-            "git", "diff", f"{file_path.stem}-v{version1}", f"{file_path.stem}-v{version2}",
-            "--", str(file_path)
-        ], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            ["git", "diff", f"{file_path.stem}-v{version1}", f"{file_path.stem}-v{version2}", "--", str(file_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
 
         return result.stdout
 
@@ -2059,6 +2112,7 @@ def _git_diff_versions(file_path: Path, version1: str, version2: str) -> str:
 # ================================================================================
 # PACKAGE MANAGEMENT COMMANDS (NEW NPM-STYLE ARCHITECTURE)
 # ================================================================================
+
 
 @cli.command()
 @click.option("-k", "--api-key", help="API key for authentication")
@@ -2079,13 +2133,13 @@ def login(api_key: Optional[str], username: Optional[str], password: Optional[st
         else:
             # Interactive login
             import getpass
+
             username = click.prompt("Username")
             password = getpass.getpass("Password: ")
             result = client.login_with_credentials(username, password)
 
         console.print(
-            f"[green]Success:[/green] Logged in to {client.registry_name} "
-            f"as {result.get('username', 'user')}"
+            f"[green]Success:[/green] Logged in to {client.registry_name} " f"as {result.get('username', 'user')}"
         )
 
     except Exception as e:
@@ -2152,10 +2206,7 @@ def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, r
                 return
 
             # Create resolver
-            resolver = PackageResolver(
-                registry_urls=[registry] if registry else None,
-                global_mode=global_install
-            )
+            resolver = PackageResolver(registry_urls=[registry] if registry else None, global_mode=global_install)
 
             # Prepare all packages to install
             all_packages = []
@@ -2207,7 +2258,7 @@ def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, r
                 "version": "1.0.0",
                 "description": "",
                 "dependencies": {},
-                "devDependencies": {}
+                "devDependencies": {},
             }
             console.print(f"[green]Created manifest.json for {manifest['name']}[/green]")
         else:
@@ -2222,10 +2273,7 @@ def install(packages: tuple, global_install: bool, save: bool, save_dev: bool, r
                 manifest["devDependencies"] = {}
 
         # Create resolver
-        resolver = PackageResolver(
-            registry_urls=[registry] if registry else None,
-            global_mode=global_install
-        )
+        resolver = PackageResolver(registry_urls=[registry] if registry else None, global_mode=global_install)
 
         # Install packages in parallel if multiple
         if len(packages) > 1:
@@ -2351,9 +2399,7 @@ def uninstall(packages: tuple, global_uninstall: bool, save_dev: bool):
                 # For global uninstalls, we need version - show available versions
                 cached_packages = resolver.global_cache.list_packages()
                 matching = [
-                    p for p in cached_packages
-                    if p.name == package_name
-                    or f"@{p.namespace}/{p.name}" == package_name
+                    p for p in cached_packages if p.name == package_name or f"@{p.namespace}/{p.name}" == package_name
                 ]
 
                 if not matching:
@@ -2411,11 +2457,13 @@ def search(query: str, limit: int, registry: Optional[str]):
             package_name = pkg.get("fullName", pkg.get("name", "Unknown"))
 
             # Try multiple version field names from registry response
-            version = (pkg.get("latestVersion") or
-                      pkg.get("latest_version") or
-                      pkg.get("version") or
-                      pkg.get("currentVersion") or
-                      "Unknown")
+            version = (
+                pkg.get("latestVersion")
+                or pkg.get("latest_version")
+                or pkg.get("version")
+                or pkg.get("currentVersion")
+                or "Unknown"
+            )
 
             # Use downloads30d (backend field) or fallback to downloads
             downloads = pkg.get("downloads30d", pkg.get("downloads", 0))
@@ -2424,7 +2472,7 @@ def search(query: str, limit: int, registry: Optional[str]):
                 package_name,
                 version,
                 pkg.get("description", "")[:50] + ("..." if len(pkg.get("description", "")) > 50 else ""),
-                str(downloads)
+                str(downloads),
             )
 
         console.print(table)
@@ -2521,6 +2569,7 @@ def publish(package_file: Path, registry: Optional[str], namespace: Optional[str
 # NAMESPACE MANAGEMENT COMMANDS
 # ================================================================================
 
+
 @cli.group(name="namespace")
 def namespace():
     """Manage namespaces for organizations."""
@@ -2558,6 +2607,7 @@ def namespace_list(registry: Optional[str], show_permissions: bool):
         console.print(f"[bold]Available namespaces ({len(namespaces)} total):[/bold]")
 
         from rich.table import Table
+
         table = Table(show_header=True, header_style="bold magenta")
         table.add_column("NAMESPACE", style="cyan")
         table.add_column("PACKAGES", justify="right")
@@ -2677,8 +2727,13 @@ def namespace_use(namespace_name: str, registry: Optional[str]):
 @click.option("--organization", "-o", help="Organization ID to create namespace under")
 @click.option("--visibility", type=click.Choice(["public", "private"]), default="public", help="Namespace visibility")
 @click.option("--registry", help="Registry to create namespace in")
-def namespace_create(namespace_name: str, description: Optional[str], organization: Optional[str],
-                    visibility: str, registry: Optional[str]):
+def namespace_create(
+    namespace_name: str,
+    description: Optional[str],
+    organization: Optional[str],
+    visibility: str,
+    registry: Optional[str],
+):
     """Create a new namespace."""
     try:
         from .registry import RegistryClient
@@ -2690,10 +2745,7 @@ def namespace_create(namespace_name: str, description: Optional[str], organizati
         client = RegistryClient(registry_name=registry)
 
         # Prepare namespace data
-        namespace_data = {
-            "name": namespace_name,
-            "visibility": visibility
-        }
+        namespace_data = {"name": namespace_name, "visibility": visibility}
 
         if description:
             namespace_data["description"] = description
@@ -2724,6 +2776,7 @@ def namespace_create(namespace_name: str, description: Optional[str], organizati
 # ================================================================================
 # NS ALIAS COMMANDS
 # ================================================================================
+
 
 @ns.command("list")
 @click.option("--registry", help="Registry to query")
@@ -2757,8 +2810,13 @@ def ns_use(namespace_name: str, registry: Optional[str]):
 @click.option("--organization", "-o", help="Organization ID to create namespace under")
 @click.option("--visibility", type=click.Choice(["public", "private"]), default="public", help="Namespace visibility")
 @click.option("--registry", help="Registry to create namespace in")
-def ns_create(namespace_name: str, description: Optional[str], organization: Optional[str],
-             visibility: str, registry: Optional[str]):
+def ns_create(
+    namespace_name: str,
+    description: Optional[str],
+    organization: Optional[str],
+    visibility: str,
+    registry: Optional[str],
+):
     """Create a new namespace."""
     # Call the original function
     namespace_create(namespace_name, description, organization, visibility, registry)
@@ -2790,7 +2848,7 @@ def versions(package_name: str, registry: Optional[str]):
             table.add_row(
                 version_info.get("version", "Unknown"),
                 version_info.get("published_at", "Unknown")[:10],  # Just date
-                ", ".join(version_info.get("tags", []))
+                ", ".join(version_info.get("tags", [])),
             )
 
         console.print(table)
@@ -2889,19 +2947,21 @@ def registry_info(package_name: str, registry: Optional[str]):
         client = RegistryClient(registry_name=registry)
         info = client.get_package_info(package_name)
 
-        console.print(Panel(
-            f"[bold cyan]{info.get('name')}[/bold cyan] v{info.get('version')}\n\n"
-            f"[bold]Description:[/bold] {info.get('description', 'No description')}\n"
-            f"[bold]Author:[/bold] {info.get('author', 'Unknown')}\n"
-            f"[bold]License:[/bold] {info.get('license', 'Unknown')}\n"
-            f"[bold]Homepage:[/bold] {info.get('homepage', 'None')}\n"
-            f"[bold]Downloads:[/bold] {info.get('downloads', 0):,}\n"
-            f"[bold]Published:[/bold] {info.get('published_at', 'Unknown')}\n\n"
-            f"[bold]Tags:[/bold] {', '.join(info.get('tags', []))}\n"
-            f"[bold]Dependencies:[/bold] {len(info.get('dependencies', {}))}\n",
-            title="Package Information",
-            border_style="blue"
-        ))
+        console.print(
+            Panel(
+                f"[bold cyan]{info.get('name')}[/bold cyan] v{info.get('version')}\n\n"
+                f"[bold]Description:[/bold] {info.get('description', 'No description')}\n"
+                f"[bold]Author:[/bold] {info.get('author', 'Unknown')}\n"
+                f"[bold]License:[/bold] {info.get('license', 'Unknown')}\n"
+                f"[bold]Homepage:[/bold] {info.get('homepage', 'None')}\n"
+                f"[bold]Downloads:[/bold] {info.get('downloads', 0):,}\n"
+                f"[bold]Published:[/bold] {info.get('published_at', 'Unknown')}\n\n"
+                f"[bold]Tags:[/bold] {', '.join(info.get('tags', []))}\n"
+                f"[bold]Dependencies:[/bold] {len(info.get('dependencies', {}))}\n",
+                title="Package Information",
+                border_style="blue",
+            )
+        )
 
         if info.get("dependencies"):
             console.print("\n[bold]Dependencies:[/bold]")
@@ -2931,6 +2991,7 @@ def dependencies(package: Optional[str], tree: bool, conflicts: bool, dev: bool,
         config_file = Path.cwd() / ".prompd" / "config.yaml"
         if config_file.exists():
             import yaml
+
             with open(config_file) as f:
                 config = yaml.safe_load(f)
                 package = f"{config.get('name', 'unknown')}@{config.get('version', 'latest')}"
@@ -3086,16 +3147,13 @@ def update_dependencies(dry_run: bool, latest: bool):
                 else:
                     # Get latest compatible version
                     from .dependency_resolver import VersionConstraint
+
                     constraint = VersionConstraint.parse(current_version)
                     compatible = [v for v in available_versions if constraint.matches(v)]
                     latest_version = max(compatible) if compatible else current_version
 
                 if latest_version != current_version:
-                    updates.append({
-                        "package": dep_name,
-                        "current": current_version,
-                        "new": latest_version
-                    })
+                    updates.append({"package": dep_name, "current": current_version, "new": latest_version})
             except Exception as e:
                 console.print(f"[yellow]Could not check {dep_name}: {e}[/yellow]")
 
@@ -3141,13 +3199,17 @@ def package():
 @click.option("-d", "--description", help="Package description (overrides manifest.json)")
 @click.option("-a", "--author", help="Package author (overrides manifest.json)")
 def package_create(
-    source: Path, output_path: Optional[Path],
-    name: Optional[str], version: Optional[str],
-    description: Optional[str], author: Optional[str],
+    source: Path,
+    output_path: Optional[Path],
+    name: Optional[str],
+    version: Optional[str],
+    description: Optional[str],
+    author: Optional[str],
 ):
     """Create a .pdpkg package from a directory. Uses manifest.json if present, smart defaults otherwise."""
     try:
         from prompd.registry import create_pdpkg, validate_pdpkg
+
         # Source must be a directory (no longer support .pdproj files)
         if not source.is_dir():
             console.print("[red]ERROR[/red] Source must be a directory")
@@ -3163,6 +3225,7 @@ def package_create(
             # Load existing manifest.json
             try:
                 import json
+
                 with open(manifest_path, encoding="utf-8") as f:
                     manifest_data = json.load(f)
                 console.print("[dim]Found existing manifest.json[/dim]")
@@ -3249,6 +3312,7 @@ def package_validate(package_path: Path):
     """Validate a .pdpkg package archive."""
     try:
         from prompd.package_validator import validate_package
+
         # Check file extension - only accept package archives
         if not package_path.name.endswith(".pdpkg"):
             console.print("[red]ERROR[/red] [bold red]Invalid package format![/bold red]")
@@ -3303,9 +3367,12 @@ def package_validate(package_path: Path):
 @click.option("-d", "--description", help="Package description (overrides manifest.json)")
 @click.option("-a", "--author", help="Package author (overrides manifest.json)")
 def pack_alias(
-    source: Path, output_path: Optional[Path],
-    name: Optional[str], version: Optional[str],
-    description: Optional[str], author: Optional[str],
+    source: Path,
+    output_path: Optional[Path],
+    name: Optional[str],
+    version: Optional[str],
+    description: Optional[str],
+    author: Optional[str],
 ):
     """Create a .pdpkg package from a directory (alias for 'package create')."""
     # Call the same logic as package create directly
@@ -3319,10 +3386,15 @@ def pack_alias(
 @click.option("-d", "--description", help="Prompt description")
 @click.option("-a", "--author", help="Author name")
 @click.option("-v", "--version", default="1.0.0", help="Version (default: 1.0.0)")
-@click.option("-t", "--template", type=click.Choice(["basic", "analysis", "security", "code-review", "creative"]),
-              help="Use a predefined template")
-def create_command(file: Path, interactive: bool, name: str, description: str,
-                  author: str, version: str, template: str):
+@click.option(
+    "-t",
+    "--template",
+    type=click.Choice(["basic", "analysis", "security", "code-review", "creative"]),
+    help="Use a predefined template",
+)
+def create_command(
+    file: Path, interactive: bool, name: str, description: str, author: str, version: str, template: str
+):
     """Create a new .prmd file"""
     from prompd.commands.create import create_prmd_file
 
@@ -3334,7 +3406,7 @@ def create_command(file: Path, interactive: bool, name: str, description: str,
             description=description,
             author=author,
             version=version,
-            template=template
+            template=template,
         )
         console.print(f"[green]OK[/green] Created {file}")
     except Exception as e:
@@ -3381,24 +3453,15 @@ def init(path: Path, name: Optional[str], version: str, description: Optional[st
         "version": version,
         "description": default_description,
         "author": default_author,
-        "files": [
-            "*.prmd",
-            "*.md",
-            "templates/",
-            "docs/",
-            "examples/"
-        ],
-        "ignore": [
-            "*.log",
-            "*.tmp",
-            ".env*"
-        ],
+        "files": ["*.prmd", "*.md", "templates/", "docs/", "examples/"],
+        "ignore": ["*.log", "*.tmp", ".env*"],
         "dependencies": {},
-        "devDependencies": {}
+        "devDependencies": {},
     }
 
     # Write manifest.json
     import json
+
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_data, f, indent=2, ensure_ascii=False)
 

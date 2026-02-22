@@ -30,6 +30,7 @@ from .exceptions import PrompdError
 
 class PackageReference(BaseModel):
     """Parsed package reference with pydantic validation."""
+
     namespace: Optional[str] = None
     name: str = ""
     version: str = "latest"
@@ -42,9 +43,32 @@ class PackageReference(BaseModel):
         if not re.match(r"^[a-zA-Z0-9][\w.-]*$", v):
             raise ValueError("Package name must start with alphanumeric and contain only word chars, dots, hyphens")
 
-        reserved_names = {"con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5",
-                         "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4",
-                         "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "system", "admin"}
+        reserved_names = {
+            "con",
+            "prn",
+            "aux",
+            "nul",
+            "com1",
+            "com2",
+            "com3",
+            "com4",
+            "com5",
+            "com6",
+            "com7",
+            "com8",
+            "com9",
+            "lpt1",
+            "lpt2",
+            "lpt3",
+            "lpt4",
+            "lpt5",
+            "lpt6",
+            "lpt7",
+            "lpt8",
+            "lpt9",
+            "system",
+            "admin",
+        }
         if v.lower() in reserved_names:
             raise ValueError(f"Reserved name not allowed: {v}")
         return v
@@ -58,13 +82,35 @@ class PackageReference(BaseModel):
             raise ValueError("Package namespace must be ≤50 characters")
         if not re.match(r"^[a-zA-Z0-9][\w.-]*$", v):
             raise ValueError(
-                "Package namespace must start with alphanumeric"
-                " and contain only word chars, dots, hyphens"
+                "Package namespace must start with alphanumeric" " and contain only word chars, dots, hyphens"
             )
 
-        reserved_names = {"con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5",
-                         "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4",
-                         "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "system", "admin"}
+        reserved_names = {
+            "con",
+            "prn",
+            "aux",
+            "nul",
+            "com1",
+            "com2",
+            "com3",
+            "com4",
+            "com5",
+            "com6",
+            "com7",
+            "com8",
+            "com9",
+            "lpt1",
+            "lpt2",
+            "lpt3",
+            "lpt4",
+            "lpt5",
+            "lpt6",
+            "lpt7",
+            "lpt8",
+            "lpt9",
+            "system",
+            "admin",
+        }
         if v.lower() in reserved_names:
             raise ValueError(f"Reserved namespace not allowed: {v}")
         return v
@@ -137,6 +183,7 @@ class PackageReference(BaseModel):
 @dataclass
 class RegistryInfo:
     """Registry configuration."""
+
     name: str
     base_url: str
     endpoints: Dict[str, str]
@@ -149,6 +196,7 @@ class RegistryInfo:
 
         try:
             import httpx
+
             with httpx.Client() as client:
                 response = client.get(well_known_url)
                 response.raise_for_status()
@@ -158,7 +206,7 @@ class RegistryInfo:
                     name=data.get("name", "Unknown Registry"),
                     base_url=base_url,
                     endpoints=data.get("endpoints", {}),
-                    capabilities=data.get("capabilities", {})
+                    capabilities=data.get("capabilities", {}),
                 )
         except Exception as e:
             raise PrompdError(f"Failed to discover registry at {base_url}: {e}") from e
@@ -167,6 +215,7 @@ class RegistryInfo:
 @dataclass
 class PackageLockEntry:
     """Entry in package lock file."""
+
     name: str
     version: str
     resolved_version: str
@@ -178,6 +227,7 @@ class PackageLockEntry:
 @dataclass
 class ProjectConfig:
     """Project-specific configuration."""
+
     name: Optional[str] = None
     version: str = "1.0.0"
     dependencies: Dict[str, str] = field(default_factory=dict)
@@ -234,7 +284,7 @@ class PackageLock:
             resolved_version=resolved_version,
             integrity=integrity,
             dependencies=dependencies or {},
-            installed_at=datetime.now().isoformat()
+            installed_at=datetime.now().isoformat(),
         )
 
         self._save()
@@ -258,10 +308,10 @@ class PackageLock:
                     "resolved_version": entry.resolved_version,
                     "integrity": entry.integrity,
                     "dependencies": entry.dependencies,
-                    "installed_at": entry.installed_at
+                    "installed_at": entry.installed_at,
                 }
                 for key, entry in self._lock_data.items()
-            }
+            },
         }
 
         # Atomic write: write to temp file first, then rename
@@ -330,9 +380,7 @@ class BasePackageCache:
         """Check if package is cached."""
         package_dir = self.get_package_dir(package_ref)
         return (
-            package_dir.exists()
-            and (package_dir / "prompd.json").exists()
-            or (package_dir / "manifest.json").exists()
+            package_dir.exists() and (package_dir / "prompd.json").exists() or (package_dir / "manifest.json").exists()
         )
 
     def get_cached_package(self, package_ref: PackageReference) -> Path:
@@ -386,9 +434,7 @@ class BasePackageCache:
                         self._extract_zip_safely(zip_file, temp_dir)
 
                 except (zipfile.BadZipFile, Exception) as e:
-                    raise PrompdError(
-                        f"Invalid or unsafe package archive for {package_ref.to_string()}: {e}"
-                    ) from e
+                    raise PrompdError(f"Invalid or unsafe package archive for {package_ref.to_string()}: {e}") from e
             finally:
                 # Clean up temp file - now safe because file is properly closed
                 if temp_zip_path and os.path.exists(temp_zip_path):
@@ -413,11 +459,7 @@ class BasePackageCache:
             # Step 6: Store integrity information
             integrity_file = package_dir / ".integrity"
             with open(integrity_file, "w", encoding="utf-8") as f:
-                json.dump({
-                    "hash": integrity_hash,
-                    "algorithm": "sha256",
-                    "cached_at": datetime.now().isoformat()
-                }, f)
+                json.dump({"hash": integrity_hash, "algorithm": "sha256", "cached_at": datetime.now().isoformat()}, f)
 
             return package_dir
 
@@ -509,6 +551,7 @@ class BasePackageCache:
         """Generate cryptographic hash of path for integrity checking."""
         from cryptography.hazmat.backends import default_backend
         from cryptography.hazmat.primitives import hashes
+
         digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
         digest.update(path.encode("utf-8"))
         return digest.finalize().hex()
@@ -522,12 +565,12 @@ class BasePackageCache:
         # Check for suspicious patterns that might bypass basic checks
         suspicious_patterns = [
             "..\\",  # Windows path traversal
-            "../",   # Unix path traversal
-            "\\.\\.", # Encoded traversal attempts
-            "%2e%2e", # URL encoded traversal
+            "../",  # Unix path traversal
+            "\\.\\.",  # Encoded traversal attempts
+            "%2e%2e",  # URL encoded traversal
             "..%2f",  # Mixed encoding
-            "%2e%2e%2f", # Full URL encoded
-            "....///", # Obfuscated traversal
+            "%2e%2e%2f",  # Full URL encoded
+            "....///",  # Obfuscated traversal
         ]
 
         path_lower = path.lower()
@@ -582,6 +625,7 @@ class BasePackageCache:
         """Calculate SHA256 hash of all package files for integrity checking using cryptography library."""
         from cryptography.hazmat.backends import default_backend
         from cryptography.hazmat.primitives import hashes
+
         digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
 
         # Sort files for consistent hashing
@@ -602,6 +646,7 @@ class BasePackageCache:
         package_dir = self.get_package_dir(package_ref)
         if package_dir.exists():
             import shutil
+
             shutil.rmtree(package_dir)
 
     def _is_safe_path(self, path: str) -> bool:
@@ -622,6 +667,7 @@ class BasePackageCache:
 
         # Normalize path separators and decode
         import urllib.parse
+
         decoded_path = urllib.parse.unquote(path)
         normalized_path = os.path.normpath(decoded_path).replace("\\", "/")
 
@@ -641,9 +687,28 @@ class BasePackageCache:
 
         # Check for Windows reserved names
         reserved_names = {
-            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
-            "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-            "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
         }
 
         for part in path_parts:
@@ -673,11 +738,11 @@ class BasePackageCache:
                                     and (version_dir / "prompd.json").exists()
                                     or (version_dir / "manifest.json").exists()
                                 ):
-                                    packages.append(PackageReference(
-                                        namespace=namespace,
-                                        name=pkg_dir.name,
-                                        version=version_dir.name
-                                    ))
+                                    packages.append(
+                                        PackageReference(
+                                            namespace=namespace, name=pkg_dir.name, version=version_dir.name
+                                        )
+                                    )
                 else:
                     # Unscoped package
                     for version_dir in item.iterdir():
@@ -686,10 +751,7 @@ class BasePackageCache:
                             and (version_dir / "prompd.json").exists()
                             or (version_dir / "manifest.json").exists()
                         ):
-                            packages.append(PackageReference(
-                                name=item.name,
-                                version=version_dir.name
-                            ))
+                            packages.append(PackageReference(name=item.name, version=version_dir.name))
 
         return packages
 
@@ -730,11 +792,13 @@ class PackageResolver:
     - Global installation (-g flag): Installs to global cache
     """
 
-    def __init__(self,
-                 project_root: Optional[Path] = None,
-                 registry_urls: Optional[List[str]] = None,
-                 lazy_discovery: bool = True,
-                 global_mode: bool = False):
+    def __init__(
+        self,
+        project_root: Optional[Path] = None,
+        registry_urls: Optional[List[str]] = None,
+        lazy_discovery: bool = True,
+        global_mode: bool = False,
+    ):
         """
         Initialize package resolver.
 
@@ -749,6 +813,7 @@ class PackageResolver:
         # Load registry URLs from user config if not provided
         if registry_urls is None:
             from .config import PrompdConfig
+
             config = PrompdConfig.load()
             # Get configured registries
             configured_registries = config.registry.get("registries", {})
@@ -794,6 +859,7 @@ class PackageResolver:
         disable = False
         try:
             import os
+
             disable = os.getenv("PROMPD_DISABLE_REGISTRY_DISCOVERY", "false").lower() == "true"
         except Exception:
             disable = False
@@ -835,9 +901,7 @@ class PackageResolver:
         locked_version = self.package_lock.get_locked_version(package_ref)
         if locked_version:
             locked_ref = PackageReference(
-                namespace=package_ref.namespace,
-                name=package_ref.name,
-                version=locked_version
+                namespace=package_ref.namespace, name=package_ref.name, version=locked_version
             )
         else:
             locked_ref = package_ref
@@ -883,9 +947,7 @@ class PackageResolver:
 
                 # Create resolved reference with actual version
                 resolved_ref = PackageReference(
-                    namespace=package_ref.namespace,
-                    name=package_ref.name,
-                    version=resolved_version
+                    namespace=package_ref.namespace, name=package_ref.name, version=resolved_version
                 )
 
                 # Install to cache
@@ -939,24 +1001,18 @@ class PackageResolver:
         if package_ref.namespace:
             # Scoped package
             if "scopedPackage" in registry.endpoints:
-                registry.endpoints["scopedPackage"].format(
-                    scope=package_ref.namespace,
-                    package=package_ref.name
-                )
+                registry.endpoints["scopedPackage"].format(scope=package_ref.namespace, package=package_ref.name)
             else:
                 pass
         else:
             # Regular package
-            registry.endpoints.get("package", "{package}").format(
-                package=package_ref.name
-            )
+            registry.endpoints.get("package", "{package}").format(package=package_ref.name)
 
         # Get package versions to find download URL
         if package_ref.namespace:
             # Scoped package
             versions_endpoint = registry.endpoints.get("scopedPackageVersions", "@{scope}/{package}/versions").format(
-                scope=package_ref.namespace,
-                package=package_ref.name
+                scope=package_ref.namespace, package=package_ref.name
             )
         else:
             # Regular package
@@ -967,6 +1023,7 @@ class PackageResolver:
         versions_url = urljoin(registry_url.rstrip("/") + "/", versions_endpoint.lstrip("/"))
 
         import httpx
+
         with httpx.Client() as client:
             # Get package versions
             response = client.get(versions_url)
@@ -1008,16 +1065,11 @@ class PackageResolver:
                     # Scoped package
                     download_endpoint = registry.endpoints.get(
                         "scopedDownload", "@{scope}/{package}/download/{version}"
-                    ).format(
-                        scope=package_ref.namespace,
-                        package=package_ref.name,
-                        version=version
-                    )
+                    ).format(scope=package_ref.namespace, package=package_ref.name, version=version)
                 else:
                     # Regular package
                     download_endpoint = registry.endpoints.get("download", "{package}/download/{version}").format(
-                        package=package_ref.name,
-                        version=version
+                        package=package_ref.name, version=version
                     )
                 download_url = urljoin(registry_url.rstrip("/") + "/", download_endpoint.lstrip("/"))
 
@@ -1084,7 +1136,7 @@ class PackageResolver:
         """
         result = {
             "local": self.project_cache.list_packages(),
-            "global": self.global_cache.list_packages() if include_global else []
+            "global": self.global_cache.list_packages() if include_global else [],
         }
 
         return result
@@ -1117,6 +1169,7 @@ class PackageResolver:
 
         try:
             import yaml
+
             with open(config_file, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
                 return ProjectConfig(
@@ -1124,7 +1177,7 @@ class PackageResolver:
                     version=data.get("version", "1.0.0"),
                     dependencies=data.get("dependencies", {}),
                     dev_dependencies=data.get("devDependencies", {}),
-                    registry_urls=data.get("registries", ["https://registry.prompdhub.ai"])
+                    registry_urls=data.get("registries", ["https://registry.prompdhub.ai"]),
                 )
         except Exception as e:
             print(f"Warning: Failed to load project config: {e}")
@@ -1149,12 +1202,13 @@ class PackageResolver:
 
         try:
             import yaml
+
             data = {
                 "name": config.name,
                 "version": config.version,
                 "dependencies": config.dependencies,
                 "devDependencies": config.dev_dependencies,
-                "registries": config.registry_urls
+                "registries": config.registry_urls,
             }
 
             with open(config_file, "w", encoding="utf-8") as f:

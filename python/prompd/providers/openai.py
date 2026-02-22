@@ -17,13 +17,7 @@ class OpenAIProvider(BaseProvider):
 
     @property
     def supported_models(self) -> List[str]:
-        return [
-            "gpt-4",
-            "gpt-4-turbo",
-            "gpt-4o",
-            "gpt-3.5-turbo",
-            "gpt-4o-mini"
-        ]
+        return ["gpt-4", "gpt-4-turbo", "gpt-4o", "gpt-3.5-turbo", "gpt-4o-mini"]
 
     async def execute(self, request: LLMRequest) -> LLMResponse:
         """Execute request against OpenAI API."""
@@ -37,10 +31,7 @@ class OpenAIProvider(BaseProvider):
         # Build request payload
         payload = {
             "model": request.model or self.get_default_model(),
-            "messages": [
-                {"role": msg.role.value, "content": msg.content}
-                for msg in request.messages
-            ]
+            "messages": [{"role": msg.role.value, "content": msg.content} for msg in request.messages],
         }
 
         # Add optional parameters
@@ -58,11 +49,12 @@ class OpenAIProvider(BaseProvider):
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            **self.config.extra_headers
+            **self.config.extra_headers,
         }
 
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
@@ -73,10 +65,7 @@ class OpenAIProvider(BaseProvider):
                 content = data["choices"][0]["message"]["content"]
 
                 return LLMResponse(
-                    content=content,
-                    model=data.get("model"),
-                    usage=data.get("usage"),
-                    metadata={"raw_response": data}
+                    content=content, model=data.get("model"), usage=data.get("usage"), metadata={"raw_response": data}
                 )
 
         except httpx.HTTPStatusError as e:
@@ -97,10 +86,7 @@ class OpenAIProvider(BaseProvider):
 
         # Add system message if present
         if content.get("system"):
-            messages.append(LLMMessage(
-                role=MessageRole.SYSTEM,
-                content=content["system"]
-            ))
+            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=content["system"]))
 
         # Build user message (combine context and user if both present)
         user_content_parts = []
@@ -113,28 +99,19 @@ class OpenAIProvider(BaseProvider):
 
         if user_content_parts:
             user_content = "\n\n".join(user_content_parts)
-            messages.append(LLMMessage(
-                role=MessageRole.USER,
-                content=user_content
-            ))
+            messages.append(LLMMessage(role=MessageRole.USER, content=user_content))
 
         # Handle response format
         response_format = None
         if content.get("response"):
             # Try to parse as JSON schema
             try:
-                response_format = {
-                    "type": "json_schema",
-                    "json_schema": json.loads(content["response"])
-                }
+                response_format = {"type": "json_schema", "json_schema": json.loads(content["response"])}
             except json.JSONDecodeError:
                 # Not JSON - could be instructions, add to user message
                 if messages and messages[-1].role == MessageRole.USER:
                     messages[-1].content += f"\n\nResponse format:\n{content['response']}"
 
         return LLMRequest(
-            messages=messages,
-            model=context.model,
-            response_format=response_format,
-            extra_params=context.extra_config
+            messages=messages, model=context.model, response_format=response_format, extra_params=context.extra_config
         )

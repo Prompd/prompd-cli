@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class ParameterType(str, Enum):
     """Supported parameter types."""
+
     STRING = "string"
     INTEGER = "integer"
     FLOAT = "float"
@@ -21,6 +22,7 @@ class ParameterType(str, Enum):
 
 class ParameterDefinition(BaseModel):
     """Parameter definition in prompd metadata."""
+
     name: str
     type: ParameterType = ParameterType.STRING
     required: bool = False
@@ -43,6 +45,7 @@ class ParameterDefinition(BaseModel):
 
 class ParameterValue(BaseModel):
     """Parameter value with optional metadata."""
+
     value: Any
     type: Optional[ParameterType] = None
     description: Optional[str] = None
@@ -64,26 +67,31 @@ class ParameterValue(BaseModel):
 
 class ContentReference(BaseModel):
     """Base class for content references."""
+
     pass
 
 
 class InlineContent(ContentReference):
     """Inline content."""
+
     content: str
 
 
 class FileReference(ContentReference):
     """Reference to external file."""
+
     path: Path
 
 
 class MultiFileReference(ContentReference):
     """Reference to multiple files."""
+
     paths: List[Path]
 
 
 class SectionReference(ContentReference):
     """Reference to section within same file."""
+
     section: str
 
 
@@ -108,12 +116,14 @@ class UsingPackage(BaseModel):
     The prefix creates an alias for the package, allowing you to reference
     it with a shorter name (e.g., 'pkg' instead of '@namespace/package@1.0.0').
     """
+
     name: str
     prefix: str  # Required - the whole point of 'using' is to create a shorthand alias
 
 
 class PrompdMetadata(BaseModel):
     """Metadata section of prompd file."""
+
     id: Optional[str] = None  # Machine-readable identifier (kebab-case) - auto-generated from name if not provided
     name: Optional[str] = None  # Human-readable display name (can have spaces)
     description: Optional[str] = None
@@ -169,8 +179,7 @@ class PrompdMetadata(BaseModel):
 
             if not re.match(r"^[a-z0-9-]+$", section_id):
                 raise ValueError(
-                    f"Override section ID must use kebab-case "
-                    f"(lowercase letters, numbers, hyphens): {section_id}"
+                    f"Override section ID must use kebab-case " f"(lowercase letters, numbers, hyphens): {section_id}"
                 )
 
             # Validate override path (can be None for removal, or string for file path)
@@ -205,6 +214,7 @@ class PrompdMetadata(BaseModel):
 
 class MessageRole(str, Enum):
     """LLM message roles."""
+
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
@@ -212,12 +222,14 @@ class MessageRole(str, Enum):
 
 class LLMMessage(BaseModel):
     """Single message in LLM conversation."""
+
     role: MessageRole
     content: str
 
 
 class LLMRequest(BaseModel):
     """Complete LLM API request."""
+
     messages: List[LLMMessage]
     model: Optional[str] = None
     temperature: Optional[float] = None
@@ -228,6 +240,7 @@ class LLMRequest(BaseModel):
 
 class LLMResponse(BaseModel):
     """LLM API response."""
+
     content: str
     model: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
@@ -236,6 +249,7 @@ class LLMResponse(BaseModel):
 
 class PrompdFile(BaseModel):
     """Complete parsed prompd file."""
+
     metadata: PrompdMetadata
     content: str  # Raw markdown content after frontmatter
     sections: Dict[str, str] = Field(default_factory=dict)  # Parsed sections
@@ -256,6 +270,7 @@ class PrompdFile(BaseModel):
 
 class ExecutionContext(BaseModel):
     """Context for executing a prompd file."""
+
     prompd: PrompdFile
     parameters: Dict[str, Any]
     provider: str

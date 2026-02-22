@@ -23,12 +23,7 @@ class ConversationalAssistant:
 
     def __init__(self, console: Console):
         self.console = console
-        self.context = {
-            "current_files": [],
-            "last_command": None,
-            "working_on": None,
-            "user_preferences": {}
-        }
+        self.context = {"current_files": [], "last_command": None, "working_on": None, "user_preferences": {}}
 
     def process_natural_language(self, user_input: str) -> Dict[str, Any]:
         """Simple NLP - only parse obvious commands, let AI handle everything else."""
@@ -38,20 +33,10 @@ class ConversationalAssistant:
         user_input = user_input.lower().strip()
 
         # 1. Direct commands (exact matches only)
-        direct_commands = {
-            "list": "list",
-            "ls": "list",
-            "help": "help",
-            "exit": "exit",
-            "clear": "clear"
-        }
+        direct_commands = {"list": "list", "ls": "list", "help": "help", "exit": "exit", "clear": "clear"}
 
         if user_input in direct_commands:
-            return {
-                "intent": direct_commands[user_input],
-                "raw_input": original_input,
-                "confidence": 1.0
-            }
+            return {"intent": direct_commands[user_input], "raw_input": original_input, "confidence": 1.0}
 
         # 2. Obvious compile commands (simple patterns only)
         # "compile filename" or "compile filename params"
@@ -59,12 +44,7 @@ class ConversationalAssistant:
         if compile_match:
             filename = compile_match.group(1).strip()
             params = compile_match.group(2).strip() if compile_match.group(2) else None
-            result = {
-                "intent": "compile",
-                "file": filename,
-                "raw_input": original_input,
-                "confidence": 1.0
-            }
+            result = {"intent": "compile", "file": filename, "raw_input": original_input, "confidence": 1.0}
             if params:
                 result["parameters"] = params
                 # Try to parse parameters if they look structured
@@ -81,15 +61,11 @@ class ConversationalAssistant:
                 "intent": "show",
                 "target": show_match.group(1).strip(),
                 "raw_input": original_input,
-                "confidence": 1.0
+                "confidence": 1.0,
             }
 
         # Everything else goes to AI planner
-        return {
-            "intent": "unclear",
-            "raw_input": original_input,
-            "confidence": 0.0
-        }
+        return {"intent": "unclear", "raw_input": original_input, "confidence": 0.0}
 
     def _try_parse_parameters_safe(self, param_text: str) -> Dict[str, Any]:
         """Best-effort local param parsing without shell dependency."""
@@ -100,6 +76,7 @@ class ConversationalAssistant:
             # JSON-like
             if (txt.startswith("{") and txt.endswith("}")) or (txt.startswith("[") and txt.endswith("]")):
                 import json
+
                 val = json.loads(txt)
                 return val if isinstance(val, dict) else {"_": val}
             # comma or 'and' separated pairs
@@ -231,9 +208,18 @@ class ConversationalAssistant:
             # Note: confirmation for suggestions (yes/y) is handled in the chat handler
 
             # Check for prompt creation (broader phrases)
-            if any(phrase in user_input_lower for phrase in [
-                "create new prompt", "create a new prompt", "new prompd", "create new prompd",
-                "create a prompd", "create prompd", "create prompt"]):
+            if any(
+                phrase in user_input_lower
+                for phrase in [
+                    "create new prompt",
+                    "create a new prompt",
+                    "new prompd",
+                    "create new prompd",
+                    "create a prompd",
+                    "create prompd",
+                    "create prompt",
+                ]
+            ):
                 return self.handle_prompt_creation(intent_data["raw_input"], shell_instance)
 
             # Check for registry search
@@ -241,13 +227,11 @@ class ConversationalAssistant:
                 return self.handle_registry_search(intent_data["raw_input"], shell_instance)
 
             # Check for provider commands
-            if any(phrase in user_input_lower for phrase in [
-                "change provider", "switch provider", "use provider",
-                "provider status", "show provider"
-            ]):
-                return self.handle_provider_request(
-                    intent_data["raw_input"], shell_instance
-                )
+            if any(
+                phrase in user_input_lower
+                for phrase in ["change provider", "switch provider", "use provider", "provider status", "show provider"]
+            ):
+                return self.handle_provider_request(intent_data["raw_input"], shell_instance)
 
             # Check for file operations
             if any(word in user_input_lower for word in ["move", "copy", "rename", "mkdir", "make", "create"]):
@@ -275,13 +259,8 @@ class ConversationalAssistant:
             return command_suggestion
 
         # Check for questions about compilation ability
-        if any(word in user_input_lower for word in [
-            "can compile", "is compilable", "able to compile"
-        ]):
-            return (
-                "Yes! I can compile .prmd files. Try: "
-                "'compile test-prompt' or 'list' to see available files."
-            )
+        if any(word in user_input_lower for word in ["can compile", "is compilable", "able to compile"]):
+            return "Yes! I can compile .prmd files. Try: " "'compile test-prompt' or 'list' to see available files."
 
         # Check for unclear parameter syntax
         if "app_name" in user_input_lower and "=" not in user_input_lower:
@@ -381,15 +360,14 @@ class ConversationalAssistant:
             context = {
                 "cwd": str(shell_instance.current_dir) if shell_instance else os.getcwd(),
                 "files": [],
-                "last_command": getattr(shell_instance, "last_command", None)
+                "last_command": getattr(shell_instance, "last_command", None),
             }
 
             if shell_instance:
                 try:
-                    context["files"] = (
-                        [f.name for f in shell_instance.current_dir.glob("*.prmd")]
-                        + [f.name for f in shell_instance.current_dir.glob("*.pdpkg")]
-                    )
+                    context["files"] = [f.name for f in shell_instance.current_dir.glob("*.prmd")] + [
+                        f.name for f in shell_instance.current_dir.glob("*.pdpkg")
+                    ]
                 except Exception:
                     pass
 
@@ -409,16 +387,18 @@ class ConversationalAssistant:
                 cli_params.append(f"conversation_history={conversation_history}")
 
             # Use asyncio to run the async execute method
-            result = asyncio.run(executor.execute(
-                Path(assistant_prompt),
-                provider=(
-                    shell_instance.get_current_ai_provider().lower()
-                    if shell_instance and shell_instance.get_current_ai_provider()
-                    else "openai"
-                ),
-                model="gpt-4o-mini",
-                cli_params=cli_params
-            ))
+            result = asyncio.run(
+                executor.execute(
+                    Path(assistant_prompt),
+                    provider=(
+                        shell_instance.get_current_ai_provider().lower()
+                        if shell_instance and shell_instance.get_current_ai_provider()
+                        else "openai"
+                    ),
+                    model="gpt-4o-mini",
+                    cli_params=cli_params,
+                )
+            )
 
             if result and hasattr(result, "content") and result.content:
                 # Track usage if available
@@ -474,13 +454,13 @@ class ConversationalAssistant:
                                         content=(
                                             "You are Prompd Assistant. Help with"
                                             " .prmd files and CLI commands. Be concise."
-                                        )
+                                        ),
                                     ),
-                                    LLMMessage(role=MessageRole.USER, content=user_input)
+                                    LLMMessage(role=MessageRole.USER, content=user_input),
                                 ],
                                 model=model,
                                 max_tokens=1000,
-                                temperature=0.7
+                                temperature=0.7,
                             )
                             response = await provider.execute(request)
                             try:
@@ -508,12 +488,12 @@ class ConversationalAssistant:
                                             "You are Prompd Assistant. Help with .prmd files"
                                             " and CLI commands. Be concise."
                                             f"\n\nUser: {user_input}"
-                                        )
+                                        ),
                                     )
                                 ],
                                 model=model,
                                 max_tokens=1000,
-                                temperature=0.7
+                                temperature=0.7,
                             )
                             response = await provider.execute(request)
                             try:
@@ -623,9 +603,11 @@ class ConversationalAssistant:
                 else:
                     final_dest = dest_path
 
-                return (f"I can move {source_path.name} to {final_dest}\n\n"
-                       f"To confirm, type: 'yes, move {source_path.name}'\n"
-                       f"To cancel, type: 'no' or anything else")
+                return (
+                    f"I can move {source_path.name} to {final_dest}\n\n"
+                    f"To confirm, type: 'yes, move {source_path.name}'\n"
+                    f"To cancel, type: 'no' or anything else"
+                )
 
         return "I can help with file operations! Try: 'move ./test-prompt.prmd to ./prompts'"
 
@@ -664,8 +646,9 @@ class ConversationalAssistant:
                 else:
                     # Simple wildcard support
                     pattern = file_pattern.replace("*", "")
-                    matching_files = [f for f in shell_instance.current_dir.iterdir()
-                                    if f.is_file() and pattern in f.name]
+                    matching_files = [
+                        f for f in shell_instance.current_dir.iterdir() if f.is_file() and pattern in f.name
+                    ]
             else:
                 # Single file
                 file_path = Path(file_pattern)
@@ -681,10 +664,12 @@ class ConversationalAssistant:
             shell_instance.current_dir / folder_name
             file_list = ", ".join(f.name for f in matching_files)
 
-            return (f"I can create folder '{folder_name}' and move {len(matching_files)} files:\n"
-                   f"Files: {file_list}\n\n"
-                   f"To confirm, type: 'yes, mkdir and move to {folder_name}'\n"
-                   f"To cancel, type: 'no'")
+            return (
+                f"I can create folder '{folder_name}' and move {len(matching_files)} files:\n"
+                f"Files: {file_list}\n\n"
+                f"To confirm, type: 'yes, mkdir and move to {folder_name}'\n"
+                f"To cancel, type: 'no'"
+            )
 
         # Pattern: Simple "move X to Y"
         move_pattern = r"move\s+(?:the\s+)?(.+?)\s+(?:to|into)\s+(?:the\s+)?(.+?)(?:\s|$)"
@@ -700,9 +685,11 @@ class ConversationalAssistant:
             if folder_name.startswith("./"):
                 folder_name = folder_name[2:]
 
-            return (f"I can create folder '{folder_name}'\n\n"
-                   f"To confirm, type: 'yes, mkdir {folder_name}'\n"
-                   f"To cancel, type: 'no'")
+            return (
+                f"I can create folder '{folder_name}'\n\n"
+                f"To confirm, type: 'yes, mkdir {folder_name}'\n"
+                f"To cancel, type: 'no'"
+            )
 
         return "I can help with file operations! Try: 'make folder packages and move *.pdpkg files to folder'"
 
@@ -787,7 +774,9 @@ class ConversationalAssistant:
             prompt_name = topic.title()
 
             # Create template content
-            template = (self.pending_prompt_template or f"""---
+            template = (
+                self.pending_prompt_template
+                or f"""---
 id: {topic_id}
 name: {prompt_name}
 version: 1.0.0
@@ -806,7 +795,8 @@ Context: {{{{context}}}}
 {{{{ end }}}}
 
 Please provide helpful guidance on {topic}.
-""")
+"""
+            )
 
             # Write to file
             file_path = shell_instance.current_dir / filename
@@ -966,11 +956,13 @@ Please provide helpful guidance on {topic}.
         except Exception:
             self.pending_prompt_template = template
 
-        return (f"I can create a new prompt for '{topic}':\n"
-               f"Filename: {filename}\n\n"
-               f"Preview:\n{template[:200]}...\n\n"
-               f"To create this prompt, type: 'yes, create {filename}'\n"
-               f"To cancel, type: 'no'")
+        return (
+            f"I can create a new prompt for '{topic}':\n"
+            f"Filename: {filename}\n\n"
+            f"Preview:\n{template[:200]}...\n\n"
+            f"To create this prompt, type: 'yes, create {filename}'\n"
+            f"To cancel, type: 'no'"
+        )
 
     def handle_registry_search(self, user_input: str, shell_instance) -> str:
         """Handle registry search requests"""
@@ -978,10 +970,10 @@ Please provide helpful guidance on {topic}.
 
         # Extract search query
         query_patterns = [
-            r"search\s+(?:the\s+)?registry\s+for\s+(.+)",    # "search registry for security"
-            r"search\s+(?:the\s+)?registry\s+(.+)",         # "search registry security"
-            r"search\s+for\s+(.+)",                         # "search for security"
-            r"search\s+(.+)",                               # "search security"
+            r"search\s+(?:the\s+)?registry\s+for\s+(.+)",  # "search registry for security"
+            r"search\s+(?:the\s+)?registry\s+(.+)",  # "search registry security"
+            r"search\s+for\s+(.+)",  # "search for security"
+            r"search\s+(.+)",  # "search security"
         ]
 
         query = None
@@ -1011,8 +1003,10 @@ Please provide helpful guidance on {topic}.
             else:
                 return f"Searched registry for '{query}' - see results above"
         except Exception:
-            return (f"Registry search for '{query}' - calling search API...\n"
-                   f"Use 'search {query}' command for full results")
+            return (
+                f"Registry search for '{query}' - calling search API...\n"
+                f"Use 'search {query}' command for full results"
+            )
 
     def handle_provider_request(self, user_input: str, shell_instance) -> str:
         """Handle provider-related requests"""
@@ -1065,15 +1059,16 @@ Please provide helpful guidance on {topic}.
 
         # Look for .prmd files
         for file in directory.glob("*.prmd"):
-            if (pattern in file.name.lower() or
-                pattern in file.stem.lower() or
-                pattern.replace(" ", "-") in file.name.lower()):
+            if (
+                pattern in file.name.lower()
+                or pattern in file.stem.lower()
+                or pattern.replace(" ", "-") in file.name.lower()
+            ):
                 matches.append(file)
 
         # Also check subdirectories for composable packages
         for subdir in directory.glob("**/prompts/*.prmd"):
-            if (pattern in subdir.name.lower() or
-                pattern in subdir.stem.lower()):
+            if pattern in subdir.name.lower() or pattern in subdir.stem.lower():
                 matches.append(subdir)
 
         return matches
@@ -1092,11 +1087,7 @@ Please provide helpful guidance on {topic}.
             suggestions.append("Show package contents")
 
         if not prompd_files and not pdpkg_files:
-            suggestions.extend([
-                "Create a new prompt",
-                "Search the registry",
-                "Show help"
-            ])
+            suggestions.extend(["Create a new prompt", "Search the registry", "Show help"])
 
         return suggestions[:3]  # Limit to 3 suggestions
 
@@ -1130,8 +1121,21 @@ Please provide helpful guidance on {topic}.
     def suggest_similar_command(self, user_input_lower: str, shell_instance=None) -> str:
         """Suggest similar commands based on fuzzy matching"""
         available_commands = [
-            "compile", "show", "validate", "list", "cd", "cat", "open", "provider",
-            "search", "install", "publish", "login", "status", "help", "clear"
+            "compile",
+            "show",
+            "validate",
+            "list",
+            "cd",
+            "cat",
+            "open",
+            "provider",
+            "search",
+            "install",
+            "publish",
+            "login",
+            "status",
+            "help",
+            "clear",
         ]
 
         # Simple fuzzy matching for command suggestions
@@ -1181,6 +1185,7 @@ class PrompdShell:
         # Console configuration for Windows compatibility
         try:
             import os
+
             # Force UTF-8 encoding and terminal compatibility for Windows
             if os.name == "nt":
                 try:
@@ -1197,24 +1202,31 @@ class PrompdShell:
                 color_system="standard",  # Force standard color system for compatibility
                 no_color=False,
                 highlight=False,  # Disable auto-highlighting that can cause issues
-                soft_wrap=True  # Enable soft text wrapping
+                soft_wrap=True,  # Enable soft text wrapping
             )
         except Exception:
             # Minimal fallback console
             self.console = Console(
-                width=100,
-                legacy_windows=True,
-                safe_box=True,
-                color_system="standard",
-                no_color=True
+                width=100, legacy_windows=True, safe_box=True, color_system="standard", no_color=True
             )
         self.assistant = ConversationalAssistant(self.console)
         self.registry = RegistryClient()
         self.current_dir = Path.cwd()
         self.commands = [
-            "compile", "show", "validate", "list", "status",
-            "search", "install", "publish", "login",
-            "chat", "help", "exit", "clear", "compact"
+            "compile",
+            "show",
+            "validate",
+            "list",
+            "status",
+            "search",
+            "install",
+            "publish",
+            "login",
+            "chat",
+            "help",
+            "exit",
+            "clear",
+            "compact",
         ]
         self.chat_mode = False
         self.last_suggestion = None  # Store last suggested command
@@ -1226,7 +1238,7 @@ class PrompdShell:
         # Display configuration
         self.compact_mode = False  # Can be toggled for smaller output
         # Token usage tracking
-        self.token_usage_total = { "prompt": 0, "completion": 0, "total": 0 }
+        self.token_usage_total = {"prompt": 0, "completion": 0, "total": 0}
         self.last_usage = None
         self._usage_updated_this_turn = False
 
@@ -1244,8 +1256,25 @@ class PrompdShell:
 
                     if not parts or (len(parts) == 1 and not line_buffer.endswith(" ")):
                         # Complete command names
-                        commands = ["compile", "show", "validate", "list", "cd", "cat", "open", "provider", "search",
-                                   "install", "publish", "login", "status", "chat", "clear", "help", "exit"]
+                        commands = [
+                            "compile",
+                            "show",
+                            "validate",
+                            "list",
+                            "cd",
+                            "cat",
+                            "open",
+                            "provider",
+                            "search",
+                            "install",
+                            "publish",
+                            "login",
+                            "status",
+                            "chat",
+                            "clear",
+                            "help",
+                            "exit",
+                        ]
                         options = [cmd for cmd in commands if cmd.startswith(text)]
                     else:
                         # Complete file/directory names
@@ -1318,6 +1347,7 @@ class PrompdShell:
         # Background: ping registry after startup and notify if unreachable
         try:
             import threading
+
             def _ping():
                 try:
                     # Lazy discovery; do not block startup
@@ -1331,6 +1361,7 @@ class PrompdShell:
                 except Exception:
                     # Quietly ignore
                     pass
+
             t = threading.Thread(target=_ping, daemon=True)
             t.start()
         except Exception:
@@ -1400,11 +1431,9 @@ class PrompdShell:
                         self.console.print("[dim]" + "─" * 50 + "[/dim]")
 
                     # Add user message to history
-                    self.conversation_history.append({
-                        "role": "user",
-                        "content": user_input,
-                        "timestamp": self.get_timestamp()
-                    })
+                    self.conversation_history.append(
+                        {"role": "user", "content": user_input, "timestamp": self.get_timestamp()}
+                    )
 
                     # Process input without showing user panel again
                     self.handle_chat_input_enhanced(user_input, show_user_panel=False)
@@ -1414,8 +1443,7 @@ class PrompdShell:
                     if current_provider:
                         provider_short = current_provider.lower()[:3]  # "ope", "ant", "oll"
                         self.console.print(
-                            f"[green]prompd[/green][dim]({provider_short})[/dim][yellow]>[/yellow] ",
-                            end=""
+                            f"[green]prompd[/green][dim]({provider_short})[/dim][yellow]>[/yellow] ", end=""
                         )
                     else:
                         self.console.print("[green]prompd[/green][yellow]>[/yellow] ", end="")
@@ -1461,6 +1489,7 @@ class PrompdShell:
     def get_timestamp(self):
         """Get current timestamp for conversation history"""
         from datetime import datetime
+
         return datetime.now().strftime("%H:%M")
 
     def parse_ai_response(self, response: str) -> tuple:
@@ -1492,7 +1521,7 @@ class PrompdShell:
                 "view": "show",
                 "open": "show",
                 "execute": "compile",
-                "run": "compile"
+                "run": "compile",
             }
 
             for action in actions_raw:
@@ -1556,7 +1585,7 @@ class PrompdShell:
             ("/exit", "Return to shell mode"),
             ("/clear", "Clear conversation history"),
             ("/help", "Show this help message"),
-            ("", "")
+            ("", ""),
         ]
 
         for cmd, desc in commands:
@@ -1595,8 +1624,7 @@ class PrompdShell:
 
         if prompd_count or package_count:
             self.console.print(
-                f"[dim]Found {prompd_count} prompts and "
-                f"{package_count} packages in current directory[/dim]"
+                f"[dim]Found {prompd_count} prompts and " f"{package_count} packages in current directory[/dim]"
             )
 
         self.console.print()
@@ -1610,13 +1638,15 @@ class PrompdShell:
 
         # Show chat header like Claude Code
         try:
-            self.console.print(Panel(
-                "[bold yellow]🧪 BETA FEATURE[/bold yellow] - AI features are experimental\n\n"
-                "I can help you with your prompts, packages, and development tasks.\n"
-                "[dim]Type /exit to return to shell commands | /clear to clear conversation[/dim]",
-                title="[bold]Prompd Assistant[/bold]",
-                border_style="sky_blue1"
-            ))
+            self.console.print(
+                Panel(
+                    "[bold yellow]🧪 BETA FEATURE[/bold yellow] - AI features are experimental\n\n"
+                    "I can help you with your prompts, packages, and development tasks.\n"
+                    "[dim]Type /exit to return to shell commands | /clear to clear conversation[/dim]",
+                    title="[bold]Prompd Assistant[/bold]",
+                    border_style="sky_blue1",
+                )
+            )
         except Exception:
             self.console.print("\n[bold blue]Prompd AI Assistant[/bold blue]")
             self.console.print("[dim]I can help you with your prompts, packages, and development tasks.[/dim]")
@@ -1706,6 +1736,7 @@ class PrompdShell:
                     for i, command in enumerate(commands_to_execute):
                         if i > 0:  # Add small delay between commands
                             import time
+
                             time.sleep(0.5)
                         try:
                             self.console.print(f"[green]>[/green] {command}")
@@ -1718,11 +1749,7 @@ class PrompdShell:
                 self.console.print("[dim]Commands skipped.[/dim]")
 
         # Add assistant response to history
-        self.conversation_history.append({
-            "role": "assistant",
-            "content": response,
-            "timestamp": self.get_timestamp()
-        })
+        self.conversation_history.append({"role": "assistant", "content": response, "timestamp": self.get_timestamp()})
 
         # Keep history manageable
         if len(self.conversation_history) > 20:
@@ -1836,10 +1863,18 @@ class PrompdShell:
             # If the user asked for help creating a prompt, route to creation
             try:
                 raw_lower = intent_data.get("raw_input", "").lower()
-                if any(phrase in raw_lower for phrase in [
-                    "create new prompt", "create a new prompt", "new prompd", "create new prompd",
-                    "create a prompd", "create prompd", "create prompt"
-                ]):
+                if any(
+                    phrase in raw_lower
+                    for phrase in [
+                        "create new prompt",
+                        "create a new prompt",
+                        "new prompd",
+                        "create new prompd",
+                        "create a prompd",
+                        "create prompd",
+                        "create prompt",
+                    ]
+                ):
                     resp = self.assistant.handle_prompt_creation(intent_data.get("raw_input", ""), self)
                     self.console.print(resp)
                     return
@@ -1888,6 +1923,7 @@ class PrompdShell:
                 self.show_help()
             elif command == "clear":
                 import os
+
                 os.system("cls" if os.name == "nt" else "clear")
 
         # Nothing else matched and no explicit return — stay responsive
@@ -1896,6 +1932,7 @@ class PrompdShell:
     def suggest_files(self, pattern: str):
         """Return close filename matches for a given pattern (stems and names)."""
         import difflib
+
         names = []
         for p in self.current_dir.glob("*.prmd"):
             if not p.name.startswith("."):
@@ -1980,8 +2017,7 @@ class PrompdShell:
             else:
                 self.console.print(f"[red]Unknown command: {command}[/red]")
                 self.console.print(
-                    "Type [cyan]help[/cyan] for available commands"
-                    " or [cyan]chat[/cyan] to talk naturally"
+                    "Type [cyan]help[/cyan] for available commands" " or [cyan]chat[/cyan] to talk naturally"
                 )
 
         except Exception as e:
@@ -2011,7 +2047,7 @@ class PrompdShell:
             ("chat", "Enter conversational AI mode", "chat"),
             ("clear", "Clear the screen", "clear"),
             ("help", "Show this help", "help"),
-            ("exit", "Exit shell", "exit")
+            ("exit", "Exit shell", "exit"),
         ]
 
         for cmd, desc, example in commands:
@@ -2031,7 +2067,7 @@ class PrompdShell:
             '"What prompts do I have available?"',
             '"Show me the API builder prompt"',
             '"Help me validate my package"',
-            '"What can I do with these files?"'
+            '"What can I do with these files?"',
         ]
 
         for example in examples:
@@ -2041,6 +2077,7 @@ class PrompdShell:
         """Use packaged planner .prmd to propose safe commands. Returns dict or None."""
         try:
             from .utils.assets import read_prompt_asset
+
             planner_text = read_prompt_asset("python/command-planner.prmd")
             if not planner_text:
                 return None
@@ -2051,53 +2088,50 @@ class PrompdShell:
 
             from .config import PrompdConfig
             from .executor import PrompdExecutor
+
             # Write temp planner file
             with tempfile.NamedTemporaryFile(mode="w", suffix=".prmd", delete=False, encoding="utf-8") as tmp:
                 tmp.write(planner_text)
                 planner_path = Path(tmp.name)
             # Build params
-            files = (
-                [p.name for p in self.current_dir.glob("*.prmd")]
-                + [p.name for p in self.current_dir.glob("*.pdpkg")]
-            )
+            files = [p.name for p in self.current_dir.glob("*.prmd")] + [
+                p.name for p in self.current_dir.glob("*.pdpkg")
+            ]
             allowed = [
-                "compile", "show", "validate", "list",
-                "provider_status", "provider_switch",
-                "mkdir", "create_file", "move", "copy"
+                "compile",
+                "show",
+                "validate",
+                "list",
+                "provider_status",
+                "provider_switch",
+                "mkdir",
+                "create_file",
+                "move",
+                "copy",
             ]
             cli_params = [
                 f"user_input={user_input}",
                 f"cwd={self.current_dir}",
                 f"files={','.join(files)}",
-                f"allowed={','.join(allowed)}"
+                f"allowed={','.join(allowed)}",
             ]
             cfg = PrompdConfig.load()
-            provider = (
-                (cfg.default_provider or "").lower()
-                if cfg.default_provider else None
-            )
+            provider = (cfg.default_provider or "").lower() if cfg.default_provider else None
             if not provider:
                 provider = (
-                    "openai" if cfg.get_api_key("openai")
-                    else (
-                        "anthropic" if cfg.get_api_key("anthropic")
-                        else "ollama"
-                    )
+                    "openai"
+                    if cfg.get_api_key("openai")
+                    else ("anthropic" if cfg.get_api_key("anthropic") else "ollama")
                 )
             model = cfg.default_model or (
-                "gpt-3.5-turbo" if provider == "openai"
-                else (
-                    "claude-3-haiku-20240307"
-                    if provider == "anthropic" else "llama2"
-                )
+                "gpt-3.5-turbo"
+                if provider == "openai"
+                else ("claude-3-haiku-20240307" if provider == "anthropic" else "llama2")
             )
             execu = PrompdExecutor()
-            resp = asyncio.run(execu.execute(
-                prompd_file=planner_path,
-                provider=provider,
-                model=model,
-                cli_params=cli_params
-            ))
+            resp = asyncio.run(
+                execu.execute(prompd_file=planner_path, provider=provider, model=model, cli_params=cli_params)
+            )
             content = (resp.content or resp.response or "").strip()
             plan = json.loads(content)
             if not isinstance(plan, dict) or not self._validate_commands(plan.get("commands") or []):
@@ -2110,6 +2144,7 @@ class PrompdShell:
         """Use packaged planner .prmd to propose safe commands. Returns {'plan': dict, 'usage': dict} or None."""
         try:
             from .utils.assets import read_prompt_asset
+
             planner_text = read_prompt_asset("python/command-planner.prmd")
             if not planner_text:
                 return None
@@ -2120,53 +2155,50 @@ class PrompdShell:
 
             from .config import PrompdConfig
             from .executor import PrompdExecutor
+
             # Write temp planner file
             with tempfile.NamedTemporaryFile(mode="w", suffix=".prmd", delete=False, encoding="utf-8") as tmp:
                 tmp.write(planner_text)
                 planner_path = Path(tmp.name)
             # Build params
-            files = (
-                [p.name for p in self.current_dir.glob("*.prmd")]
-                + [p.name for p in self.current_dir.glob("*.pdpkg")]
-            )
+            files = [p.name for p in self.current_dir.glob("*.prmd")] + [
+                p.name for p in self.current_dir.glob("*.pdpkg")
+            ]
             allowed = [
-                "compile", "show", "validate", "list",
-                "provider_status", "provider_switch",
-                "mkdir", "create_file", "move", "copy"
+                "compile",
+                "show",
+                "validate",
+                "list",
+                "provider_status",
+                "provider_switch",
+                "mkdir",
+                "create_file",
+                "move",
+                "copy",
             ]
             cli_params = [
                 f"user_input={user_input}",
                 f"cwd={self.current_dir}",
                 f"files={','.join(files)}",
-                f"allowed={','.join(allowed)}"
+                f"allowed={','.join(allowed)}",
             ]
             cfg = PrompdConfig.load()
-            provider = (
-                (cfg.default_provider or "").lower()
-                if cfg.default_provider else None
-            )
+            provider = (cfg.default_provider or "").lower() if cfg.default_provider else None
             if not provider:
                 provider = (
-                    "openai" if cfg.get_api_key("openai")
-                    else (
-                        "anthropic" if cfg.get_api_key("anthropic")
-                        else "ollama"
-                    )
+                    "openai"
+                    if cfg.get_api_key("openai")
+                    else ("anthropic" if cfg.get_api_key("anthropic") else "ollama")
                 )
             model = cfg.default_model or (
-                "gpt-3.5-turbo" if provider == "openai"
-                else (
-                    "claude-3-haiku-20240307"
-                    if provider == "anthropic" else "llama2"
-                )
+                "gpt-3.5-turbo"
+                if provider == "openai"
+                else ("claude-3-haiku-20240307" if provider == "anthropic" else "llama2")
             )
             execu = PrompdExecutor()
-            resp = asyncio.run(execu.execute(
-                prompd_file=planner_path,
-                provider=provider,
-                model=model,
-                cli_params=cli_params
-            ))
+            resp = asyncio.run(
+                execu.execute(prompd_file=planner_path, provider=provider, model=model, cli_params=cli_params)
+            )
             content = (resp.content or resp.response or "").strip()
             plan = json.loads(content)
             if not isinstance(plan, dict) or not self._validate_commands(plan.get("commands") or []):
@@ -2175,24 +2207,28 @@ class PrompdShell:
             # Extract usage information if available
             usage = getattr(resp, "usage", None)
 
-            return {
-                "plan": plan,
-                "usage": usage
-            }
+            return {"plan": plan, "usage": usage}
         except Exception:
             return None
 
     def _validate_commands(self, commands: list) -> bool:
         allowed = {
-            "compile", "show", "validate", "list",
-            "provider_status", "provider_switch",
-            "mkdir", "create_file", "move", "copy"
+            "compile",
+            "show",
+            "validate",
+            "list",
+            "provider_status",
+            "provider_switch",
+            "mkdir",
+            "create_file",
+            "move",
+            "copy",
         }
         base = self.current_dir.resolve()
         for c in commands:
             if c.get("cmd") not in allowed:
                 return False
-            for a in (c.get("args") or []):
+            for a in c.get("args") or []:
                 # reject absolute, drives, parent traversal
                 if a.startswith("/") or a.startswith("..") or ":" in a:
                     return False
@@ -2225,7 +2261,7 @@ class PrompdShell:
                     self.console.print(self.execute_mkdir(args[0], self))
                 elif cmd == "create_file" and args:
                     self.console.print(self.execute_prompt_creation(args[0], self))
-                elif cmd in ["move","copy"]:
+                elif cmd in ["move", "copy"]:
                     self.console.print(f"[dim]{cmd} not yet implemented by planner executor[/dim]")
             except Exception as e:
                 self.console.print(f"[red]Command failed: {cmd} {' '.join(args)} - {e}[/red]")
@@ -2262,7 +2298,7 @@ class PrompdShell:
             completion = usage.get("completion_tokens") or usage.get("output_tokens") or 0
             total = usage.get("total_tokens") or (prompt + completion)
             # Update last and totals
-            self.last_usage = { "prompt": int(prompt), "completion": int(completion), "total": int(total) }
+            self.last_usage = {"prompt": int(prompt), "completion": int(completion), "total": int(total)}
             self.token_usage_total["prompt"] += int(prompt)
             self.token_usage_total["completion"] += int(completion)
             self.token_usage_total["total"] += int(total)
@@ -2275,6 +2311,7 @@ class PrompdShell:
         """Render a subtle footer with provider/model and session token totals."""
         try:
             from .config import PrompdConfig
+
             cfg = PrompdConfig.load()
             prov = (cfg.default_provider or "") if cfg.default_provider else (self.get_current_ai_provider() or "")
             model = cfg.default_model or ""
@@ -2312,6 +2349,7 @@ class PrompdShell:
             # Import and call the actual compile function
             try:
                 from .compiler import PrompdCompiler
+
                 self.console.print(f"[cyan]Compiling {path.name}...[/cyan]")
                 compiler = PrompdCompiler()
                 result = compiler.compile(str(path))
@@ -2398,9 +2436,11 @@ class PrompdShell:
         prompd_files = list(self.current_dir.glob("*.prmd"))
         pdpkg_files = list(self.current_dir.glob("*.pdpkg"))
         directories = [d for d in self.current_dir.iterdir() if d.is_dir() and not d.name.startswith(".")]
-        other_files = [f for f in self.current_dir.iterdir()
-                      if f.is_file() and not f.name.startswith(".")
-                      and f.suffix not in [".prmd", ".pdpkg"]]
+        other_files = [
+            f
+            for f in self.current_dir.iterdir()
+            if f.is_file() and not f.name.startswith(".") and f.suffix not in [".prmd", ".pdpkg"]
+        ]
 
         if not any([prompd_files, pdpkg_files, directories, other_files]):
             self.console.print("[yellow]Directory is empty[/yellow]")
@@ -2422,10 +2462,9 @@ class PrompdShell:
         if prompd_files:
             if self.compact_mode:
                 # Compact format: show files in fewer lines
-                files = ", ".join([
-                    f"[green]{f.name}[/green]"
-                    for f in sorted(prompd_files, key=lambda f: f.name.lower())
-                ])
+                files = ", ".join(
+                    [f"[green]{f.name}[/green]" for f in sorted(prompd_files, key=lambda f: f.name.lower())]
+                )
                 self.console.print(f"\n[cyan]Prompts ({len(prompd_files)}):[/cyan] {files}")
             else:
                 # Standard format
@@ -2548,11 +2587,11 @@ class PrompdShell:
                             break
 
                     # Display YAML frontmatter in yellow
-                    self.console.print("[yellow]" + "\n".join(lines[:yaml_end+1]) + "[/yellow]")
+                    self.console.print("[yellow]" + "\n".join(lines[: yaml_end + 1]) + "[/yellow]")
 
                     # Display prompt content in white
                     if yaml_end + 1 < len(lines):
-                        self.console.print("\n".join(lines[yaml_end+1:]))
+                        self.console.print("\n".join(lines[yaml_end + 1 :]))
                 else:
                     self.console.print(content)
             else:
@@ -2639,6 +2678,7 @@ class PrompdShell:
         """Display current provider configuration"""
         try:
             from .config import PrompdConfig
+
             config = PrompdConfig.load()
 
             self.console.print("[cyan]AI Provider Status:[/cyan]")
@@ -2684,6 +2724,7 @@ class PrompdShell:
         """Check if Ollama is available"""
         try:
             import subprocess
+
             result = subprocess.run(["ollama", "list"], capture_output=True, timeout=5)
             return result.returncode == 0
         except Exception:
@@ -2693,6 +2734,7 @@ class PrompdShell:
         """Get the current AI provider being used"""
         try:
             from .config import PrompdConfig
+
             config = PrompdConfig.load()
 
             # Check which provider has a key (prioritize in order)
@@ -2711,6 +2753,7 @@ class PrompdShell:
         """Switch to a different AI provider"""
         try:
             from .config import PrompdConfig
+
             config = PrompdConfig.load()
 
             if provider_name == "openai":
@@ -2725,8 +2768,7 @@ class PrompdShell:
                     self.console.print("[green]Switched to Anthropic provider[/green]")
                 else:
                     self.console.print(
-                        "[red]Anthropic not configured."
-                        " Use 'prompd provider add anthropic' to set up.[/red]"
+                        "[red]Anthropic not configured." " Use 'prompd provider add anthropic' to set up.[/red]"
                     )
 
             elif provider_name == "ollama":
@@ -2776,7 +2818,6 @@ class PrompdShell:
             (r"(?:using|with) (\w+)(?: framework| library)?", "framework"),
             (r'called (?:"|\')?([^"\']+)(?:"|\')?', "app_name"),
             (r'named (?:"|\')?([^"\']+)(?:"|\')?', "app_name"),
-
             # Technology stack patterns
             (r"(?:react|reactjs)", "framework=React"),
             (r"(?:node|nodejs|node\.js)", "platform=Node.js"),
@@ -2785,12 +2826,10 @@ class PrompdShell:
             (r"(?:python|django|flask)", "language=Python"),
             (r"(?:java|spring)", "language=Java"),
             (r"(?:go|golang)", "language=Go"),
-
             # Environment patterns
             (r"(?:dev|development)", "environment=development"),
             (r"(?:prod|production)", "environment=production"),
             (r"(?:test|testing)", "environment=test"),
-
             # Security patterns
             (r"security (?:audit|review|check)", "type=security_audit"),
             (r"(?:auth|authentication)", "feature=authentication"),
@@ -2865,6 +2904,7 @@ class PrompdShell:
             # Import and call the actual compile function
             try:
                 from .compiler import PrompdCompiler
+
                 self.console.print(f"[cyan]Compiling {path.name}...[/cyan]")
                 compiler = PrompdCompiler()
                 result = compiler.compile(str(path), parameters=params if params else None)
@@ -2905,9 +2945,12 @@ class PrompdShell:
             import sys
 
             # Call the prompd CLI search command
-            result = subprocess.run([
-                sys.executable, "-m", "prompd.cli", "search", query
-            ], capture_output=True, text=True, cwd=self.current_dir)
+            result = subprocess.run(
+                [sys.executable, "-m", "prompd.cli", "search", query],
+                capture_output=True,
+                text=True,
+                cwd=self.current_dir,
+            )
 
             if result.returncode == 0 and result.stdout.strip():
                 self.console.print(result.stdout)
@@ -2922,6 +2965,7 @@ class PrompdShell:
                 import sys
 
                 from .cli import main as cli_main
+
                 old_argv = sys.argv
                 sys.argv = ["prompd", "search", query]
                 cli_main()

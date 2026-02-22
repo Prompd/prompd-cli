@@ -21,6 +21,7 @@ class ProviderRegistry:
         """
         # Get provider name from class using a temporary config
         from prompd.providers.base import ProviderConfig
+
         temp_instance = provider_class(config=ProviderConfig())
         provider_name = temp_instance.name
         self._providers[provider_name] = provider_class

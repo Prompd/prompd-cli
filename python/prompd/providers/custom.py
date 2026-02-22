@@ -34,10 +34,7 @@ class CustomProvider(BaseProvider):
         # Build request payload
         payload = {
             "model": request.model or self.get_default_model(),
-            "messages": [
-                {"role": msg.role.value, "content": msg.content}
-                for msg in request.messages
-            ]
+            "messages": [{"role": msg.role.value, "content": msg.content} for msg in request.messages],
         }
 
         # Add optional parameters
@@ -46,9 +43,7 @@ class CustomProvider(BaseProvider):
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
 
-        headers = {
-            "Content-Type": "application/json"
-        }
+        headers = {"Content-Type": "application/json"}
 
         # Add auth header if API key is provided
         if api_key:
@@ -56,6 +51,7 @@ class CustomProvider(BaseProvider):
 
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
@@ -74,10 +70,7 @@ class CustomProvider(BaseProvider):
                     usage_info = data["usage"]
 
                 return LLMResponse(
-                    content=content,
-                    usage=usage_info,
-                    model=request.model,
-                    metadata={"provider": self.name}
+                    content=content, usage=usage_info, model=request.model, metadata={"provider": self.name}
                 )
 
         except httpx.HTTPStatusError as e:
@@ -109,10 +102,7 @@ class CustomProvider(BaseProvider):
 
         # Add system message if present
         if content.get("system"):
-            messages.append(LLMMessage(
-                role=MessageRole.SYSTEM,
-                content=content["system"]
-            ))
+            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=content["system"]))
 
         # Build user message (combine context and user if both present)
         user_content_parts = []
@@ -125,14 +115,11 @@ class CustomProvider(BaseProvider):
 
         if user_content_parts:
             user_content = "\n\n".join(user_content_parts)
-            messages.append(LLMMessage(
-                role=MessageRole.USER,
-                content=user_content
-            ))
+            messages.append(LLMMessage(role=MessageRole.USER, content=user_content))
 
         return LLMRequest(
             messages=messages,
             model=context.model,
             temperature=context.extra_config.get("temperature"),
-            max_tokens=context.extra_config.get("max_tokens")
+            max_tokens=context.extra_config.get("max_tokens"),
         )

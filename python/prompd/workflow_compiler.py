@@ -25,6 +25,7 @@ from .exceptions import PrompdError
 @dataclass
 class CompiledStep:
     """A compiled workflow step with pre-processed prompt content."""
+
     id: str
     original_source: str
     compiled_prompt: str  # Compiled content with runtime vars preserved
@@ -39,6 +40,7 @@ class CompiledStep:
 @dataclass
 class CompiledWorkflow:
     """A fully compiled workflow ready for execution or export."""
+
     version: str
     compiled: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -69,7 +71,7 @@ class WorkflowCompiler:
         output_format: str = "pdflow-compiled",
         preserve_runtime_vars: bool = True,
         trim: bool = False,
-        base_dir: Optional[Path] = None
+        base_dir: Optional[Path] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Compile a .pdflow workflow file.
@@ -117,16 +119,13 @@ class WorkflowCompiler:
             "source_file": str(workflow_path),
             "output_format": output_format,
             "compiled_steps": len(compiled.steps),
-            "preserved_runtime_vars": preserve_runtime_vars
+            "preserved_runtime_vars": preserve_runtime_vars,
         }
 
         return output, metadata
 
     def _compile_workflow(
-        self,
-        workflow_data: Dict[str, Any],
-        base_dir: Path,
-        preserve_runtime_vars: bool
+        self, workflow_data: Dict[str, Any], base_dir: Path, preserve_runtime_vars: bool
     ) -> CompiledWorkflow:
         """
         Stage 1: Compile all nodes in the workflow.
@@ -142,7 +141,7 @@ class WorkflowCompiler:
             parameters=workflow_data.get("parameters", []),
             variables=workflow_data.get("variables", []),
             error_handling=workflow_data.get("errorHandling"),
-            execution_config=workflow_data.get("execution")
+            execution_config=workflow_data.get("execution"),
         )
 
         nodes = workflow_data.get("nodes", [])
@@ -156,7 +155,7 @@ class WorkflowCompiler:
                 "target": edge["target"],
                 "sourceHandle": edge.get("sourceHandle", "output"),
                 "targetHandle": edge.get("targetHandle", "input"),
-                "label": edge.get("label")
+                "label": edge.get("label"),
             }
             for edge in edges
         ]
@@ -186,23 +185,14 @@ class WorkflowCompiler:
             else:
                 # Unknown node type - preserve as-is
                 step = CompiledStep(
-                    id=node_id,
-                    original_source="",
-                    compiled_prompt="",
-                    node_type=node_type,
-                    metadata=node_data
+                    id=node_id, original_source="", compiled_prompt="", node_type=node_type, metadata=node_data
                 )
 
             compiled.steps.append(step)
 
         return compiled
 
-    def _compile_prompt_node(
-        self,
-        node: Dict[str, Any],
-        base_dir: Path,
-        preserve_runtime_vars: bool
-    ) -> CompiledStep:
+    def _compile_prompt_node(self, node: Dict[str, Any], base_dir: Path, preserve_runtime_vars: bool) -> CompiledStep:
         """Compile a prompt node by reading and compiling its .prmd source."""
         node_id = node["id"]
         node_data = node.get("data", {})
@@ -220,6 +210,7 @@ class WorkflowCompiler:
                 if source.startswith("@"):
                     # Package reference - use package resolver
                     from .package_resolver import PackageResolver
+
                     resolver = PackageResolver()
                     package_path = resolver.resolve_package(source)
                     prmd_file = self._find_main_prmd(package_path)
@@ -245,7 +236,7 @@ class WorkflowCompiler:
                         prmd_file,
                         output_format="markdown",
                         parameters=compile_time_params if not preserve_runtime_vars else {},
-                        verbose=self.verbose
+                        verbose=self.verbose,
                     )
 
                     # Strip the PROMPD METADATA comment block if present
@@ -271,8 +262,8 @@ class WorkflowCompiler:
             metadata={
                 "label": node_data.get("label", ""),
                 "position": node.get("position"),
-                "context": node_data.get("context")
-            }
+                "context": node_data.get("context"),
+            },
         )
 
     def _compile_condition_node(self, node: Dict[str, Any]) -> CompiledStep:
@@ -287,8 +278,8 @@ class WorkflowCompiler:
                 "label": node_data.get("label", ""),
                 "conditions": node_data.get("conditions", []),
                 "default": node_data.get("default"),
-                "position": node.get("position")
-            }
+                "position": node.get("position"),
+            },
         )
 
     def _compile_loop_node(self, node: Dict[str, Any]) -> CompiledStep:
@@ -309,8 +300,8 @@ class WorkflowCompiler:
                 "maxIterations": node_data.get("maxIterations", 10),
                 "body": node_data.get("body", []),
                 "onComplete": node_data.get("onComplete"),
-                "position": node.get("position")
-            }
+                "position": node.get("position"),
+            },
         )
 
     def _compile_parallel_node(self, node: Dict[str, Any]) -> CompiledStep:
@@ -326,8 +317,8 @@ class WorkflowCompiler:
                 "branches": node_data.get("branches", []),
                 "waitFor": node_data.get("waitFor", "all"),
                 "mergeStrategy": node_data.get("mergeStrategy", "object"),
-                "position": node.get("position")
-            }
+                "position": node.get("position"),
+            },
         )
 
     def _compile_callback_node(self, node: Dict[str, Any]) -> CompiledStep:
@@ -348,8 +339,8 @@ class WorkflowCompiler:
                 "webhookUrl": node_data.get("webhookUrl"),
                 "waitForAck": node_data.get("waitForAck", False),
                 "ackTimeoutMs": node_data.get("ackTimeoutMs", 0),
-                "position": node.get("position")
-            }
+                "position": node.get("position"),
+            },
         )
 
     def _compile_output_node(self, node: Dict[str, Any]) -> CompiledStep:
@@ -363,8 +354,8 @@ class WorkflowCompiler:
             metadata={
                 "label": node_data.get("label", ""),
                 "outputSchema": node_data.get("outputSchema"),
-                "position": node.get("position")
-            }
+                "position": node.get("position"),
+            },
         )
 
     def _compile_transformer_node(self, node: Dict[str, Any]) -> CompiledStep:
@@ -378,8 +369,8 @@ class WorkflowCompiler:
             metadata={
                 "label": node_data.get("label", ""),
                 "transform": node_data.get("transform", ""),
-                "position": node.get("position")
-            }
+                "position": node.get("position"),
+            },
         )
 
     def _compile_api_node(self, node: Dict[str, Any]) -> CompiledStep:
@@ -397,8 +388,8 @@ class WorkflowCompiler:
                 "headers": node_data.get("headers", {}),
                 "body": node_data.get("body"),
                 "retryPolicy": node_data.get("retryPolicy"),
-                "position": node.get("position")
-            }
+                "position": node.get("position"),
+            },
         )
 
     def _is_runtime_var(self, value: str) -> bool:
@@ -439,7 +430,7 @@ class WorkflowCompiler:
             "parameters": compiled.parameters,
             "steps": [],
             "edges": compiled.edges,
-            "variables": compiled.variables
+            "variables": compiled.variables,
         }
 
         if compiled.error_handling:
@@ -469,14 +460,32 @@ class WorkflowCompiler:
             if step.metadata:
                 if trim:
                     # Only include execution-relevant metadata
-                    relevant_keys = ["label", "conditions", "default", "loopType", "condition",
-                                     "items", "itemVariable", "count", "maxIterations", "body",
-                                     "onComplete", "branches", "waitFor", "mergeStrategy",
-                                     "mode", "checkpointName", "transform", "method", "url",
-                                     "headers", "body", "outputSchema"]
+                    relevant_keys = [
+                        "label",
+                        "conditions",
+                        "default",
+                        "loopType",
+                        "condition",
+                        "items",
+                        "itemVariable",
+                        "count",
+                        "maxIterations",
+                        "body",
+                        "onComplete",
+                        "branches",
+                        "waitFor",
+                        "mergeStrategy",
+                        "mode",
+                        "checkpointName",
+                        "transform",
+                        "method",
+                        "url",
+                        "headers",
+                        "body",
+                        "outputSchema",
+                    ]
                     step_data["metadata"] = {
-                        k: v for k, v in step.metadata.items()
-                        if k in relevant_keys and v is not None
+                        k: v for k, v in step.metadata.items() if k in relevant_keys and v is not None
                     }
                 else:
                     step_data["metadata"] = step.metadata
@@ -491,14 +500,11 @@ class WorkflowCompiler:
             "version": compiled.version,
             "compiled": True,
             "parameters": [p["name"] for p in compiled.parameters],
-            "steps": []
+            "steps": [],
         }
 
         for step in compiled.steps:
-            step_data = {
-                "id": step.id,
-                "type": step.node_type
-            }
+            step_data = {"id": step.id, "type": step.node_type}
 
             if step.node_type == "prompt":
                 step_data["prompt"] = step.compiled_prompt
@@ -508,18 +514,16 @@ class WorkflowCompiler:
                     step_data["model"] = step.model
             else:
                 # For other node types, include minimal metadata
-                relevant = {k: v for k, v in step.metadata.items()
-                           if k != "position" and k != "label" and v is not None}
+                relevant = {
+                    k: v for k, v in step.metadata.items() if k != "position" and k != "label" and v is not None
+                }
                 if relevant:
                     step_data.update(relevant)
 
             output["steps"].append(step_data)
 
         # Simple connections list
-        output["connections"] = [
-            {"from": e["source"], "to": e["target"]}
-            for e in compiled.edges
-        ]
+        output["connections"] = [{"from": e["source"], "to": e["target"]} for e in compiled.edges]
 
         return json.dumps(output, indent=2)
 
@@ -530,10 +534,7 @@ class WorkflowCompiler:
             "description": compiled.metadata.get("description", ""),
             "name": compiled.metadata.get("name", "Prompd Workflow"),
             "id": compiled.metadata.get("id", ""),
-            "data": {
-                "nodes": [],
-                "edges": []
-            }
+            "data": {"nodes": [], "edges": []},
         }
 
         # Convert steps to LangFlow nodes
@@ -544,7 +545,7 @@ class WorkflowCompiler:
                 "data": {
                     "id": step.id,
                     "type": step.node_type,
-                }
+                },
             }
 
             if step.node_type == "prompt":
@@ -565,13 +566,15 @@ class WorkflowCompiler:
 
         # Convert edges
         for edge in compiled.edges:
-            langflow_output["data"]["edges"].append({
-                "id": edge["id"],
-                "source": edge["source"],
-                "target": edge["target"],
-                "sourceHandle": edge.get("sourceHandle", "output"),
-                "targetHandle": edge.get("targetHandle", "input")
-            })
+            langflow_output["data"]["edges"].append(
+                {
+                    "id": edge["id"],
+                    "source": edge["source"],
+                    "target": edge["target"],
+                    "sourceHandle": edge.get("sourceHandle", "output"),
+                    "targetHandle": edge.get("targetHandle", "input"),
+                }
+            )
 
         return json.dumps(langflow_output, indent=2)
 
@@ -585,17 +588,13 @@ class WorkflowCompiler:
             "output": "OutputNode",
             "transformer": "TransformNode",
             "api": "HTTPRequestNode",
-            "callback": "PassThroughNode"
+            "callback": "PassThroughNode",
         }
         return mapping.get(node_type, "GenericNode")
 
     def _to_n8n(self, compiled: CompiledWorkflow, trim: bool) -> str:
         """Generate n8n workflow format."""
-        n8n_output = {
-            "name": compiled.metadata.get("name", "Prompd Workflow"),
-            "nodes": [],
-            "connections": {}
-        }
+        n8n_output = {"name": compiled.metadata.get("name", "Prompd Workflow"), "nodes": [], "connections": {}}
 
         # Convert steps to n8n nodes
         for idx, step in enumerate(compiled.steps):
@@ -604,19 +603,13 @@ class WorkflowCompiler:
                 "name": step.metadata.get("label", step.id),
                 "type": self._map_node_type_to_n8n(step.node_type),
                 "typeVersion": 1,
-                "position": [100 + (idx * 200), 100]
+                "position": [100 + (idx * 200), 100],
             }
 
             if step.node_type == "prompt":
-                node["parameters"] = {
-                    "prompt": step.compiled_prompt,
-                    "model": step.model or "gpt-4o"
-                }
+                node["parameters"] = {"prompt": step.compiled_prompt, "model": step.model or "gpt-4o"}
             elif step.node_type == "api":
-                node["parameters"] = {
-                    "method": step.metadata.get("method", "GET"),
-                    "url": step.metadata.get("url", "")
-                }
+                node["parameters"] = {"method": step.metadata.get("method", "GET"), "url": step.metadata.get("url", "")}
 
             n8n_output["nodes"].append(node)
 
@@ -628,11 +621,7 @@ class WorkflowCompiler:
             if source not in n8n_output["connections"]:
                 n8n_output["connections"][source] = {"main": [[]]}
 
-            n8n_output["connections"][source]["main"][0].append({
-                "node": target,
-                "type": "main",
-                "index": 0
-            })
+            n8n_output["connections"][source]["main"][0].append({"node": target, "type": "main", "index": 0})
 
         return json.dumps(n8n_output, indent=2)
 
@@ -646,7 +635,7 @@ class WorkflowCompiler:
             "output": "n8n-nodes-base.set",
             "transformer": "n8n-nodes-base.code",
             "api": "n8n-nodes-base.httpRequest",
-            "callback": "n8n-nodes-base.noOp"
+            "callback": "n8n-nodes-base.noOp",
         }
         return mapping.get(node_type, "n8n-nodes-base.noOp")
 
@@ -656,7 +645,7 @@ def compile_workflow(
     output_format: str = "pdflow-compiled",
     preserve_runtime_vars: bool = True,
     trim: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
     """
     Convenience function to compile a workflow.
@@ -673,8 +662,5 @@ def compile_workflow(
     """
     compiler = WorkflowCompiler(verbose=verbose)
     return compiler.compile(
-        workflow_path,
-        output_format=output_format,
-        preserve_runtime_vars=preserve_runtime_vars,
-        trim=trim
+        workflow_path, output_format=output_format, preserve_runtime_vars=preserve_runtime_vars, trim=trim
     )

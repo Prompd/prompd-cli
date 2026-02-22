@@ -85,6 +85,7 @@ def registry_status():
         # Get registry info
         try:
             import requests
+
             registry_info_url = f"{client.registry_url}/.well-known/registry.json"
             registry_response = requests.get(registry_info_url, timeout=5)
             registry_data = registry_response.json()

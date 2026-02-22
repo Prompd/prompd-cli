@@ -115,7 +115,7 @@ def version_history(file: str, limit: int):
                 tag_info["tag"],
                 tag_info["date"][:10],  # Just the date part
                 tag_info["author"],
-                tag_info["message"][:50] + "..." if len(tag_info["message"]) > 50 else tag_info["message"]
+                tag_info["message"][:50] + "..." if len(tag_info["message"]) > 50 else tag_info["message"],
             )
 
         console.print(table)
@@ -142,10 +142,7 @@ def version_diff(file: str, version1: str, version2: str):
         tag2 = f"{file_stem}-v{version2}"
 
         result = subprocess.run(
-            ["git", "diff", f"{tag1}:{safe_path}", f"{tag2}:{safe_path}"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "diff", f"{tag1}:{safe_path}", f"{tag2}:{safe_path}"], capture_output=True, text=True, check=True
         )
 
         if not result.stdout:
@@ -205,10 +202,7 @@ def version_suggest(file: str):
         # Get recent changes
         try:
             git_result = subprocess.run(
-                ["git", "diff", "HEAD~1", str(file_path)],
-                capture_output=True,
-                text=True,
-                check=True
+                ["git", "diff", "HEAD~1", str(file_path)], capture_output=True, text=True, check=True
             )
             changes = git_result.stdout
         except subprocess.CalledProcessError:
@@ -281,7 +275,7 @@ def _update_version_in_file(file_path: Path, new_version: str):
         raise PrompdError("Invalid YAML frontmatter")
 
     frontmatter = content[3:yaml_end]
-    markdown_content = content[yaml_end + 4:]
+    markdown_content = content[yaml_end + 4 :]
 
     # Update version in frontmatter
     metadata = yaml.safe_load(frontmatter) or {}

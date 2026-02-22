@@ -38,10 +38,7 @@ def list_providers():
         api_key_status = "✓ Set" if provider_config.get("api_key") else "✗ Not set"
         models = ", ".join(provider_config.get("models", []))
         table.add_row(
-            name,
-            provider_config.get("url", "N/A"),
-            models[:50] + "..." if len(models) > 50 else models,
-            api_key_status
+            name, provider_config.get("url", "N/A"), models[:50] + "..." if len(models) > 50 else models, api_key_status
         )
 
     console.print(table)
@@ -77,10 +74,7 @@ def add_provider(name: str, url: str, models: tuple, api_key: Optional[str]):
             return
 
         # Add provider
-        config.providers[name] = {
-            "url": url,
-            "models": list(models)
-        }
+        config.providers[name] = {"url": url, "models": list(models)}
 
         if api_key:
             config.providers[name]["api_key"] = api_key

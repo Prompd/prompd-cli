@@ -17,16 +17,7 @@ class OllamaProvider(BaseProvider):
     @property
     def supported_models(self) -> List[str]:
         # Ollama models are dynamic, so we provide common ones
-        return [
-            "llama2",
-            "llama2:13b",
-            "llama2:70b",
-            "codellama",
-            "mistral",
-            "mixtral",
-            "phi",
-            "gemma"
-        ]
+        return ["llama2", "llama2:13b", "llama2:70b", "codellama", "mistral", "mixtral", "phi", "gemma"]
 
     async def execute(self, request: LLMRequest) -> LLMResponse:
         """Execute request against Ollama API."""
@@ -36,10 +27,7 @@ class OllamaProvider(BaseProvider):
         # Build request payload
         payload = {
             "model": request.model or self.get_default_model(),
-            "messages": [
-                {"role": msg.role.value, "content": msg.content}
-                for msg in request.messages
-            ]
+            "messages": [{"role": msg.role.value, "content": msg.content} for msg in request.messages],
         }
 
         # Add optional parameters
@@ -54,13 +42,11 @@ class OllamaProvider(BaseProvider):
             payload["options"] = request.extra_params
 
         # Make API request
-        headers = {
-            "Content-Type": "application/json",
-            **self.config.extra_headers
-        }
+        headers = {"Content-Type": "application/json", **self.config.extra_headers}
 
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
@@ -76,9 +62,9 @@ class OllamaProvider(BaseProvider):
                     usage={
                         "eval_count": data.get("eval_count", 0),
                         "eval_duration": data.get("eval_duration", 0),
-                        "total_duration": data.get("total_duration", 0)
+                        "total_duration": data.get("total_duration", 0),
                     },
-                    metadata={"raw_response": data}
+                    metadata={"raw_response": data},
                 )
 
         except httpx.HTTPStatusError as e:
@@ -104,10 +90,7 @@ class OllamaProvider(BaseProvider):
 
         # Add system message if present
         if content.get("system"):
-            messages.append(LLMMessage(
-                role=MessageRole.SYSTEM,
-                content=content["system"]
-            ))
+            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=content["system"]))
 
         # Build user message (combine context and user if both present)
         user_content_parts = []
@@ -124,17 +107,13 @@ class OllamaProvider(BaseProvider):
 
         if user_content_parts:
             user_content = "\n\n".join(user_content_parts)
-            messages.append(LLMMessage(
-                role=MessageRole.USER,
-                content=user_content
-            ))
+            messages.append(LLMMessage(role=MessageRole.USER, content=user_content))
 
         return LLMRequest(
             messages=messages,
             model=context.model,
             temperature=context.extra_config.get("temperature"),
-            extra_params={k: v for k, v in context.extra_config.items()
-                         if k != "temperature"}
+            extra_params={k: v for k, v in context.extra_config.items() if k != "temperature"},
         )
 
     def validate_model(self, model: str) -> bool:

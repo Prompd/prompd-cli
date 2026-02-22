@@ -19,4 +19,3 @@ def read_prompt_asset(relative_path: str) -> Optional[str]:
             return f.read()
     except Exception:
         return None
-

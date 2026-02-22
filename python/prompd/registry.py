@@ -26,46 +26,94 @@ from .package_resolver import RegistryInfo
 # These files will have prompd content frontmatter added to make them non-executable.
 CODE_EXTENSIONS = [
     # JavaScript/TypeScript ecosystem
-    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
     # Python
-    ".py", ".pyw", ".pyi",
+    ".py",
+    ".pyw",
+    ".pyi",
     # Shell/Scripts
-    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".ps1",
+    ".psm1",
+    ".psd1",
+    ".bat",
+    ".cmd",
     # Ruby
-    ".rb", ".rake", ".gemspec",
+    ".rb",
+    ".rake",
+    ".gemspec",
     # Go
     ".go",
     # Rust
     ".rs",
     # C/C++
-    ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx",
+    ".c",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".h",
+    ".hpp",
+    ".hxx",
     # Java/JVM
-    ".java", ".kt", ".kts", ".scala", ".groovy",
+    ".java",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".groovy",
     # .NET
-    ".cs", ".fs", ".vb",
+    ".cs",
+    ".fs",
+    ".vb",
     # PHP
-    ".php", ".phtml",
+    ".php",
+    ".phtml",
     # Perl
-    ".pl", ".pm",
+    ".pl",
+    ".pm",
     # Swift
     ".swift",
     # Lua
     ".lua",
     # R
-    ".r", ".R",
+    ".r",
+    ".R",
     # Julia
     ".jl",
     # Elixir/Erlang
-    ".ex", ".exs", ".erl",
+    ".ex",
+    ".exs",
+    ".erl",
     # Haskell
-    ".hs", ".lhs",
+    ".hs",
+    ".lhs",
     # Web frameworks
-    ".vue", ".svelte",
+    ".vue",
+    ".svelte",
     # SQL (can be dangerous with stored procedures)
     ".sql",
     # Markup/Config that could contain executable scripts
-    ".html", ".htm", ".css", ".xml", ".scss", ".sass", ".less", ".styl",
-    ".astro", ".toml", ".ini", ".cfg", ".conf", ".env"
+    ".html",
+    ".htm",
+    ".css",
+    ".xml",
+    ".scss",
+    ".sass",
+    ".less",
+    ".styl",
+    ".astro",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".env",
 ]
 
 # Map file extensions to content type names for frontmatter metadata.
@@ -211,9 +259,7 @@ class RegistryClient:
         # Set up authentication if available
         token = self.registry_config.get("api_key")
         if token:
-            self.session.headers.update({
-                "Authorization": f"Bearer {token}"
-            })
+            self.session.headers.update({"Authorization": f"Bearer {token}"})
 
     def ensure_discovered(self):
         """Discover registry endpoints once, with short timeout and quiet failure."""
@@ -243,10 +289,7 @@ class RegistryClient:
         """Authenticate with the registry using username and password."""
         try:
             # Login with credentials to get token
-            login_data = {
-                "username": username,
-                "password": password
-            }
+            login_data = {"username": username, "password": password}
 
             # Use discovered endpoint for login
             login_url = self._get_endpoint_url("login", "/auth/login")
@@ -268,9 +311,7 @@ class RegistryClient:
     def login_with_token(self, token: str) -> Dict[str, Any]:
         """Authenticate with the registry using an API token."""
         # Update session headers
-        self.session.headers.update({
-            "Authorization": f"Bearer {token}"
-        })
+        self.session.headers.update({"Authorization": f"Bearer {token}"})
 
         # Verify token by getting user profile
         try:
@@ -346,18 +387,11 @@ class RegistryClient:
                 # Scoped package: @namespace/name
                 scope, name = package_name[1:].split("/", 1)
                 info_url = self._get_endpoint_url(
-                    "scopedPackage",
-                    f"/packages/@{scope}/{name}",
-                    scope=scope,
-                    package=name
+                    "scopedPackage", f"/packages/@{scope}/{name}", scope=scope, package=name
                 )
             else:
                 # Unscoped package
-                info_url = self._get_endpoint_url(
-                    "package",
-                    f"/packages/{package_name}",
-                    package=package_name
-                )
+                info_url = self._get_endpoint_url("package", f"/packages/{package_name}", package=package_name)
 
             response = self.session.get(info_url)
             response.raise_for_status()
@@ -373,17 +407,12 @@ class RegistryClient:
                 # Scoped package: @namespace/name
                 scope, name = package_name[1:].split("/", 1)
                 versions_url = self._get_endpoint_url(
-                    "scopedVersions",
-                    f"/packages/@{scope}/{name}/versions",
-                    scope=scope,
-                    package=name
+                    "scopedVersions", f"/packages/@{scope}/{name}/versions", scope=scope, package=name
                 )
             else:
                 # Unscoped package
                 versions_url = self._get_endpoint_url(
-                    "versions",
-                    f"/packages/{package_name}/versions",
-                    package=package_name
+                    "versions", f"/packages/{package_name}/versions", package=package_name
                 )
 
             response = self.session.get(versions_url)
@@ -410,11 +439,7 @@ class RegistryClient:
                     "downloadCount": 0,
                     "role": "member",
                     "verified": False,
-                    "permissions": {
-                        "canPublish": True,
-                        "canDelete": False,
-                        "canManage": False
-                    }
+                    "permissions": {"canPublish": True, "canDelete": False, "canManage": False},
                 }
             ]
 
@@ -445,7 +470,7 @@ class RegistryClient:
                 "packageCount": 0,
                 "downloadCount": 0,
                 "role": "member",
-                "verified": False
+                "verified": False,
             }
 
     def create_namespace(self, namespace_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -473,7 +498,7 @@ class RegistryClient:
             "success": True,
             "namespace": namespace_name,
             "message": f"Namespace {namespace_name} created successfully",
-            "requiresVerification": False
+            "requiresVerification": False,
         }
 
     def publish_package(self, package_path: Path, target_namespace: Optional[str] = None) -> Dict[str, Any]:
@@ -524,18 +549,11 @@ class RegistryClient:
                 # Scoped package: @namespace/name
                 scope, name = package_name[1:].split("/", 1)
                 publish_url = self._get_endpoint_url(
-                    "scopedPublish",
-                    f"/packages/@{scope}/{name}",
-                    scope=scope,
-                    package=name
+                    "scopedPublish", f"/packages/@{scope}/{name}", scope=scope, package=name
                 )
             else:
                 # Unscoped package
-                publish_url = self._get_endpoint_url(
-                    "publish",
-                    f"/packages/{package_name}",
-                    package=package_name
-                )
+                publish_url = self._get_endpoint_url("publish", f"/packages/{package_name}", package=package_name)
 
             with open(package_path, "rb") as f:
                 files = {"package": (package_path.name, f, "application/octet-stream")}
@@ -554,7 +572,9 @@ class RegistryClient:
             raise Exception(f"Package publish failed: {e}") from e
 
     def install_package(
-        self, package_name: str, version: Optional[str] = None,
+        self,
+        package_name: str,
+        version: Optional[str] = None,
         install_dir: Optional[Path] = None,
     ) -> Path:
         """Install a package from the registry."""
@@ -581,15 +601,12 @@ class RegistryClient:
                 f"/{package_name}/-/{name}-{version}.pdpkg",
                 scope=scope,
                 package=name,
-                version=version
+                version=version,
             )
         else:
             # Unscoped package
             download_url = self._get_endpoint_url(
-                "download",
-                f"/{package_name}/-/{package_name}-{version}.pdpkg",
-                package=package_name,
-                version=version
+                "download", f"/{package_name}/-/{package_name}-{version}.pdpkg", package=package_name, version=version
             )
 
         try:
@@ -823,7 +840,7 @@ def _process_excel_file(xlsx_path: Path) -> List[Tuple[str, str]]:
             f"[Excel Workbook: {xlsx_path.name}]",
             f"Sheets: {len(workbook.sheetnames)}",
             f"Sheet names: {', '.join(workbook.sheetnames)}",
-            "-" * 50
+            "-" * 50,
         ]
         results.append((summary_name, "\n".join(summary_content)))
 
@@ -924,7 +941,10 @@ def _get_safe_archive_name(base_name: str, extension: str, used_names: set) -> s
 
 
 def _convert_file_for_package(
-    file_path: Path, source_dir: Path, used_names: set, console: Console,
+    file_path: Path,
+    source_dir: Path,
+    used_names: set,
+    console: Console,
 ) -> List[Tuple[str, bytes]]:
     """Convert a file to safe package format. Returns list of (archive_name, content) tuples."""
     relative_path = file_path.relative_to(source_dir)
@@ -1061,13 +1081,7 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
     """Create a .pdpkg package from a directory with universal file conversion."""
     console = Console()
     used_names = set()
-    conversion_stats = {
-        "safe_files": 0,
-        "converted_files": 0,
-        "extracted_files": 0,
-        "error_files": 0,
-        "total_files": 0
-    }
+    conversion_stats = {"safe_files": 0, "converted_files": 0, "extracted_files": 0, "error_files": 0, "total_files": 0}
 
     console.print(f"\n[bold blue]Creating package with universal file support:[/bold blue] {output_path.name}")
 
@@ -1112,9 +1126,8 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
                     # Normalize pattern (remove ./ prefix, use forward slashes)
                     normalized_pattern = pattern.replace("\\", "/").lstrip("./")
 
-                    if (
-                        fnmatch.fnmatch(normalized_path, normalized_pattern)
-                        or fnmatch.fnmatch(file_name, normalized_pattern)
+                    if fnmatch.fnmatch(normalized_path, normalized_pattern) or fnmatch.fnmatch(
+                        file_name, normalized_pattern
                     ):
                         # Explicitly included - don't ignore
                         break
@@ -1137,8 +1150,19 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
 
                 # Auto-ignore build artifacts & dependencies
                 auto_ignore_dirs = {
-                    "node_modules", "bin", "obj", "dist", "build", "out", "target", "tmp", "temp",
-                    "__pycache__", ".cargo", "Thumbs.db", "desktop.ini"
+                    "node_modules",
+                    "bin",
+                    "obj",
+                    "dist",
+                    "build",
+                    "out",
+                    "target",
+                    "tmp",
+                    "temp",
+                    "__pycache__",
+                    ".cargo",
+                    "Thumbs.db",
+                    "desktop.ini",
                 }
 
                 # Check if any part of the path contains ignored directories
@@ -1149,11 +1173,21 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
 
                 # Auto-ignore by file extension
                 auto_ignore_extensions = {
-                    ".exe", ".dll", ".so", ".dylib",  # binaries
-                    ".o", ".a", ".class",             # compiled objects
-                    ".log", ".tmp", ".cache", ".pid", # temporary files
-                    ".pyc", ".swp", ".swo",           # cache/swap files
-                    ".pdpkg"                          # other packages
+                    ".exe",
+                    ".dll",
+                    ".so",
+                    ".dylib",  # binaries
+                    ".o",
+                    ".a",
+                    ".class",  # compiled objects
+                    ".log",
+                    ".tmp",
+                    ".cache",
+                    ".pid",  # temporary files
+                    ".pyc",
+                    ".swp",
+                    ".swo",  # cache/swap files
+                    ".pdpkg",  # other packages
                 }
 
                 if file_path.suffix.lower() in auto_ignore_extensions:
@@ -1168,10 +1202,25 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
         # Process all files in source directory with intelligent conversion
         for root, dirs, files in os.walk(source_dir):
             # Filter out ignored directories at the directory level
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in {
-                "node_modules", "bin", "obj", "dist", "build", "out", "target",
-                "tmp", "temp", "__pycache__", ".cargo"
-            }]
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".")
+                and d
+                not in {
+                    "node_modules",
+                    "bin",
+                    "obj",
+                    "dist",
+                    "build",
+                    "out",
+                    "target",
+                    "tmp",
+                    "temp",
+                    "__pycache__",
+                    ".cargo",
+                }
+            ]
 
             for file in files:
                 file_path = Path(root) / file
@@ -1199,10 +1248,12 @@ def create_pdpkg(source_dir: Path, output_path: Path, manifest: Dict[str, Any]):
                             conversion_stats["safe_files"] += 1
                         elif archive_name.endswith(".error.txt"):
                             conversion_stats["error_files"] += 1
-                        elif (
-                            len(converted_files) > 1
-                            or file_path.suffix.lower() in {".pdf", ".docx", ".xlsx", ".pptx"}
-                        ):
+                        elif len(converted_files) > 1 or file_path.suffix.lower() in {
+                            ".pdf",
+                            ".docx",
+                            ".xlsx",
+                            ".pptx",
+                        }:
                             conversion_stats["extracted_files"] += 1
                         else:
                             conversion_stats["converted_files"] += 1

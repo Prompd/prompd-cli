@@ -47,6 +47,7 @@ def validate_package(package_file: str):
 """
 
             from rich.panel import Panel
+
             console.print(Panel(info_content.strip(), title="Package Information"))
 
             # Show files

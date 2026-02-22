@@ -43,24 +43,17 @@ class PrompdExecutor:
             # Create a custom provider class for this specific provider
             # Models may be strings or dicts with 'id' key
             raw_models = provider_config.get("models", [])
-            resolved_models = [
-                m["id"] if isinstance(m, dict) else str(m)
-                for m in raw_models
-            ]
+            resolved_models = [m["id"] if isinstance(m, dict) else str(m) for m in raw_models]
 
             class DynamicCustomProvider(CustomProvider):
                 def __init__(
-                    self, config: ProviderConfig,
+                    self,
+                    config: ProviderConfig,
                     _name=provider_name,
                     _models=resolved_models,
                     _base_url=provider_config["base_url"],
                 ):
-                    super().__init__(
-                        config=config,
-                        name=_name,
-                        models=_models,
-                        base_url=_base_url
-                    )
+                    super().__init__(config=config, name=_name, models=_models, base_url=_base_url)
 
             # Register the custom provider if not already registered
             if not registry.is_registered(provider_name):
@@ -75,7 +68,7 @@ class PrompdExecutor:
         param_files: Optional[List[Path]] = None,
         api_key: Optional[str] = None,
         extra_config: Optional[Dict[str, Any]] = None,
-        metadata_overrides: Optional[Dict[str, str]] = None
+        metadata_overrides: Optional[Dict[str, str]] = None,
     ) -> LLMResponse:
         """
         Execute a prompd file with given parameters.
@@ -100,14 +93,11 @@ class PrompdExecutor:
             prompd = self.parser.parse_file(prompd_file)
 
             # Resolve parameters
-            resolved_params = await self._resolve_parameters(
-                prompd, cli_params, param_files
-            )
+            resolved_params = await self._resolve_parameters(prompd, cli_params, param_files)
 
             # Validate required parameters
             self.param_manager.validate_required_parameters(
-                resolved_params,
-                [param.dict() for param in prompd.metadata.parameters]
+                resolved_params, [param.dict() for param in prompd.metadata.parameters]
             )
 
             # Handle dynamic metadata overrides BEFORE resolving structured content
@@ -117,6 +107,7 @@ class PrompdExecutor:
             if metadata_overrides:
                 for key in list(metadata_overrides.keys()):
                     raw_value = metadata_overrides[key]
+
                     # Normalize and map synonyms
                     def _norm_section(name: str) -> str:
                         name = (name or "").strip().lower().replace(" ", "-")
@@ -169,6 +160,7 @@ class PrompdExecutor:
 
             # Use the full compilation pipeline instead of basic template substitution
             from .compiler import PrompdCompiler
+
             compiler = PrompdCompiler()
 
             # Resolve custom providers to their underlying format type
@@ -177,6 +169,7 @@ class PrompdExecutor:
             format_provider = provider
             if format_provider not in ("openai", "anthropic"):
                 from .config import PrompdConfig
+
                 try:
                     cfg = PrompdConfig.load()
                     custom = cfg.custom_providers.get(provider, {})
@@ -191,13 +184,12 @@ class PrompdExecutor:
 
             # Compile to provider JSON format to get properly processed content
             compiled_json_str = compiler.compile(
-                source=prompd_file,
-                output_format=f"provider-json:{format_provider}",
-                parameters=resolved_params
+                source=prompd_file, output_format=f"provider-json:{format_provider}", parameters=resolved_params
             )
 
             # Parse the compiled JSON to extract the message content
             import json
+
             try:
                 compiled_data = json.loads(compiled_json_str)
                 if "messages" in compiled_data and compiled_data["messages"]:
@@ -207,7 +199,7 @@ class PrompdExecutor:
                         "user": user_message,
                         "system": None,  # System message handling can be added if needed
                         "context": None,
-                        "response": None
+                        "response": None,
                     }
                 else:
                     raise PrompdError("Compiled output contains no messages")
@@ -221,7 +213,7 @@ class PrompdExecutor:
                 provider=provider,
                 model=model,
                 api_key=api_key or self.config.get_api_key(provider),
-                extra_config=extra_config or {}
+                extra_config=extra_config or {},
             )
 
             # Execute with provider
@@ -282,8 +274,22 @@ class PrompdExecutor:
 
         # Read all common text file extensions
         text_extensions = {
-            ".txt", ".md", ".prmd", ".json", ".yaml", ".yml", ".py", ".js",
-            ".ts", ".java", ".go", ".rs", ".c", ".cpp", ".h", ".hpp",
+            ".txt",
+            ".md",
+            ".prmd",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".py",
+            ".js",
+            ".ts",
+            ".java",
+            ".go",
+            ".rs",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
         }
 
         for file_path in sorted(directory.iterdir()):
@@ -316,10 +322,7 @@ class PrompdExecutor:
         return "\n\n".join(contents) if contents else ""
 
     async def _resolve_parameters(
-        self,
-        prompd: PrompdFile,
-        cli_params: Optional[List[str]],
-        param_files: Optional[List[Path]]
+        self, prompd: PrompdFile, cli_params: Optional[List[str]], param_files: Optional[List[Path]]
     ) -> Dict[str, Any]:
         """Resolve parameters from all sources."""
 
@@ -336,9 +339,7 @@ class PrompdExecutor:
 
         # Resolve with precedence
         resolved = self.param_manager.resolve_parameters(
-            cli_params=parsed_cli_params,
-            param_files=param_files,
-            prompd_defaults=prompd_defaults
+            cli_params=parsed_cli_params, param_files=param_files, prompd_defaults=prompd_defaults
         )
 
         # Type conversion based on parameter definitions
@@ -347,9 +348,7 @@ class PrompdExecutor:
 
         for name, value in resolved.items():
             if name in param_defs:
-                typed_params[name] = self._convert_parameter_type(
-                    value, param_defs[name]
-                )
+                typed_params[name] = self._convert_parameter_type(value, param_defs[name])
             else:
                 typed_params[name] = value
 
@@ -379,6 +378,7 @@ class PrompdExecutor:
             elif isinstance(value, str):
                 try:
                     import json
+
                     return json.loads(value)
                 except json.JSONDecodeError:
                     return value
@@ -387,9 +387,7 @@ class PrompdExecutor:
             return str(value)
 
     async def _substitute_variables(
-        self,
-        content: Dict[str, Optional[str]],
-        parameters: Dict[str, Any]
+        self, content: Dict[str, Optional[str]], parameters: Dict[str, Any]
     ) -> Dict[str, Optional[str]]:
         """Substitute variables in content."""
 
@@ -403,21 +401,13 @@ class PrompdExecutor:
                     template = self.jinja_env.from_string(text)
                     substituted[content_type] = template.render(parameters)
                 except TemplateSyntaxError as e:
-                    raise SubstitutionError(
-                        f"Template syntax error in {content_type} section: {e}"
-                    ) from e
+                    raise SubstitutionError(f"Template syntax error in {content_type} section: {e}") from e
                 except Exception as e:
-                    raise SubstitutionError(
-                        f"Variable substitution failed in {content_type} section: {e}"
-                    ) from e
+                    raise SubstitutionError(f"Variable substitution failed in {content_type} section: {e}") from e
 
         return substituted
 
-    async def _execute_with_provider(
-        self,
-        context: ExecutionContext,
-        content: Dict[str, Optional[str]]
-    ) -> LLMResponse:
+    async def _execute_with_provider(self, context: ExecutionContext, content: Dict[str, Optional[str]]) -> LLMResponse:
         """Execute request with LLM provider."""
 
         # Get provider class
@@ -439,7 +429,7 @@ class PrompdExecutor:
             api_key=api_key,
             timeout=self.config.timeout,
             max_retries=self.config.max_retries,
-            **self.config.provider_configs.get(context.provider, {})
+            **self.config.provider_configs.get(context.provider, {}),
         )
 
         # Create provider instance
@@ -486,12 +476,7 @@ class PrompdExecutor:
 
 
 # Convenience function for simple execution
-async def execute_prompd(
-    file_path: str,
-    provider: str = "openai",
-    model: str = "gpt-4o-mini",
-    **kwargs
-) -> LLMResponse:
+async def execute_prompd(file_path: str, provider: str = "openai", model: str = "gpt-4o-mini", **kwargs) -> LLMResponse:
     """
     Convenience function to execute a prompd file.
 
@@ -505,9 +490,4 @@ async def execute_prompd(
         LLM response
     """
     executor = PrompdExecutor()
-    return await executor.execute(
-        prompd_file=Path(file_path),
-        provider=provider,
-        model=model,
-        **kwargs
-    )
+    return await executor.execute(prompd_file=Path(file_path), provider=provider, model=model, **kwargs)

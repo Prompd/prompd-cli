@@ -82,7 +82,7 @@ class SectionOverrideProcessor:
         for _i, match in enumerate(heading_matches):
             heading_level = len(match.group(1))  # Number of # characters
             heading_text = match.group(2).strip()
-            heading_line = content[:match.start()].count("\n")
+            heading_line = content[: match.start()].count("\n")
 
             # Determine section ID
             section_id = None
@@ -112,7 +112,7 @@ class SectionOverrideProcessor:
             # Complete previous section if exists
             if current_section_id is not None:
                 end_line = heading_line - 1
-                section_content = "\n".join(lines[current_section_start:end_line + 1]).strip()
+                section_content = "\n".join(lines[current_section_start : end_line + 1]).strip()
 
                 sections[current_section_id] = SectionInfo(
                     id=current_section_id,
@@ -120,7 +120,7 @@ class SectionOverrideProcessor:
                     content=section_content,
                     start_line=current_section_start,
                     end_line=end_line,
-                    heading_level=current_heading_level
+                    heading_level=current_heading_level,
                 )
 
             # Start new section
@@ -132,7 +132,7 @@ class SectionOverrideProcessor:
         # Complete final section
         if current_section_id is not None:
             end_line = len(lines) - 1
-            section_content = "\n".join(lines[current_section_start:end_line + 1]).strip()
+            section_content = "\n".join(lines[current_section_start : end_line + 1]).strip()
 
             sections[current_section_id] = SectionInfo(
                 id=current_section_id,
@@ -140,7 +140,7 @@ class SectionOverrideProcessor:
                 content=section_content,
                 start_line=current_section_start,
                 end_line=end_line,
-                heading_level=current_heading_level
+                heading_level=current_heading_level,
             )
 
         return sections
@@ -197,9 +197,7 @@ class SectionOverrideProcessor:
             )
 
     def validate_overrides_against_parent(
-        self,
-        overrides: Dict[str, Optional[str]],
-        parent_sections: Dict[str, SectionInfo]
+        self, overrides: Dict[str, Optional[str]], parent_sections: Dict[str, SectionInfo]
     ) -> List[str]:
         """
         Validate override section IDs against parent template sections.
@@ -241,6 +239,7 @@ class SectionOverrideProcessor:
         Returns:
             List of similar section IDs (up to 3 suggestions)
         """
+
         def levenshtein_distance(s1: str, s2: str) -> int:
             """Calculate Levenshtein distance between two strings."""
             if len(s1) < len(s2):
@@ -315,11 +314,13 @@ class SectionOverrideProcessor:
 
                     while depth < max_depth:
                         # Check for project markers
-                        if (search_dir / ".git").exists() or \
-                           (search_dir / ".prompd").exists() or \
-                           (search_dir / "package.json").exists() or \
-                           (search_dir / "pyproject.toml").exists() or \
-                           (search_dir / "go.mod").exists():
+                        if (
+                            (search_dir / ".git").exists()
+                            or (search_dir / ".prompd").exists()
+                            or (search_dir / "package.json").exists()
+                            or (search_dir / "pyproject.toml").exists()
+                            or (search_dir / "go.mod").exists()
+                        ):
                             project_root = search_dir
                             break
 
@@ -364,6 +365,7 @@ class SectionOverrideProcessor:
 
             # Strip prompd content frontmatter if present (for packaged code files)
             from .extractors import strip_content_frontmatter
+
             content = strip_content_frontmatter(content)
 
             return content.strip()
@@ -405,8 +407,7 @@ class SectionOverrideProcessor:
         try:
             if file_path.is_symlink():
                 raise ValidationError(
-                    "Override files cannot be symbolic links for security reasons. "
-                    "Please use regular files only."
+                    "Override files cannot be symbolic links for security reasons. " "Please use regular files only."
                 )
         except OSError as exc:
             # If we can't check symlink status, err on the side of caution
@@ -429,8 +430,7 @@ class SectionOverrideProcessor:
                 ) from exc
 
         raise ValidationError(
-            "Override file uses an unsupported text encoding. "
-            "Please save the file in UTF-8 format."
+            "Override file uses an unsupported text encoding. " "Please save the file in UTF-8 format."
         )
 
     def apply_overrides(
@@ -439,7 +439,7 @@ class SectionOverrideProcessor:
         child_sections: Dict[str, SectionInfo],
         overrides: Dict[str, Optional[str]],
         base_dir: Path,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> str:
         """
         Apply section overrides to merge parent and child content.
@@ -488,7 +488,7 @@ class SectionOverrideProcessor:
                             content=override_content,
                             start_line=0,  # Reset for merged content
                             end_line=0,
-                            heading_level=original_section.heading_level
+                            heading_level=original_section.heading_level,
                         )
 
                         if verbose:

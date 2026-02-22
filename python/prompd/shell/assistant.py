@@ -15,12 +15,7 @@ class ConversationalAssistant:
 
     def __init__(self, console: Console):
         self.console = console
-        self.context = {
-            "current_files": [],
-            "last_command": None,
-            "working_on": None,
-            "user_preferences": {}
-        }
+        self.context = {"current_files": [], "last_command": None, "working_on": None, "user_preferences": {}}
 
     def process_natural_language(self, user_input: str) -> Dict[str, Any]:
         """Simple NLP - only parse obvious commands, let AI handle everything else."""
@@ -30,20 +25,10 @@ class ConversationalAssistant:
         user_input = user_input.lower().strip()
 
         # 1. Direct commands (exact matches only)
-        direct_commands = {
-            "list": "list",
-            "ls": "list",
-            "help": "help",
-            "exit": "exit",
-            "clear": "clear"
-        }
+        direct_commands = {"list": "list", "ls": "list", "help": "help", "exit": "exit", "clear": "clear"}
 
         if user_input in direct_commands:
-            return {
-                "intent": direct_commands[user_input],
-                "raw_input": original_input,
-                "confidence": 1.0
-            }
+            return {"intent": direct_commands[user_input], "raw_input": original_input, "confidence": 1.0}
 
         # 2. Obvious compile commands (simple patterns only)
         # "compile filename" or "compile filename params"
@@ -51,12 +36,7 @@ class ConversationalAssistant:
         if compile_match:
             filename = compile_match.group(1).strip()
             params = compile_match.group(2).strip() if compile_match.group(2) else None
-            result = {
-                "intent": "compile",
-                "file": filename,
-                "raw_input": original_input,
-                "confidence": 1.0
-            }
+            result = {"intent": "compile", "file": filename, "raw_input": original_input, "confidence": 1.0}
             if params:
                 result["parameters"] = params
                 # Try to parse parameters if they look structured
@@ -73,15 +53,11 @@ class ConversationalAssistant:
                 "intent": "show",
                 "target": show_match.group(1).strip(),
                 "raw_input": original_input,
-                "confidence": 1.0
+                "confidence": 1.0,
             }
 
         # Everything else goes to AI planner
-        return {
-            "intent": "unclear",
-            "raw_input": original_input,
-            "confidence": 0.0
-        }
+        return {"intent": "unclear", "raw_input": original_input, "confidence": 0.0}
 
     def _try_parse_parameters_safe(self, param_text: str) -> Dict[str, Any]:
         """Best-effort local param parsing without shell dependency."""
@@ -92,6 +68,7 @@ class ConversationalAssistant:
             # JSON-like
             if (txt.startswith("{") and txt.endswith("}")) or (txt.startswith("[") and txt.endswith("]")):
                 import json
+
                 val = json.loads(txt)
                 return val if isinstance(val, dict) else {"_": val}
             # comma or 'and' separated pairs
@@ -223,9 +200,18 @@ class ConversationalAssistant:
             # Note: confirmation for suggestions (yes/y) is handled in the chat handler
 
             # Check for prompt creation (broader phrases)
-            if any(phrase in user_input_lower for phrase in [
-                "create new prompt", "create a new prompt", "new prompd", "create new prompd",
-                "create a prompd", "create prompd", "create prompt"]):
+            if any(
+                phrase in user_input_lower
+                for phrase in [
+                    "create new prompt",
+                    "create a new prompt",
+                    "new prompd",
+                    "create new prompd",
+                    "create a prompd",
+                    "create prompd",
+                    "create prompt",
+                ]
+            ):
                 return self.handle_prompt_creation(intent_data["raw_input"], shell_instance)
 
             # Check for registry search
@@ -233,10 +219,16 @@ class ConversationalAssistant:
                 return self.handle_registry_search(intent_data["raw_input"], shell_instance)
 
             # Check for provider commands
-            if any(phrase in user_input_lower for phrase in [
-                "change provider", "switch provider", "use provider",
-                "provider status", "show provider",
-            ]):
+            if any(
+                phrase in user_input_lower
+                for phrase in [
+                    "change provider",
+                    "switch provider",
+                    "use provider",
+                    "provider status",
+                    "show provider",
+                ]
+            ):
                 return self.handle_provider_request(intent_data["raw_input"], shell_instance)
 
             # Check for file operations
@@ -366,17 +358,13 @@ class ConversationalAssistant:
             context = {
                 "cwd": str(shell_instance.current_dir) if shell_instance else os.getcwd(),
                 "files": [],
-                "last_command": getattr(shell_instance, "last_command", None)
+                "last_command": getattr(shell_instance, "last_command", None),
             }
 
             if shell_instance:
                 try:
-                    prmd_files = [
-                        f.name for f in shell_instance.current_dir.glob("*.prmd")
-                    ]
-                    pdpkg_files = [
-                        f.name for f in shell_instance.current_dir.glob("*.pdpkg")
-                    ]
+                    prmd_files = [f.name for f in shell_instance.current_dir.glob("*.prmd")]
+                    pdpkg_files = [f.name for f in shell_instance.current_dir.glob("*.pdpkg")]
                     context["files"] = prmd_files + pdpkg_files
                 except Exception:
                     pass
@@ -398,17 +386,13 @@ class ConversationalAssistant:
 
             # Use asyncio to run the async execute method
             provider_name = "openai"
-            if (
-                shell_instance
-                and shell_instance.get_current_ai_provider()
-            ):
+            if shell_instance and shell_instance.get_current_ai_provider():
                 provider_name = shell_instance.get_current_ai_provider().lower()
-            result = asyncio.run(executor.execute(
-                Path(assistant_prompt),
-                provider=provider_name,
-                model="gpt-4o-mini",
-                cli_params=cli_params
-            ))
+            result = asyncio.run(
+                executor.execute(
+                    Path(assistant_prompt), provider=provider_name, model="gpt-4o-mini", cli_params=cli_params
+                )
+            )
 
             if result and hasattr(result, "content") and result.content:
                 # Track usage if available
@@ -458,9 +442,7 @@ class ConversationalAssistant:
                             provider = OpenAIProvider(provider_config)
                             model = getattr(config, "default_model", None) or "gpt-3.5-turbo"
                             system_msg = (
-                                "You are Prompd Assistant. "
-                                "Help with .prmd files and CLI commands. "
-                                "Be concise."
+                                "You are Prompd Assistant. " "Help with .prmd files and CLI commands. " "Be concise."
                             )
                             request = LLMRequest(
                                 messages=[
@@ -475,7 +457,7 @@ class ConversationalAssistant:
                                 ],
                                 model=model,
                                 max_tokens=1000,
-                                temperature=0.7
+                                temperature=0.7,
                             )
                             response = await provider.execute(request)
                             try:
@@ -509,7 +491,7 @@ class ConversationalAssistant:
                                 ],
                                 model=model,
                                 max_tokens=1000,
-                                temperature=0.7
+                                temperature=0.7,
                             )
                             response = await provider.execute(request)
                             try:
@@ -619,9 +601,11 @@ class ConversationalAssistant:
                 else:
                     final_dest = dest_path
 
-                return (f"I can move {source_path.name} to {final_dest}\n\n"
-                       f"To confirm, type: 'yes, move {source_path.name}'\n"
-                       f"To cancel, type: 'no' or anything else")
+                return (
+                    f"I can move {source_path.name} to {final_dest}\n\n"
+                    f"To confirm, type: 'yes, move {source_path.name}'\n"
+                    f"To cancel, type: 'no' or anything else"
+                )
 
         return "I can help with file operations! Try: 'move ./test-prompt.prmd to ./prompts'"
 
@@ -660,8 +644,9 @@ class ConversationalAssistant:
                 else:
                     # Simple wildcard support
                     pattern = file_pattern.replace("*", "")
-                    matching_files = [f for f in shell_instance.current_dir.iterdir()
-                                    if f.is_file() and pattern in f.name]
+                    matching_files = [
+                        f for f in shell_instance.current_dir.iterdir() if f.is_file() and pattern in f.name
+                    ]
             else:
                 # Single file
                 file_path = Path(file_pattern)
@@ -677,10 +662,12 @@ class ConversationalAssistant:
             shell_instance.current_dir / folder_name
             file_list = ", ".join(f.name for f in matching_files)
 
-            return (f"I can create folder '{folder_name}' and move {len(matching_files)} files:\n"
-                   f"Files: {file_list}\n\n"
-                   f"To confirm, type: 'yes, mkdir and move to {folder_name}'\n"
-                   f"To cancel, type: 'no'")
+            return (
+                f"I can create folder '{folder_name}' and move {len(matching_files)} files:\n"
+                f"Files: {file_list}\n\n"
+                f"To confirm, type: 'yes, mkdir and move to {folder_name}'\n"
+                f"To cancel, type: 'no'"
+            )
 
         # Pattern: Simple "move X to Y"
         move_pattern = r"move\s+(?:the\s+)?(.+?)\s+(?:to|into)\s+(?:the\s+)?(.+?)(?:\s|$)"
@@ -696,9 +683,11 @@ class ConversationalAssistant:
             if folder_name.startswith("./"):
                 folder_name = folder_name[2:]
 
-            return (f"I can create folder '{folder_name}'\n\n"
-                   f"To confirm, type: 'yes, mkdir {folder_name}'\n"
-                   f"To cancel, type: 'no'")
+            return (
+                f"I can create folder '{folder_name}'\n\n"
+                f"To confirm, type: 'yes, mkdir {folder_name}'\n"
+                f"To cancel, type: 'no'"
+            )
 
         return "I can help with file operations! Try: 'make folder packages and move *.pdpkg files to folder'"
 
@@ -783,7 +772,9 @@ class ConversationalAssistant:
             prompt_name = topic.title()
 
             # Create template content
-            template = (self.pending_prompt_template or f"""---
+            template = (
+                self.pending_prompt_template
+                or f"""---
 id: {topic_id}
 name: {prompt_name}
 version: 1.0.0
@@ -802,7 +793,8 @@ Context: {{{{context}}}}
 {{{{ end }}}}
 
 Please provide helpful guidance on {topic}.
-""")
+"""
+            )
 
             # Write to file
             file_path = shell_instance.current_dir / filename
@@ -961,11 +953,13 @@ Please provide helpful guidance on {topic}.
         except Exception:
             self.pending_prompt_template = template
 
-        return (f"I can create a new prompt for '{topic}':\n"
-               f"Filename: {filename}\n\n"
-               f"Preview:\n{template[:200]}...\n\n"
-               f"To create this prompt, type: 'yes, create {filename}'\n"
-               f"To cancel, type: 'no'")
+        return (
+            f"I can create a new prompt for '{topic}':\n"
+            f"Filename: {filename}\n\n"
+            f"Preview:\n{template[:200]}...\n\n"
+            f"To create this prompt, type: 'yes, create {filename}'\n"
+            f"To cancel, type: 'no'"
+        )
 
     def handle_registry_search(self, user_input: str, shell_instance) -> str:
         """Handle registry search requests"""
@@ -973,10 +967,10 @@ Please provide helpful guidance on {topic}.
 
         # Extract search query
         query_patterns = [
-            r"search\s+(?:the\s+)?registry\s+for\s+(.+)",    # "search registry for security"
-            r"search\s+(?:the\s+)?registry\s+(.+)",         # "search registry security"
-            r"search\s+for\s+(.+)",                         # "search for security"
-            r"search\s+(.+)",                               # "search security"
+            r"search\s+(?:the\s+)?registry\s+for\s+(.+)",  # "search registry for security"
+            r"search\s+(?:the\s+)?registry\s+(.+)",  # "search registry security"
+            r"search\s+for\s+(.+)",  # "search for security"
+            r"search\s+(.+)",  # "search security"
         ]
 
         query = None
@@ -1006,8 +1000,10 @@ Please provide helpful guidance on {topic}.
             else:
                 return f"Searched registry for '{query}' - see results above"
         except Exception:
-            return (f"Registry search for '{query}' - calling search API...\n"
-                   f"Use 'search {query}' command for full results")
+            return (
+                f"Registry search for '{query}' - calling search API...\n"
+                f"Use 'search {query}' command for full results"
+            )
 
     def handle_provider_request(self, user_input: str, shell_instance) -> str:
         """Handle provider-related requests"""
@@ -1060,15 +1056,16 @@ Please provide helpful guidance on {topic}.
 
         # Look for .prmd files
         for file in directory.glob("*.prmd"):
-            if (pattern in file.name.lower() or
-                pattern in file.stem.lower() or
-                pattern.replace(" ", "-") in file.name.lower()):
+            if (
+                pattern in file.name.lower()
+                or pattern in file.stem.lower()
+                or pattern.replace(" ", "-") in file.name.lower()
+            ):
                 matches.append(file)
 
         # Also check subdirectories for composable packages
         for subdir in directory.glob("**/prompts/*.prmd"):
-            if (pattern in subdir.name.lower() or
-                pattern in subdir.stem.lower()):
+            if pattern in subdir.name.lower() or pattern in subdir.stem.lower():
                 matches.append(subdir)
 
         return matches
@@ -1087,11 +1084,7 @@ Please provide helpful guidance on {topic}.
             suggestions.append("Show package contents")
 
         if not prompd_files and not pdpkg_files:
-            suggestions.extend([
-                "Create a new prompt",
-                "Search the registry",
-                "Show help"
-            ])
+            suggestions.extend(["Create a new prompt", "Search the registry", "Show help"])
 
         return suggestions[:3]  # Limit to 3 suggestions
 
@@ -1125,8 +1118,21 @@ Please provide helpful guidance on {topic}.
     def suggest_similar_command(self, user_input_lower: str, shell_instance=None) -> str:
         """Suggest similar commands based on fuzzy matching"""
         available_commands = [
-            "compile", "show", "validate", "list", "cd", "cat", "open", "provider",
-            "search", "install", "publish", "login", "status", "help", "clear"
+            "compile",
+            "show",
+            "validate",
+            "list",
+            "cd",
+            "cat",
+            "open",
+            "provider",
+            "search",
+            "install",
+            "publish",
+            "login",
+            "status",
+            "help",
+            "clear",
         ]
 
         # Simple fuzzy matching for command suggestions
@@ -1167,5 +1173,3 @@ Please provide helpful guidance on {topic}.
             return f"Did you mean: '{suggestion}'? (yes/no)"
 
         return None
-
-

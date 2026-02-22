@@ -16,7 +16,7 @@ def create_prmd_file(
     description: Optional[str] = None,
     author: Optional[str] = None,
     version: str = "1.0.0",
-    template: Optional[str] = None
+    template: Optional[str] = None,
 ) -> None:
     """Create a new .prmd file with the specified options."""
 
@@ -47,9 +47,7 @@ def create_prmd_file(
                 if not param_name:
                     break
                 param_type = Prompt.ask(
-                    "Parameter type",
-                    choices=["string", "integer", "float", "boolean"],
-                    default="string"
+                    "Parameter type", choices=["string", "integer", "float", "boolean"], default="string"
                 )
                 param_desc = Prompt.ask("Parameter description", default="")
                 param_required = Confirm.ask("Required?", default=False)
@@ -79,7 +77,7 @@ def create_prmd_file(
                     "name": param_name,
                     "type": param_type,
                     "description": param_desc,
-                    "required": param_required
+                    "required": param_required,
                 }
 
                 if param_default is not None and param_default != "":
@@ -109,7 +107,7 @@ def create_prmd_file(
                     "analysis": "Analysis framework for structured evaluation",
                     "security": "Comprehensive security analysis and review",
                     "code-review": "Code quality and security review template",
-                    "creative": "Creative content generation template"
+                    "creative": "Creative content generation template",
                 }
                 description = template_descriptions.get(template, "Generated from template")
             else:
@@ -122,7 +120,7 @@ def create_prmd_file(
         author=author,
         version=version,
         template=template,
-        parameters=params  # Pass params regardless of mode
+        parameters=params,  # Pass params regardless of mode
     )
 
     # Check if file exists
@@ -146,7 +144,7 @@ def generate_prmd_content(
     author: str = "",
     version: str = "1.0.0",
     template: Optional[str] = None,
-    parameters: list = None
+    parameters: list = None,
 ) -> str:
     """Generate the content for a .prmd file."""
 
@@ -211,7 +209,6 @@ def get_template_body(template: Optional[str], name: str, description: str, para
 ## Expected Output
 
 [Describe the expected output format]""",
-
         "analysis": f"""# {name}
 
 {description}{param_section}
@@ -234,7 +231,6 @@ Based on the analysis, provide actionable recommendations.
 
 ## Output Format
 Structure your response with clear headings and bullet points for readability.""",
-
         "security": f"""# Security Analysis: {name}
 
 {description}{param_section}
@@ -264,7 +260,6 @@ Perform a comprehensive security analysis focusing on:
 
 ## Output Format
 Provide a structured security report with clear severity ratings and actionable remediation steps.""",
-
         "code-review": f"""# Code Review: {name}
 
 {description}{param_section}
@@ -298,7 +293,6 @@ Review against language-specific best practices and idioms.
 
 ## Output Format
 Provide specific line-by-line feedback with severity levels and suggested improvements.""",
-
         "creative": f"""# {name}
 
 {description}{param_section}
@@ -326,7 +320,7 @@ Provide creative content that:
 - Captures attention
 - Communicates clearly
 - Drives engagement
-- Achieves the stated objective"""
+- Achieves the stated objective""",
     }
 
     # Get template or use basic

@@ -25,6 +25,7 @@ from .package_resolver import PackageReference, PackageResolver, PrompdError
 @dataclass
 class DependencyNode:
     """Represents a package in the dependency graph."""
+
     package_ref: PackageReference
     resolved_version: str
     dependencies: Dict[str, str] = field(default_factory=dict)
@@ -50,6 +51,7 @@ class DependencyNode:
 @dataclass
 class VersionConstraint:
     """Represents a version constraint for dependency resolution."""
+
     raw: str
     operator: str  # '=', '>=', '>', '<=', '<', '^', '~', '*'
     version: Optional[str] = None
@@ -74,7 +76,7 @@ class VersionConstraint:
         # Handle comparison operators
         for op in [">=", ">", "<=", "<", "==", "="]:
             if constraint.startswith(op):
-                version = constraint[len(op):].strip()
+                version = constraint[len(op) :].strip()
                 return cls(constraint, "=" if op == "==" else op, version)
 
         # Default to exact version match
@@ -107,13 +109,14 @@ class VersionConstraint:
             return target < constraint_ver
         elif self.operator == "^":
             # Caret range: compatible with specified version
-            return (target.major == constraint_ver.major and
-                    target >= constraint_ver)
+            return target.major == constraint_ver.major and target >= constraint_ver
         elif self.operator == "~":
             # Tilde range: reasonably close to specified version
-            return (target.major == constraint_ver.major and
-                    target.minor == constraint_ver.minor and
-                    target >= constraint_ver)
+            return (
+                target.major == constraint_ver.major
+                and target.minor == constraint_ver.minor
+                and target >= constraint_ver
+            )
 
         return False
 
@@ -132,10 +135,9 @@ class DependencyResolver:
     Advanced dependency resolver with conflict resolution and circular dependency detection.
     """
 
-    def __init__(self,
-                 package_resolver: Optional[PackageResolver] = None,
-                 max_depth: int = 100,
-                 parallel_downloads: int = 4):
+    def __init__(
+        self, package_resolver: Optional[PackageResolver] = None, max_depth: int = 100, parallel_downloads: int = 4
+    ):
         """
         Initialize dependency resolver.
 
@@ -154,10 +156,9 @@ class DependencyResolver:
         self.version_constraints: Dict[str, List[Tuple[VersionConstraint, str]]] = defaultdict(list)
         self.resolution_order: List[str] = []
 
-    def resolve(self,
-                root_package: str,
-                dev_dependencies: bool = False,
-                peer_dependencies: bool = False) -> Dict[str, DependencyNode]:
+    def resolve(
+        self, root_package: str, dev_dependencies: bool = False, peer_dependencies: bool = False
+    ) -> Dict[str, DependencyNode]:
         """
         Resolve all dependencies for a package.
 
@@ -183,11 +184,7 @@ class DependencyResolver:
 
         # Start recursive resolution
         self._resolve_recursive(
-            root_ref,
-            depth=0,
-            parent=None,
-            include_dev=dev_dependencies,
-            include_peer=peer_dependencies
+            root_ref, depth=0, parent=None, include_dev=dev_dependencies, include_peer=peer_dependencies
         )
 
         # Check for circular dependencies
@@ -200,12 +197,14 @@ class DependencyResolver:
 
         return self.resolved_packages
 
-    def _resolve_recursive(self,
-                          package_ref: PackageReference,
-                          depth: int,
-                          parent: Optional[str],
-                          include_dev: bool = False,
-                          include_peer: bool = False) -> DependencyNode:
+    def _resolve_recursive(
+        self,
+        package_ref: PackageReference,
+        depth: int,
+        parent: Optional[str],
+        include_dev: bool = False,
+        include_peer: bool = False,
+    ) -> DependencyNode:
         """Recursively resolve package dependencies."""
         if depth > self.max_depth:
             raise PrompdError(f"Maximum dependency depth ({self.max_depth}) exceeded")
@@ -241,7 +240,7 @@ class DependencyResolver:
             peer_dependencies=manifest.get("peerDependencies", {}) if include_peer else {},
             resolved_path=package_path,
             depth=depth,
-            parent=parent
+            parent=parent,
         )
 
         # Add to resolved packages
@@ -276,14 +275,12 @@ class DependencyResolver:
                 depth=depth + 1,
                 parent=package_name,
                 include_dev=False,  # Only include dev deps for root
-                include_peer=include_peer
+                include_peer=include_peer,
             )
 
         return node
 
-    def _is_version_compatible(self,
-                               requested_ref: PackageReference,
-                               existing_node: DependencyNode) -> bool:
+    def _is_version_compatible(self, requested_ref: PackageReference, existing_node: DependencyNode) -> bool:
         """Check if requested version is compatible with existing resolution."""
         package_name = requested_ref.to_string().split("@")[0]
 
@@ -306,12 +303,7 @@ class DependencyResolver:
         Returns:
             Lock file data structure
         """
-        lock_data = {
-            "lockfileVersion": 2,
-            "requires": True,
-            "packages": {},
-            "dependencies": {}
-        }
+        lock_data = {"lockfileVersion": 2, "requires": True, "packages": {}, "dependencies": {}}
 
         # Add each resolved package to lock file
         for package_name, node in self.resolved_packages.items():
@@ -322,7 +314,7 @@ class DependencyResolver:
                 "dependencies": node.dependencies,
                 "devDependencies": node.dev_dependencies,
                 "peerDependencies": node.peer_dependencies,
-                "depth": node.depth
+                "depth": node.depth,
             }
 
             lock_data["packages"][package_name] = lock_entry
@@ -333,9 +325,7 @@ class DependencyResolver:
 
         return lock_data
 
-    def install_all(self,
-                   target_dir: Path,
-                   parallel: bool = True) -> Dict[str, Path]:
+    def install_all(self, target_dir: Path, parallel: bool = True) -> Dict[str, Path]:
         """
         Install all resolved dependencies.
 
@@ -355,11 +345,7 @@ class DependencyResolver:
                 futures = []
                 for package_name in self.resolution_order:
                     node = self.resolved_packages[package_name]
-                    future = executor.submit(
-                        self._install_package,
-                        node,
-                        target_dir / package_name
-                    )
+                    future = executor.submit(self._install_package, node, target_dir / package_name)
                     futures.append((package_name, future))
 
                 for package_name, future in futures:
@@ -368,10 +354,7 @@ class DependencyResolver:
             # Sequential installation
             for package_name in self.resolution_order:
                 node = self.resolved_packages[package_name]
-                installed[package_name] = self._install_package(
-                    node,
-                    target_dir / package_name
-                )
+                installed[package_name] = self._install_package(node, target_dir / package_name)
 
         return installed
 
@@ -380,19 +363,18 @@ class DependencyResolver:
         if node.resolved_path:
             # Copy from cache to target location
             import shutil
+
             if target_path.exists():
                 shutil.rmtree(target_path)
             shutil.copytree(node.resolved_path, target_path)
             return target_path
         else:
             # Download and install
-            package_path = self.package_resolver.install_package(
-                node.package_ref.to_string(),
-                force_global=False
-            )
+            package_path = self.package_resolver.install_package(node.package_ref.to_string(), force_global=False)
 
             # Copy to target location
             import shutil
+
             if target_path.exists():
                 shutil.rmtree(target_path)
             shutil.copytree(package_path, target_path)
@@ -419,11 +401,7 @@ class DependencyResolver:
 
         return "\n".join(lines)
 
-    def _build_tree_string(self,
-                          node: DependencyNode,
-                          lines: List[str],
-                          visited: Set[str],
-                          prefix: str):
+    def _build_tree_string(self, node: DependencyNode, lines: List[str], visited: Set[str], prefix: str):
         """Recursively build tree string representation."""
         if node.name in visited:
             lines.append(f"{prefix}├── {node.name}@{node.resolved_version} (circular)")
@@ -465,18 +443,22 @@ class DependencyResolver:
             unsatisfied = []
             for constraint, requester in constraints:
                 if not constraint.matches(resolved_node.resolved_version):
-                    unsatisfied.append({
-                        "requester": requester,
-                        "constraint": constraint.raw,
-                        "resolved": resolved_node.resolved_version
-                    })
+                    unsatisfied.append(
+                        {
+                            "requester": requester,
+                            "constraint": constraint.raw,
+                            "resolved": resolved_node.resolved_version,
+                        }
+                    )
 
             if unsatisfied:
-                conflicts.append({
-                    "package": package_name,
-                    "resolved_version": resolved_node.resolved_version,
-                    "conflicts": unsatisfied
-                })
+                conflicts.append(
+                    {
+                        "package": package_name,
+                        "resolved_version": resolved_node.resolved_version,
+                        "conflicts": unsatisfied,
+                    }
+                )
 
         return conflicts
 

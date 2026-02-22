@@ -86,11 +86,7 @@ class PrompdParser:
         sections = self._parse_sections(markdown_content)
 
         # Create and return PrompdFile
-        return PrompdFile(
-            metadata=metadata,
-            content=markdown_content,
-            sections=sections
-        )
+        return PrompdFile(metadata=metadata, content=markdown_content, sections=sections)
 
     def _preprocess_package_references(self, yaml_content: str) -> str:
         """
@@ -299,10 +295,7 @@ class PrompdParser:
         return sections
 
     def resolve_content_reference(
-        self,
-        reference: Optional[Union[str, List[str]]],
-        sections: Dict[str, str],
-        base_path: Optional[Path] = None
+        self, reference: Optional[Union[str, List[str]]], sections: Dict[str, str], base_path: Optional[Path] = None
     ) -> Optional[str]:
         """
         Resolve a content reference to actual content.
@@ -355,9 +348,7 @@ class PrompdParser:
             return reference
 
     def get_structured_content(
-        self,
-        prompd: PrompdFile,
-        parameters: Optional[Dict[str, Any]] = None
+        self, prompd: PrompdFile, parameters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Optional[str]]:
         """
         Get structured content with references resolved.
@@ -380,9 +371,7 @@ class PrompdParser:
             reference = getattr(metadata, content_type, None)
 
             if reference:
-                resolved_content[content_type] = self.resolve_content_reference(
-                    reference, sections, base_path
-                )
+                resolved_content[content_type] = self.resolve_content_reference(reference, sections, base_path)
             elif content_type == "user" and not reference:
                 # If no user section specified, use entire content or default section
                 if "user" in sections:
@@ -471,11 +460,7 @@ class PrompdParser:
         sections = self.extract_sections_from_file(file_path)
         return self.section_processor.get_section_summary(sections)
 
-    def validate_overrides_against_parent(
-        self,
-        child_file: Path,
-        parent_file: Path
-    ) -> List[str]:
+    def validate_overrides_against_parent(self, child_file: Path, parent_file: Path) -> List[str]:
         """
         Validate override section IDs in child file against parent template.
 
@@ -501,9 +486,7 @@ class PrompdParser:
             parent_sections = self.extract_sections_from_file(parent_file)
 
             # Validate overrides
-            return self.section_processor.validate_overrides_against_parent(
-                overrides, parent_sections
-            )
+            return self.section_processor.validate_overrides_against_parent(overrides, parent_sections)
 
         except Exception as e:
             raise ParseError(f"Failed to validate overrides: {e}") from e

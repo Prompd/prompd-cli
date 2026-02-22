@@ -23,6 +23,7 @@ from .section_override_processor import SectionOverrideProcessor
 
 class CompilationStage(str, Enum):
     """Stages of the compilation pipeline."""
+
     LEXICAL_ANALYSIS = "lexical_analysis"
     DEPENDENCY_RESOLUTION = "dependency_resolution"
     SEMANTIC_ANALYSIS = "semantic_analysis"
@@ -34,6 +35,7 @@ class CompilationStage(str, Enum):
 @dataclass
 class CompilationContext:
     """Context passed between compilation stages."""
+
     source_file: Path
     metadata: Optional[PrompdMetadata] = None
     content: Optional[str] = None
@@ -97,6 +99,7 @@ class DependencyResolutionStage(CompilerStage):
 
     def __init__(self):
         from .package_resolver import package_resolver
+
         self.resolver = package_resolver
 
     def process(self, context: CompilationContext) -> None:
@@ -116,10 +119,7 @@ class DependencyResolutionStage(CompilerStage):
                 # Simple string: using: "@package@version"
                 try:
                     package_path = self.resolver.resolve_package(using_imports)
-                    resolved_packages[using_imports] = {
-                        "path": package_path,
-                        "prefix": None
-                    }
+                    resolved_packages[using_imports] = {"path": package_path, "prefix": None}
                     if context.verbose:
                         print(f"Resolved package: {using_imports} -> {package_path}")
                 except Exception as e:
@@ -132,10 +132,7 @@ class DependencyResolutionStage(CompilerStage):
                         # Simple string in list
                         try:
                             package_path = self.resolver.resolve_package(item)
-                            resolved_packages[item] = {
-                                "path": package_path,
-                                "prefix": None
-                            }
+                            resolved_packages[item] = {"path": package_path, "prefix": None}
                             if context.verbose:
                                 print(f"Resolved package: {item} -> {package_path}")
                         except Exception as e:
@@ -148,17 +145,13 @@ class DependencyResolutionStage(CompilerStage):
                         # Prefix is required for 'using' - the whole point is to create a shorthand
                         if not prefix:
                             context.errors.append(
-                                f"Package '{package_ref}' in 'using' field "
-                                "must have a prefix for shorthand access"
+                                f"Package '{package_ref}' in 'using' field " "must have a prefix for shorthand access"
                             )
                             continue
 
                         try:
                             package_path = self.resolver.resolve_package(package_ref)
-                            resolved_packages[package_ref] = {
-                                "path": package_path,
-                                "prefix": prefix
-                            }
+                            resolved_packages[package_ref] = {"path": package_path, "prefix": prefix}
                             if context.verbose:
                                 print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
                         except Exception as e:
@@ -179,10 +172,7 @@ class DependencyResolutionStage(CompilerStage):
 
                             try:
                                 package_path = self.resolver.resolve_package(package_ref)
-                                resolved_packages[package_ref] = {
-                                    "path": package_path,
-                                    "prefix": prefix
-                                }
+                                resolved_packages[package_ref] = {"path": package_path, "prefix": prefix}
                                 if context.verbose:
                                     print(f"Resolved package: {package_ref} -> {package_path} (prefix: {prefix})")
                             except Exception as e:
@@ -195,10 +185,7 @@ class DependencyResolutionStage(CompilerStage):
                         # Format: {"@package@version": "prefix"}
                         try:
                             package_path = self.resolver.resolve_package(key)
-                            resolved_packages[key] = {
-                                "path": package_path,
-                                "prefix": value
-                            }
+                            resolved_packages[key] = {"path": package_path, "prefix": value}
                             if context.verbose:
                                 print(f"Resolved package: {key} -> {package_path} (prefix: {value})")
                         except Exception as e:
@@ -207,10 +194,7 @@ class DependencyResolutionStage(CompilerStage):
                         # Format: {"@package@version": {"prefix": "alias"}}
                         try:
                             package_path = self.resolver.resolve_package(key)
-                            resolved_packages[key] = {
-                                "path": package_path,
-                                "prefix": value.get("prefix")
-                            }
+                            resolved_packages[key] = {"path": package_path, "prefix": value.get("prefix")}
                             if context.verbose:
                                 if value.get("prefix"):
                                     print(f"Resolved package: {key} -> {package_path} (prefix: {value.get('prefix')})")
@@ -242,6 +226,7 @@ class DependencyResolutionStage(CompilerStage):
             if is_local or is_non_pkg_prmd:
                 # Direct file path - resolve relative to source file
                 from pathlib import Path
+
                 source_dir = Path(context.source_file).parent if context.source_file else Path.cwd()
                 parent_path = source_dir / inherits_ref
                 context.dependencies["inherits"] = str(parent_path.resolve())
@@ -253,6 +238,7 @@ class DependencyResolutionStage(CompilerStage):
                     # Parse package reference and file path
                     # Format: @namespace/package@version/path/to/file.prmd
                     import re
+
                     pattern = r"^(@[\w.-]+/[\w.-]+@[\w.-]+)/(.+)$"
                     match = re.match(pattern, inherits_ref)
 
@@ -322,7 +308,7 @@ class DependencyResolutionStage(CompilerStage):
         # Extract the potential alias (everything before the first '/')
         parts = path.split("/", 1)
         potential_alias = parts[0]  # e.g., "@pkg"
-        remaining_path = parts[1]   # e.g., "templates/file.prmd"
+        remaining_path = parts[1]  # e.g., "templates/file.prmd"
 
         # Look for this alias in resolved packages
         for package_name, package_info in resolved_packages.items():
@@ -368,6 +354,7 @@ class AssetExtractionStage(CompilerStage):
 
     def __init__(self):
         from .extractors import binary_extractor
+
         self.extractor = binary_extractor
 
     def process(self, context: CompilationContext) -> None:
@@ -440,8 +427,9 @@ class FileValidationStage(CompilerStage):
         if context.metadata.inherits and not context.metadata.inherits.startswith("@"):
             self._validate_file_reference(context, source_dir, context.metadata.inherits, "inherits")
 
-    def _validate_file_reference(self, context: CompilationContext, source_dir: Path,
-                                file_ref: Union[str, List[str]], ref_type: str) -> None:
+    def _validate_file_reference(
+        self, context: CompilationContext, source_dir: Path, file_ref: Union[str, List[str]], ref_type: str
+    ) -> None:
         """Validate a file reference (single file or list of files)."""
         if isinstance(file_ref, str):
             file_refs = [file_ref]
@@ -619,6 +607,7 @@ class TemplateProcessingStage(CompilerStage):
             if value is None:
                 return ""
             import re
+
             return re.sub(r"<[^>]*>", "", str(value))
 
         def safe_urlencode(value):
@@ -659,6 +648,7 @@ class TemplateProcessingStage(CompilerStage):
             if not s or not isinstance(s, str):
                 return ""
             import textwrap
+
             return textwrap.dedent(s)
 
         # truncate - Truncate string with ellipsis
@@ -667,7 +657,7 @@ class TemplateProcessingStage(CompilerStage):
                 return ""
             if len(s) <= length:
                 return s
-            return s[:length - len(suffix)] + suffix
+            return s[: length - len(suffix)] + suffix
 
         # codeblock - Wrap content in fenced code block
         def codeblock(s, language=""):
@@ -737,6 +727,7 @@ class TemplateProcessingStage(CompilerStage):
             if not s or not isinstance(s, str):
                 return ""
             import textwrap
+
             return "\n".join(textwrap.wrap(s, width=width))
 
         # bulletlist - Convert array/lines to bullet list
@@ -823,7 +814,7 @@ class TemplateProcessingStage(CompilerStage):
         content = re.sub(
             r"\{\{[-~]?\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*[-~]?\}\}",
             replace_double_brace,
-            content
+            content,
         )
 
         # Second pass: Handle single braces {obj.prop} (legacy syntax)
@@ -834,9 +825,7 @@ class TemplateProcessingStage(CompilerStage):
             return resolved if resolved is not None else f"[Missing: {full_path}]"
 
         content = re.sub(
-            r"(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}(?!\})",
-            replace_single_brace,
-            content
+            r"(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}(?!\})", replace_single_brace, content
         )
 
         return content
@@ -859,6 +848,7 @@ class TemplateProcessingStage(CompilerStage):
                         # Replace references like @security/prompts/audit with actual content
                         # Pattern: @prefix/path/to/resource
                         import re
+
                         pattern = re.compile(f"@{re.escape(prefix)}/([^\\s]+)")
 
                         def replace_ref(match, _pkg_path=package_path, _prefix=prefix):
@@ -882,6 +872,7 @@ class TemplateProcessingStage(CompilerStage):
                                         # If it's a .prmd file, parse and extract content
                                         if file_path.suffix == ".prmd":
                                             from .parser import PrompdParser
+
                                             parser = PrompdParser()
                                             try:
                                                 parsed = parser.parse(content_data)
@@ -936,7 +927,6 @@ class TemplateProcessingStage(CompilerStage):
                         if not parent_file:
                             parent_file = prompd_files[0]
 
-
                 if parent_file:
                     # Parse parent file
                     parent_data = parser.parse_file(parent_file)
@@ -970,7 +960,7 @@ class TemplateProcessingStage(CompilerStage):
                                     child_sections=child_sections,
                                     overrides=overrides,
                                     base_dir=base_dir,
-                                    verbose=context.verbose
+                                    verbose=context.verbose,
                                 )
 
                                 context.content = merged_content
@@ -1068,7 +1058,7 @@ class TemplateProcessingStage(CompilerStage):
                                         content=override_content,
                                         start_line=0,
                                         end_line=0,
-                                        heading_level=original_section.heading_level
+                                        heading_level=original_section.heading_level,
                                     )
 
                                     if context.verbose:
@@ -1115,11 +1105,7 @@ class TemplateProcessingStage(CompilerStage):
                 # Create a context-aware Jinja2 environment with the PrompdLoader
                 # This enables {% include "file.prmd" %} directives
                 base_dir = context.source_file.parent if context.source_file else Path.cwd()
-                loader = PrompdLoader(
-                    base_dir=base_dir,
-                    verbose=context.verbose,
-                    max_depth=10
-                )
+                loader = PrompdLoader(base_dir=base_dir, verbose=context.verbose, max_depth=10)
 
                 # Configure Jinja2 with double braces for variables (Nunjucks/Jinja2 standard)
                 # This matches the npm CLI behavior
@@ -1133,7 +1119,7 @@ class TemplateProcessingStage(CompilerStage):
                     block_start_string="{%",
                     block_end_string="%}",
                     comment_start_string="{#",
-                    comment_end_string="#}"
+                    comment_end_string="#}",
                 )
 
                 # Register custom filters
@@ -1195,7 +1181,7 @@ class CodeGenerationStage(CompilerStage):
                 content=context.content,
                 contexts=context.contexts,
                 parameters=context.parameters,
-                verbose=context.verbose
+                verbose=context.verbose,
             )
             context.compiled_result = formatter.format(compiled)
         except Exception as e:
@@ -1208,6 +1194,7 @@ class CodeGenerationStage(CompilerStage):
 @dataclass
 class CompiledPrompt:
     """Represents a compiled prompt ready for formatting."""
+
     metadata: Optional[PrompdMetadata]
     content: Optional[str]
     contexts: List[str]
@@ -1217,6 +1204,7 @@ class CompiledPrompt:
 
 class OutputFormatter(Protocol):
     """Protocol for output format plugins."""
+
     name: str
     file_extension: str
     mime_type: str
@@ -1228,6 +1216,7 @@ class OutputFormatter(Protocol):
 
 class MarkdownFormatter:
     """Default markdown output formatter."""
+
     name = "markdown"
     file_extension = ".md"
     mime_type = "text/markdown"
@@ -1285,6 +1274,7 @@ class MarkdownFormatter:
 
 class OpenAIFormatter:
     """OpenAI API JSON formatter."""
+
     name = "provider-json:openai"
     file_extension = ".json"
     mime_type = "application/json"
@@ -1309,28 +1299,19 @@ class OpenAIFormatter:
                     system_content.append(line)
 
             if system_content:
-                messages.append({
-                    "role": "system",
-                    "content": "\n".join(system_content).strip()
-                })
+                messages.append({"role": "system", "content": "\n".join(system_content).strip()})
 
         # Add user message
-        messages.append({
-            "role": "user",
-            "content": compiled.content or ""
-        })
+        messages.append({"role": "user", "content": compiled.content or ""})
 
-        api_request = {
-            "model": "gpt-4",
-            "messages": messages,
-            "temperature": 0.1
-        }
+        api_request = {"model": "gpt-4", "messages": messages, "temperature": 0.1}
 
         return json.dumps(api_request, indent=2)
 
 
 class AnthropicFormatter:
     """Anthropic Claude API JSON formatter."""
+
     name = "provider-json:anthropic"
     file_extension = ".json"
     mime_type = "application/json"
@@ -1360,12 +1341,7 @@ class AnthropicFormatter:
         api_request = {
             "model": "claude-3-sonnet-20240229",
             "system": system_message,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": user_message
-                }
-            ]
+            "messages": [{"role": "user", "content": user_message}],
         }
 
         return json.dumps(api_request, indent=2)
@@ -1386,7 +1362,7 @@ class CompilerPipeline:
             AssetExtractionStage(),
             FileValidationStage(),
             TemplateProcessingStage(),
-            CodeGenerationStage()
+            CodeGenerationStage(),
         ]
 
     def execute(self, source: Union[str, Path], **options) -> CompilationContext:
@@ -1395,6 +1371,7 @@ class CompilerPipeline:
         if isinstance(source, str) and source.startswith("@"):
             # This is a package reference, resolve it
             from .package_resolver import package_resolver
+
             try:
                 package_path = package_resolver.resolve_package(source)
                 # Find the main .prmd file in the package
@@ -1412,7 +1389,7 @@ class CompilerPipeline:
             source_file=source_path,
             output_format=options.get("output_format", "markdown"),
             parameters=options.get("parameters", {}),
-            verbose=options.get("verbose", False)
+            verbose=options.get("verbose", False),
         )
 
         # Run each stage
@@ -1436,7 +1413,7 @@ class PrompdCompiler:
         output_format: str = "markdown",
         parameters: Optional[Dict[str, Any]] = None,
         output_file: Optional[Path] = None,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> Union[str, bytes]:
         """
         Compile a .prmd file to the specified format.
@@ -1454,10 +1431,7 @@ class PrompdCompiler:
             PrompdError: If compilation fails
         """
         context = self.pipeline.execute(
-            source,
-            output_format=output_format,
-            parameters=parameters or {},
-            verbose=verbose
+            source, output_format=output_format, parameters=parameters or {}, verbose=verbose
         )
 
         if context.errors:

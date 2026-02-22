@@ -42,6 +42,7 @@ def _serialize_for_validation(obj):
 @dataclass
 class ValidationResult:
     """Result of package validation."""
+
     is_valid: bool
     errors: List[str]
     warnings: List[str]
@@ -75,21 +76,23 @@ class PackageValidator:
                     warnings.append(issue.get("message", "Unknown validation warning"))
 
             # Convert metadata to dict for validation - serialize all fields to ensure JSON compatibility
-            metadata_dict = _serialize_for_validation({
-                "name": package_info.name,
-                "description": package_info.description,
-                "version": package_info.version,
-                "author": getattr(package_info, "author", None),
-                "license": getattr(package_info, "license", None),
-                "homepage": getattr(package_info, "homepage", None),
-                "repository": getattr(package_info, "repository", None),
-                "tags": getattr(package_info, "tags", []),
-                "parameters": package_info.parameters or [],
-                "dependencies": getattr(package_info, "dependencies", {}),
-                "type": getattr(package_info, "type", None),
-                "runtime": getattr(package_info, "runtime", None),
-                "examples": getattr(package_info, "examples", [])
-            })
+            metadata_dict = _serialize_for_validation(
+                {
+                    "name": package_info.name,
+                    "description": package_info.description,
+                    "version": package_info.version,
+                    "author": getattr(package_info, "author", None),
+                    "license": getattr(package_info, "license", None),
+                    "homepage": getattr(package_info, "homepage", None),
+                    "repository": getattr(package_info, "repository", None),
+                    "tags": getattr(package_info, "tags", []),
+                    "parameters": package_info.parameters or [],
+                    "dependencies": getattr(package_info, "dependencies", {}),
+                    "type": getattr(package_info, "type", None),
+                    "runtime": getattr(package_info, "runtime", None),
+                    "examples": getattr(package_info, "examples", []),
+                }
+            )
 
             # Validate package-specific fields
             self._validate_package_metadata(metadata_dict, errors, warnings)
@@ -98,8 +101,7 @@ class PackageValidator:
             if len(errors) == 0 or not any("Failed to parse" in err for err in errors):
                 try:
                     self._validate_content_structure(
-                        {"content": parsed.content, "metadata": metadata_dict},
-                        errors, warnings
+                        {"content": parsed.content, "metadata": metadata_dict}, errors, warnings
                     )
                 except Exception as content_err:
                     errors.append(f"Content validation error: {content_err}")
@@ -107,13 +109,14 @@ class PackageValidator:
         except Exception as e:
             errors.append(f"Failed to parse .prmd file: {e}")
             import traceback
+
             errors.append(f"Traceback: {traceback.format_exc()}")
 
         return ValidationResult(
             is_valid=len(errors) == 0,
             errors=errors,
             warnings=warnings,
-            package_info=metadata_dict if "metadata_dict" in locals() else None
+            package_info=metadata_dict if "metadata_dict" in locals() else None,
         )
 
     def validate_pdpkg_package(self, file_path: Path) -> ValidationResult:
@@ -147,12 +150,7 @@ class PackageValidator:
         except Exception as e:
             errors.append(f"Failed to read .pdpkg file: {e}")
 
-        return ValidationResult(
-            is_valid=len(errors) == 0,
-            errors=errors,
-            warnings=warnings,
-            package_info=package_info
-        )
+        return ValidationResult(is_valid=len(errors) == 0, errors=errors, warnings=warnings, package_info=package_info)
 
     def _validate_package_metadata(self, metadata: Dict[str, Any], errors: List[str], warnings: List[str]):
         """Validate package metadata fields."""
@@ -313,8 +311,9 @@ class PackageValidator:
             except Exception as e:
                 errors.append(f"Failed to read {prompd_file}: {e}")
 
-    def _validate_file_references(self, zip_file: zipfile.ZipFile, file_refs: Dict[str, Any],
-                                 errors: List[str], warnings: List[str]):
+    def _validate_file_references(
+        self, zip_file: zipfile.ZipFile, file_refs: Dict[str, Any], errors: List[str], warnings: List[str]
+    ):
         """Validate that referenced files exist in the package.
 
         Note: Some files may be renamed during packaging (e.g., .ts -> .ts.txt) to avoid execution.
@@ -412,7 +411,7 @@ class PackageValidator:
         patterns = [
             r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_-]+$",  # username/package
             r"^@[a-zA-Z0-9_.-]+/[a-zA-Z0-9_-]+$",  # @scope/package (allows dots in scope)
-            r"^[a-zA-Z0-9_-]+$"  # simple package name
+            r"^[a-zA-Z0-9_-]+$",  # simple package name
         ]
         return any(re.match(pattern, name) for pattern in patterns)
 
@@ -440,8 +439,4 @@ def validate_package(file_path: Path) -> ValidationResult:
     elif file_path.suffix == ".pdpkg":
         return validator.validate_pdpkg_package(file_path)
     else:
-        return ValidationResult(
-            is_valid=False,
-            errors=[f"Unsupported package format: {file_path.suffix}"],
-            warnings=[]
-        )
+        return ValidationResult(is_valid=False, errors=[f"Unsupported package format: {file_path.suffix}"], warnings=[])

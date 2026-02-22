@@ -28,12 +28,22 @@ class PrompdCompleter(Completer):
 
     def __init__(self):
         self.commands = [
-            "compile", "publish", "search", "install", "login", "logout",
-            "show", "validate", "list", "help", "exit", "clear", "status"
+            "compile",
+            "publish",
+            "search",
+            "install",
+            "login",
+            "logout",
+            "show",
+            "validate",
+            "list",
+            "help",
+            "exit",
+            "clear",
+            "status",
         ]
         self.path_completer = PathCompleter(
-            only_directories=False,
-            file_filter=lambda path: path.suffix in [".prmd", ".pdpkg", ".json"]
+            only_directories=False, file_filter=lambda path: path.suffix in [".prmd", ".pdpkg", ".json"]
         )
 
     def get_completions(self, document, complete_event):
@@ -66,7 +76,7 @@ class PrompdREPL:
             auto_suggest=AutoSuggestFromHistory(),
             complete_while_typing=True,
             mouse_support=True,
-            enable_history_search=True
+            enable_history_search=True,
         )
         self.registry = RegistryClient()
         self.current_dir = Path.cwd()
@@ -80,8 +90,7 @@ class PrompdREPL:
             try:
                 # Get command from user
                 command_text = self.session.prompt(
-                    HTML("<ansigreen>prompd</ansigreen><ansiyellow>></ansiyellow> "),
-                    complete_while_typing=True
+                    HTML("<ansigreen>prompd</ansigreen><ansiyellow>></ansiyellow> "), complete_while_typing=True
                 )
 
                 if not command_text.strip():
@@ -104,12 +113,14 @@ class PrompdREPL:
     def show_welcome(self):
         """Display welcome message and help"""
         self.console.print()
-        self.console.print(Panel.fit(
-            "[bold blue]Prompd Interactive CLI[/bold blue]\n"
-            "Type [cyan]help[/cyan] for commands or [cyan]exit[/cyan] to quit\n"
-            "Use [yellow]Tab[/yellow] for completion and [yellow]↑↓[/yellow] for history",
-            border_style="blue"
-        ))
+        self.console.print(
+            Panel.fit(
+                "[bold blue]Prompd Interactive CLI[/bold blue]\n"
+                "Type [cyan]help[/cyan] for commands or [cyan]exit[/cyan] to quit\n"
+                "Use [yellow]Tab[/yellow] for completion and [yellow]↑↓[/yellow] for history",
+                border_style="blue",
+            )
+        )
         self.console.print()
 
     def execute_command(self, command_text: str):
@@ -171,7 +182,7 @@ class PrompdREPL:
             ("status", "Show current status", "status"),
             ("clear", "Clear the screen", "clear"),
             ("help", "Show this help", "help"),
-            ("exit", "Exit interactive mode", "exit")
+            ("exit", "Exit interactive mode", "exit"),
         ]
 
         for cmd, desc, example in commands:
@@ -188,10 +199,7 @@ class PrompdREPL:
         table.add_column("Value", style="green")
 
         table.add_row("Current Directory", str(self.current_dir))
-        registry_url = (
-            self.registry.base_url
-            if hasattr(self.registry, "base_url") else "Not configured"
-        )
+        registry_url = self.registry.base_url if hasattr(self.registry, "base_url") else "Not configured"
         table.add_row("Registry URL", registry_url)
         table.add_row("Logged In", "Yes" if self.registry.is_authenticated() else "No")
 
@@ -262,9 +270,7 @@ class PrompdREPL:
 
                 # Ask for output format
                 output_format = Prompt.ask(
-                    "Output format",
-                    choices=["markdown", "openai", "anthropic"],
-                    default="markdown"
+                    "Output format", choices=["markdown", "openai", "anthropic"], default="markdown"
                 )
 
                 # Ask for output file
@@ -276,9 +282,7 @@ class PrompdREPL:
 
                 # Compile with progress indicator
                 with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    console=self.console
+                    SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=self.console
                 ) as progress:
                     task = progress.add_task("Compiling prompt...", total=None)
 
@@ -288,7 +292,7 @@ class PrompdREPL:
                             str(prompt_path),
                             parameters=param_values,
                             output_format=output_format,
-                            output_file=output_file
+                            output_file=output_file,
                         )
                         progress.remove_task(task)
 
@@ -366,9 +370,7 @@ class PrompdREPL:
 
         # Publish with progress
         with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=self.console
+            SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=self.console
         ) as progress:
             task = progress.add_task("Publishing package...", total=None)
 
@@ -393,9 +395,7 @@ class PrompdREPL:
 
         try:
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=self.console
+                SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=self.console
             ) as progress:
                 task = progress.add_task(f"Searching for '{query}'...", total=None)
                 results = self.registry.search_packages(query)
@@ -411,7 +411,7 @@ class PrompdREPL:
                     table.add_row(
                         result.get("name", "Unknown"),
                         result.get("version", "Unknown"),
-                        result.get("description", "No description")
+                        result.get("description", "No description"),
                     )
 
                 self.console.print(table)
@@ -457,7 +457,7 @@ class PrompdREPL:
                         param.type.value if param.type else "string",
                         "Yes" if param.required else "No",
                         str(param.default) if param.default else "",
-                        param.description or ""
+                        param.description or "",
                     )
 
                 self.console.print(table)

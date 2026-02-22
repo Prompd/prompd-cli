@@ -58,12 +58,7 @@ def git_remove(files):
 def git_status():
     """Show git status for .prmd files."""
     try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True)
 
         if not result.stdout.strip():
             console.print("[green]No changes detected[/green]")
@@ -106,12 +101,7 @@ def git_commit(message: str, auto_add: bool):
     try:
         # Auto-add .prmd files if requested
         if auto_add:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True)
 
             for line in result.stdout.strip().split("\n"):
                 if line and ".prmd" in line and line[0] == " " and line[1] == "M":
@@ -131,12 +121,7 @@ def git_commit(message: str, auto_add: bool):
             console.print(f"[red]Error: Invalid commit message: {e}[/red]")
             raise click.Abort() from e
 
-        result = subprocess.run(
-            ["git", "commit", "-m", safe_message],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(["git", "commit", "-m", safe_message], capture_output=True, text=True, check=True)
 
         console.print("[green]OK[/green] Committed changes")
         if result.stdout:
@@ -166,10 +151,7 @@ def git_checkout(file: str, version: str):
 
         # Find the tag for this version
         result = subprocess.run(
-            ["git", "tag", "--list", f"*{safe_version}"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "tag", "--list", f"*{safe_version}"], capture_output=True, text=True, check=True
         )
 
         tags = [tag.strip() for tag in result.stdout.split("\n") if tag.strip()]
@@ -181,12 +163,7 @@ def git_checkout(file: str, version: str):
         # Use the first matching tag
         tag = tags[0]
 
-        result = subprocess.run(
-            ["git", "show", f"{tag}:{safe_file}"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(["git", "show", f"{tag}:{safe_file}"], capture_output=True, text=True, check=True)
 
         # Write the content to a temporary file
         version_file = Path(safe_file).with_suffix(f".{safe_version}.prmd")
@@ -229,12 +206,7 @@ def _get_git_tags(file_path: Path, limit: int) -> List[Dict[str, str]]:
     """Get git tags related to a file."""
     try:
         # Get all tags
-        result = subprocess.run(
-            ["git", "tag", "--sort=-version:refname"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(["git", "tag", "--sort=-version:refname"], capture_output=True, text=True, check=True)
 
         tags = []
         file_stem = file_path.stem
@@ -246,7 +218,7 @@ def _get_git_tags(file_path: Path, limit: int) -> List[Dict[str, str]]:
                     ["git", "show", "--format=%ai|%an|%s", "--name-only", tag],
                     capture_output=True,
                     text=True,
-                    check=True
+                    check=True,
                 )
 
                 lines = tag_info_result.stdout.strip().split("\n")
@@ -254,12 +226,7 @@ def _get_git_tags(file_path: Path, limit: int) -> List[Dict[str, str]]:
                     info_line = lines[0]
                     parts = info_line.split("|")
                     if len(parts) >= 3:
-                        tags.append({
-                            "tag": tag,
-                            "date": parts[0],
-                            "author": parts[1],
-                            "message": parts[2]
-                        })
+                        tags.append({"tag": tag, "date": parts[0], "author": parts[1], "message": parts[2]})
 
                 if len(tags) >= limit:
                     break

@@ -10,6 +10,7 @@ from prompd.models import ExecutionContext, LLMRequest, LLMResponse
 
 class ProviderConfig(BaseModel):
     """Configuration for an LLM provider."""
+
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     timeout: int = 30

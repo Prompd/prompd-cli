@@ -63,9 +63,7 @@ class PrompdValidator:
         for var in variables:
             if var.get("required", False) and var["name"] not in parameters:
                 if "default" not in var:
-                    raise ValidationError(
-                        f"Required parameter '{var['name']}' not provided"
-                    )
+                    raise ValidationError(f"Required parameter '{var['name']}' not provided")
 
         # Validate provided parameters
         for name, value in parameters.items():
@@ -82,43 +80,39 @@ class PrompdValidator:
 
         # ID field is now required
         if not getattr(metadata, "id", None):
-            issues.append({
-                "level": "error",
-                "message": "Missing required field 'id'"
-            })
+            issues.append({"level": "error", "message": "Missing required field 'id'"})
         elif not re.match(r"^[a-z0-9-]+$", metadata.id):
-            issues.append({
-                "level": "error",
-                "message": f"ID '{metadata.id}' must use kebab-case (lowercase letters, numbers, hyphens only)"
-            })
+            issues.append(
+                {
+                    "level": "error",
+                    "message": f"ID '{metadata.id}' must use kebab-case (lowercase letters, numbers, hyphens only)",
+                }
+            )
 
         # Name field is optional but recommended for human-readable display
         if not getattr(metadata, "name", None):
-            issues.append({
-                "level": "warning",
-                "message": "Missing recommended field 'name' - provide a human-readable display name"
-            })
+            issues.append(
+                {
+                    "level": "warning",
+                    "message": "Missing recommended field 'name' - provide a human-readable display name",
+                }
+            )
         elif metadata.name and not re.match(r"^[a-zA-Z0-9\s\-_.,()]+$", metadata.name):
-            issues.append({
-                "level": "warning",
-                "message": f"Name '{metadata.name}' contains potentially problematic characters"
-            })
+            issues.append(
+                {"level": "warning", "message": f"Name '{metadata.name}' contains potentially problematic characters"}
+            )
 
         if not metadata.description:
-            issues.append({
-                "level": "warning",
-                "message": "Missing recommended field 'description'"
-            })
+            issues.append({"level": "warning", "message": "Missing recommended field 'description'"})
 
         # Enhanced version validation
         if metadata.version:
             version_issues = self._validate_version(metadata.version)
             issues.extend(version_issues)
         else:
-            issues.append({
-                "level": "info",
-                "message": "No version specified - consider adding semantic version for tracking"
-            })
+            issues.append(
+                {"level": "info", "message": "No version specified - consider adding semantic version for tracking"}
+            )
 
         return issues
 
@@ -142,10 +136,7 @@ class PrompdValidator:
         # Check for undefined variables
         for var in referenced_vars:
             if var not in defined_vars and not var.startswith("inputs."):
-                issues.append({
-                    "level": "error",
-                    "message": f"Undefined variable '{var}' referenced in content"
-                })
+                issues.append({"level": "error", "message": f"Undefined variable '{var}' referenced in content"})
 
         return issues
 
@@ -155,34 +146,34 @@ class PrompdValidator:
 
         # Check name format
         if not re.match(r"^[a-z_][a-z0-9_]*$", var_def.name):
-            issues.append({
-                "level": "warning",
-                "message": f"Variable name '{var_def.name}' should use snake_case"
-            })
+            issues.append({"level": "warning", "message": f"Variable name '{var_def.name}' should use snake_case"})
 
         # Validate pattern for string type
         if var_def.pattern:
             if var_def.type.value != "string":
-                issues.append({
-                    "level": "warning",
-                    "message": f"Pattern validation only applies to string type (variable: {var_def.name})"
-                })
+                issues.append(
+                    {
+                        "level": "warning",
+                        "message": f"Pattern validation only applies to string type (variable: {var_def.name})",
+                    }
+                )
             else:
                 try:
                     re.compile(var_def.pattern)
                 except re.error as e:
-                    issues.append({
-                        "level": "error",
-                        "message": f"Invalid regex pattern for variable '{var_def.name}': {e}"
-                    })
+                    issues.append(
+                        {"level": "error", "message": f"Invalid regex pattern for variable '{var_def.name}': {e}"}
+                    )
 
         # Validate min/max for numeric types
         if var_def.min_value is not None or var_def.max_value is not None:
             if var_def.type.value not in ["integer", "float"]:
-                issues.append({
-                    "level": "warning",
-                    "message": f"Min/max validation only applies to numeric types (variable: {var_def.name})"
-                })
+                issues.append(
+                    {
+                        "level": "warning",
+                        "message": f"Min/max validation only applies to numeric types (variable: {var_def.name})",
+                    }
+                )
 
         return issues
 
@@ -192,10 +183,9 @@ class PrompdValidator:
 
         # Basic semantic version format
         if not re.match(r"^\d+\.\d+\.\d+$", version):
-            issues.append({
-                "level": "error",
-                "message": f"Version '{version}' must follow semantic versioning format (x.y.z)"
-            })
+            issues.append(
+                {"level": "error", "message": f"Version '{version}' must follow semantic versioning format (x.y.z)"}
+            )
             return issues
 
         # Parse version components
@@ -203,29 +193,23 @@ class PrompdValidator:
 
         # Check for unreasonable version numbers
         if major > 100:
-            issues.append({
-                "level": "warning",
-                "message": f"Major version {major} seems unusually high - verify correctness"
-            })
+            issues.append(
+                {"level": "warning", "message": f"Major version {major} seems unusually high - verify correctness"}
+            )
 
         if minor > 100:
-            issues.append({
-                "level": "warning",
-                "message": f"Minor version {minor} seems unusually high - verify correctness"
-            })
+            issues.append(
+                {"level": "warning", "message": f"Minor version {minor} seems unusually high - verify correctness"}
+            )
 
         if patch > 1000:
-            issues.append({
-                "level": "warning",
-                "message": f"Patch version {patch} seems unusually high - verify correctness"
-            })
+            issues.append(
+                {"level": "warning", "message": f"Patch version {patch} seems unusually high - verify correctness"}
+            )
 
         # Check for development indicators
         if major == 0:
-            issues.append({
-                "level": "info",
-                "message": "Version 0.x.x indicates pre-release/development stage"
-            })
+            issues.append({"level": "info", "message": "Version 0.x.x indicates pre-release/development stage"})
 
         return issues
 
@@ -238,10 +222,7 @@ class PrompdValidator:
             file_version = prompd.metadata.version
 
             if not file_version:
-                issues.append({
-                    "level": "warning",
-                    "message": "No version in file - cannot check consistency"
-                })
+                issues.append({"level": "warning", "message": "No version in file - cannot check consistency"})
                 return issues
 
             if check_git:
@@ -249,24 +230,34 @@ class PrompdValidator:
                 issues.extend(git_issues)
 
         except Exception as e:
-            issues.append({
-                "level": "error",
-                "message": f"Failed to validate version consistency: {e}"
-            })
+            issues.append({"level": "error", "message": f"Failed to validate version consistency: {e}"})
 
         return issues
 
     def _validate_git_consistency(self, file_path: Path, file_version: str) -> List[Dict[str, Any]]:
         """Check version consistency with git history."""
         import subprocess
+
         issues = []
 
         try:
             # Get latest git tag for this file
-            result = subprocess.run([
-                "git", "log", "--tags", "--simplify-by-decoration",
-                "--pretty=format:%d", "-n", "1", "--", str(file_path)
-            ], capture_output=True, text=True, check=False)
+            result = subprocess.run(
+                [
+                    "git",
+                    "log",
+                    "--tags",
+                    "--simplify-by-decoration",
+                    "--pretty=format:%d",
+                    "-n",
+                    "1",
+                    "--",
+                    str(file_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
 
             if result.returncode == 0 and result.stdout.strip():
                 # Extract tag name
@@ -279,27 +270,28 @@ class PrompdValidator:
                     expected_tag = f"{file_path.stem}-v{file_version}"
 
                     if latest_tag != expected_tag:
-                        issues.append({
-                            "level": "warning",
-                            "message": f"Version mismatch: file has {file_version}, latest git tag is {latest_tag}"
-                        })
+                        issues.append(
+                            {
+                                "level": "warning",
+                                "message": f"Version mismatch: file has {file_version}, latest git tag is {latest_tag}",
+                            }
+                        )
 
             # Check if current version already exists as tag
-            tag_check = subprocess.run([
-                "git", "tag", "-l", f"{file_path.stem}-v{file_version}"
-            ], capture_output=True, text=True, check=False)
+            tag_check = subprocess.run(
+                ["git", "tag", "-l", f"{file_path.stem}-v{file_version}"], capture_output=True, text=True, check=False
+            )
 
             if tag_check.returncode == 0 and tag_check.stdout.strip():
-                issues.append({
-                    "level": "error",
-                    "message": f"Version {file_version} already exists as git tag - consider bumping version"
-                })
+                issues.append(
+                    {
+                        "level": "error",
+                        "message": f"Version {file_version} already exists as git tag - consider bumping version",
+                    }
+                )
 
         except Exception as e:
-            issues.append({
-                "level": "info",
-                "message": f"Could not check git history: {e}"
-            })
+            issues.append({"level": "info", "message": f"Could not check git history: {e}"})
 
         return issues
 
@@ -311,23 +303,23 @@ class PrompdValidator:
             "current": current_version,
             "patch": f"{major}.{minor}.{patch + 1}",
             "minor": f"{major}.{minor + 1}.0",
-            "major": f"{major + 1}.0.0"
+            "major": f"{major + 1}.0.0",
         }
 
         # Simple heuristics based on changes
         recommended = "patch"  # Default
 
-        if any(keyword in changes_summary.lower() for keyword in
-               ["breaking", "incompatible", "major", "remove", "delete"]):
+        if any(
+            keyword in changes_summary.lower() for keyword in ["breaking", "incompatible", "major", "remove", "delete"]
+        ):
             recommended = "major"
-        elif any(keyword in changes_summary.lower() for keyword in
-                ["feature", "add", "new", "minor", "enhance"]):
+        elif any(keyword in changes_summary.lower() for keyword in ["feature", "add", "new", "minor", "enhance"]):
             recommended = "minor"
 
         return {
             "suggestions": suggestions,
             "recommended": recommended,
-            "reason": f"Based on changes: {changes_summary}" if changes_summary else "Default patch bump"
+            "reason": f"Based on changes: {changes_summary}" if changes_summary else "Default patch bump",
         }
 
     def _validate_parameter_value(self, name: str, value: Any, var_def: Dict[str, Any]) -> None:
@@ -353,13 +345,9 @@ class PrompdValidator:
 
             # Range validation
             if "min" in var_def and value < var_def["min"]:
-                raise ValidationError(
-                    f"Parameter '{name}' value {value} is below minimum {var_def['min']}"
-                )
+                raise ValidationError(f"Parameter '{name}' value {value} is below minimum {var_def['min']}")
             if "max" in var_def and value > var_def["max"]:
-                raise ValidationError(
-                    f"Parameter '{name}' value {value} is above maximum {var_def['max']}"
-                )
+                raise ValidationError(f"Parameter '{name}' value {value} is above maximum {var_def['max']}")
 
         elif var_type == "float":
             try:
@@ -369,13 +357,9 @@ class PrompdValidator:
 
             # Range validation
             if "min" in var_def and value < var_def["min"]:
-                raise ValidationError(
-                    f"Parameter '{name}' value {value} is below minimum {var_def['min']}"
-                )
+                raise ValidationError(f"Parameter '{name}' value {value} is below minimum {var_def['min']}")
             if "max" in var_def and value > var_def["max"]:
-                raise ValidationError(
-                    f"Parameter '{name}' value {value} is above maximum {var_def['max']}"
-                )
+                raise ValidationError(f"Parameter '{name}' value {value} is above maximum {var_def['max']}")
 
         elif var_type == "boolean":
             if str(value).lower() not in ["true", "false", "yes", "no", "1", "0"]:
@@ -388,8 +372,7 @@ class PrompdValidator:
             if "pattern" in var_def:
                 if not re.match(var_def["pattern"], value):
                     error_msg = var_def.get(
-                        "error_message",
-                        f"Parameter '{name}' does not match required pattern: {var_def['pattern']}"
+                        "error_message", f"Parameter '{name}' does not match required pattern: {var_def['pattern']}"
                     )
                     raise ValidationError(error_msg)
 

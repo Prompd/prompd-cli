@@ -36,6 +36,7 @@ def _require_auth(oauth: dict[str, Any] | None):
             if not auth.startswith("Bearer "):
                 raise HTTPException(status_code=401, detail="Missing bearer token")
         return True
+
     return dependency
 
 
@@ -87,10 +88,7 @@ def create_app(file_path: Path, oauth: dict[str, Any] | None = None) -> FastAPI:
             cfg = PrompdConfig.load()
             provider = body.get("provider") or (cfg.default_provider or "openai")
             model = body.get("model") or (
-                cfg.default_model or (
-                    "gpt-3.5-turbo" if provider == "openai"
-                    else "claude-3-haiku-20240307"
-                )
+                cfg.default_model or ("gpt-3.5-turbo" if provider == "openai" else "claude-3-haiku-20240307")
             )
             params = body.get("params") or {}
             meta = body.get("meta") or {}  # metaSystem/metaContext/metaUser
@@ -98,6 +96,7 @@ def create_app(file_path: Path, oauth: dict[str, Any] | None = None) -> FastAPI:
 
             # Execute
             import asyncio
+
             execu = PrompdExecutor()
             # Allow meta aliases via dict
             metadata_overrides = {}
@@ -110,15 +109,17 @@ def create_app(file_path: Path, oauth: dict[str, Any] | None = None) -> FastAPI:
 
             # Convert params to CLI list format key=value
             cli_params = [f"{k}={v}" for k, v in params.items()]
-            resp = asyncio.run(execu.execute(
-                prompd_file=source,
-                provider=provider,
-                model=model,
-                cli_params=cli_params,
-                api_key=None,
-                extra_config={},
-                metadata_overrides=metadata_overrides or None
-            ))
+            resp = asyncio.run(
+                execu.execute(
+                    prompd_file=source,
+                    provider=provider,
+                    model=model,
+                    cli_params=cli_params,
+                    api_key=None,
+                    extra_config={},
+                    metadata_overrides=metadata_overrides or None,
+                )
+            )
             return {"content": resp.content, "usage": resp.usage, "model": resp.model}
         except PrompdError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -131,4 +132,3 @@ def create_app(file_path: Path, oauth: dict[str, Any] | None = None) -> FastAPI:
 def serve_app(file_path: Path, host: str = "0.0.0.0", port: int = 3333, oauth: dict[str, Any] | None = None):
     app = create_app(file_path, oauth)
     uvicorn.run(app, host=host, port=port)
-

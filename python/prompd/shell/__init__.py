@@ -13,6 +13,7 @@ class InteractiveShell:
 
     def __init__(self):
         from rich.console import Console
+
         self.console = Console()
         self.shell = PrompdShell()
 

@@ -83,6 +83,7 @@ class PrompdConfig:
 
         # Load environment variables
         from dotenv import load_dotenv
+
         load_dotenv()
 
         # Load from config file if exists
@@ -234,7 +235,7 @@ class PrompdConfig:
             self.registry["registries"]["prompdhub"] = {
                 "url": "https://registry.prompdhub.ai",
                 "api_key": None,
-                "username": None
+                "username": None,
             }
 
         # Set prompdhub as default if no default is set
@@ -262,8 +263,9 @@ class PrompdConfig:
                 self.registry["registries"] = {}
 
             # If prompdhub doesn't have an api_key yet, use the legacy one
-            if ("prompdhub" in self.registry["registries"]
-                    and not self.registry["registries"]["prompdhub"].get("api_key")):
+            if "prompdhub" in self.registry["registries"] and not self.registry["registries"]["prompdhub"].get(
+                "api_key"
+            ):
                 self.registry["registries"]["prompdhub"]["api_key"] = legacy_token
                 needs_save = True
 
@@ -276,6 +278,7 @@ class PrompdConfig:
         if old_registry_file.exists():
             try:
                 import json
+
                 with open(old_registry_file) as f:
                     old_data = json.load(f)
 
@@ -295,7 +298,7 @@ class PrompdConfig:
                     self.registry["registries"][registry_name] = {
                         "url": old_url,
                         "api_key": old_data.get("api_token"),
-                        "username": old_data.get("username")
+                        "username": old_data.get("username"),
                     }
                     needs_save = True
 
@@ -309,15 +312,21 @@ class PrompdConfig:
         if needs_save:
             self.save()
 
-    def add_custom_provider(self, name: str, base_url: str, models: List[str],
-                          api_key: Optional[str] = None, provider_type: str = "openai-compatible"):
+    def add_custom_provider(
+        self,
+        name: str,
+        base_url: str,
+        models: List[str],
+        api_key: Optional[str] = None,
+        provider_type: str = "openai-compatible",
+    ):
         """Add a custom LLM provider."""
         self.custom_providers[name] = {
             "base_url": base_url,
             "models": models,
             "api_key": api_key,
             "type": provider_type,
-            "enabled": True
+            "enabled": True,
         }
         if api_key:
             self.api_keys[name] = api_key
@@ -347,7 +356,7 @@ class PrompdConfig:
             "provider_configs": self.provider_configs,
             "custom_providers": self.custom_providers,
             "registry": self.registry,
-            "scopes": self.scopes
+            "scopes": self.scopes,
         }
 
         try:
@@ -368,7 +377,7 @@ class ParameterManager:
         cli_params: Optional[Dict[str, str]] = None,
         param_files: Optional[List[Path]] = None,
         prompd_defaults: Optional[Dict[str, Any]] = None,
-        env_prefix: str = "PROMPD_PARAM_"
+        env_prefix: str = "PROMPD_PARAM_",
     ) -> Dict[str, Any]:
         """
         Resolve parameters from all sources with precedence.
@@ -416,7 +425,7 @@ class ParameterManager:
 
         for key, value in os.environ.items():
             if key.startswith(prefix):
-                param_name = key[len(prefix):].lower()
+                param_name = key[len(prefix) :].lower()
                 params[param_name] = value
 
         return params
@@ -441,6 +450,7 @@ class ParameterManager:
             if isinstance(value, dict) and "value" in value:
                 # Metadata format: {"key": {"value": "...", "type": "string"}}
                 from prompd.models import ParameterValue
+
                 param_value = ParameterValue.from_dict(value)
                 params[key] = param_value.value
             else:
@@ -471,9 +481,7 @@ class ParameterManager:
         return params
 
     def validate_required_parameters(
-        self,
-        resolved_params: Dict[str, Any],
-        parameter_definitions: List[Dict[str, Any]]
+        self, resolved_params: Dict[str, Any], parameter_definitions: List[Dict[str, Any]]
     ) -> None:
         """
         Validate that all required parameters are provided.
@@ -496,6 +504,4 @@ class ParameterManager:
                 missing_params.append(name)
 
         if missing_params:
-            raise ConfigurationError(
-                f"Missing required parameters: {', '.join(missing_params)}"
-            )
+            raise ConfigurationError(f"Missing required parameters: {', '.join(missing_params)}")

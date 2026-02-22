@@ -30,6 +30,7 @@ def generate_compilation_id() -> str:
     with _stack_lock:
         _compilation_counter += 1
         import time
+
         return f"compile-{_compilation_counter}-{int(time.time() * 1000)}"
 
 
@@ -53,11 +54,7 @@ class PrompdLoader(BaseLoader):
     """
 
     def __init__(
-        self,
-        base_dir: Path,
-        verbose: bool = False,
-        max_depth: int = 10,
-        compilation_id: Optional[str] = None
+        self, base_dir: Path, verbose: bool = False, max_depth: int = 10, compilation_id: Optional[str] = None
     ):
         """
         Initialize the Prompd loader.
@@ -116,15 +113,12 @@ class PrompdLoader(BaseLoader):
         # Check for circular includes
         if str(resolved_path) in include_stack:
             stack = " -> ".join(sorted(include_stack))
-            raise TemplateNotFound(
-                f"Circular include detected: {stack} -> {resolved_path}"
-            )
+            raise TemplateNotFound(f"Circular include detected: {stack} -> {resolved_path}")
 
         # Check max depth
         if len(include_stack) >= self.max_depth:
             raise TemplateNotFound(
-                f"Maximum include depth ({self.max_depth}) exceeded. "
-                "Check for deep nesting or circular includes."
+                f"Maximum include depth ({self.max_depth}) exceeded. " "Check for deep nesting or circular includes."
             )
 
         # Check if file exists
@@ -135,13 +129,9 @@ class PrompdLoader(BaseLoader):
                 if with_ext.exists():
                     resolved_path = with_ext
                 else:
-                    raise TemplateNotFound(
-                        f"Template not found: {template} (resolved to {resolved_path})"
-                    )
+                    raise TemplateNotFound(f"Template not found: {template} (resolved to {resolved_path})")
             else:
-                raise TemplateNotFound(
-                    f"Template not found: {template} (resolved to {resolved_path})"
-                )
+                raise TemplateNotFound(f"Template not found: {template} (resolved to {resolved_path})")
 
         # Load the file
         return self._load_file(resolved_path)
@@ -214,6 +204,7 @@ class PrompdLoader(BaseLoader):
 
             # Simple regex to strip frontmatter
             import re
+
             without_frontmatter = re.sub(r"^---\r?\n[\s\S]*?\r?\n---\r?\n?", "", content)
             return without_frontmatter
 
@@ -251,7 +242,7 @@ class PrompdLoader(BaseLoader):
             base_dir=new_base_dir,
             verbose=self.verbose,
             max_depth=self.max_depth,
-            compilation_id=self.compilation_id  # Share the compilation ID
+            compilation_id=self.compilation_id,  # Share the compilation ID
         )
 
     def get_compilation_id(self) -> str:

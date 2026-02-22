@@ -50,7 +50,7 @@ def strip_content_frontmatter(content: str) -> str:
         return content  # Regular frontmatter, don't strip
 
     # Strip the prompd content frontmatter
-    return content[end_index + 5:]
+    return content[end_index + 5 :]
 
 
 from abc import ABC, abstractmethod  # noqa: E402
@@ -58,30 +58,35 @@ from typing import Dict, List, Union  # noqa: E402
 
 try:
     import openpyxl
+
     OPENPYXL_AVAILABLE = True
 except ImportError:
     OPENPYXL_AVAILABLE = False
 
 try:
     from docx import Document
+
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
 
 try:
     import PyPDF2
+
     PYPDF2_AVAILABLE = True
 except ImportError:
     PYPDF2_AVAILABLE = False
 
 try:
     from pptx import Presentation
+
     PPTX_AVAILABLE = True
 except ImportError:
     PPTX_AVAILABLE = False
 
 try:
     from PIL import Image
+
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -377,8 +382,17 @@ class TextExtractor(FileExtractor):
     def can_extract(self, file_path: Path) -> bool:
         """Check if file is a text file."""
         return file_path.suffix.lower() in [
-            ".txt", ".md", ".py", ".js", ".ts", ".sql",
-            ".css", ".html", ".xml", ".env", ".csv"
+            ".txt",
+            ".md",
+            ".py",
+            ".js",
+            ".ts",
+            ".sql",
+            ".css",
+            ".html",
+            ".xml",
+            ".env",
+            ".csv",
         ]
 
     def extract(self, file_path: Path) -> str:
@@ -401,7 +415,7 @@ class TextExtractor(FileExtractor):
                         ".css": "css",
                         ".html": "html",
                         ".xml": "xml",
-                        ".csv": "csv"
+                        ".csv": "csv",
                     }
                     lang = lang_map.get(ext, "")
                     return f"# {file_path.name}\n\n```{lang}\n{content}\n```"

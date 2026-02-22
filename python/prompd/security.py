@@ -9,6 +9,7 @@ from .exceptions import PrompdError
 
 class SecurityError(PrompdError):
     """Raised when security validation fails."""
+
     pass
 
 
@@ -36,9 +37,9 @@ def validate_file_path(file_path: Union[str, Path], allow_absolute: bool = False
 
     # Check for path traversal attempts
     dangerous_patterns = [
-        "..",       # Parent directory traversal
-        "~",        # Home directory expansion
-        "$",        # Environment variable expansion
+        "..",  # Parent directory traversal
+        "~",  # Home directory expansion
+        "$",  # Environment variable expansion
     ]
 
     for pattern in dangerous_patterns:
@@ -82,9 +83,14 @@ def validate_git_file_path(file_path: Union[str, Path]) -> str:
     path_str = str(validated_path)
 
     # Ensure it's a reasonable file extension for prompd
-    if not (path_str.endswith(".prmd") or path_str.endswith(".prompd") or
-            path_str.endswith(".pdflow") or path_str.endswith(".json") or
-            path_str.endswith(".yaml") or path_str.endswith(".yml")):
+    if not (
+        path_str.endswith(".prmd")
+        or path_str.endswith(".prompd")
+        or path_str.endswith(".pdflow")
+        or path_str.endswith(".json")
+        or path_str.endswith(".yaml")
+        or path_str.endswith(".yml")
+    ):
         # Allow it but log warning for non-standard extensions
         pass
 
@@ -118,9 +124,7 @@ def validate_git_message(message: str) -> str:
         raise SecurityError("Commit message too long (max 2000 characters)")
 
     # Check for command injection attempts in commit message
-    dangerous_patterns = [
-        "$(", "`", "${", "#!/", "&>", "|>", "<(", ">("
-    ]
+    dangerous_patterns = ["$(", "`", "${", "#!/", "&>", "|>", "<(", ">("]
 
     for pattern in dangerous_patterns:
         if pattern in message:
