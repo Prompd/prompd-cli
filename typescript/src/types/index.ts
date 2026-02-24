@@ -140,6 +140,71 @@ export function getContentType(filePath: string): string {
   return CONTENT_TYPES[ext] || 'text';
 }
 
+// ── Package Type System ──────────────────────────────────────────────────────
+
+/**
+ * Package types supported by the prompd ecosystem.
+ * Defined in prompd.json under the "type" field.
+ */
+export type PackageType = 'package' | 'workflow' | 'skill' | 'node-template';
+
+/**
+ * Maps each PackageType to its install directory name.
+ * e.g., .prompd/packages/, .prompd/workflows/, .prompd/skills/, .prompd/templates/
+ */
+export const PACKAGE_TYPE_DIRS: Record<PackageType, string> = {
+  'package': 'packages',
+  'workflow': 'workflows',
+  'skill': 'skills',
+  'node-template': 'templates',
+};
+
+/**
+ * All valid package type strings, for validation.
+ */
+export const VALID_PACKAGE_TYPES: readonly string[] = Object.keys(PACKAGE_TYPE_DIRS);
+
+/**
+ * Maps tool names to their native skill deployment directories.
+ * Used by `prompd install --tools <tool>` to deploy skills into tool-native locations.
+ */
+export const TOOL_DEPLOY_DIRS: Record<string, string> = {
+  'claude': '~/.claude/skills',
+};
+
+/**
+ * Check if a string is a valid PackageType.
+ */
+export function isValidPackageType(type: string): type is PackageType {
+  return VALID_PACKAGE_TYPES.includes(type);
+}
+
+/**
+ * Get the install directory name for a given package type.
+ * Defaults to 'packages' for unknown types.
+ */
+export function getInstallDirForType(type: string): string {
+  return PACKAGE_TYPE_DIRS[type as PackageType] || 'packages';
+}
+
+/** Strict regex for tool names: lowercase alphanumeric and hyphens only */
+const TOOL_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * Resolve a tool deploy directory to an absolute path.
+ * Expands ~ to the user's home directory.
+ * Validates toolName against strict regex to prevent path injection.
+ */
+export function resolveToolDeployDir(toolName: string): string | undefined {
+  if (!TOOL_NAME_REGEX.test(toolName)) return undefined;
+  const dir = TOOL_DEPLOY_DIRS[toolName];
+  if (!dir) return undefined;
+  const os = require('os');
+  return dir.replace(/^~/, os.homedir());
+}
+
+// ── Prompd File Types ────────────────────────────────────────────────────────
+
 export interface PrompdParameter {
   name: string;
   type: 'string' | 'number' | 'boolean' | 'array' | 'object';
@@ -194,6 +259,7 @@ export interface CustomProvider {
 
 export interface RegistryConfig {
   url: string;
+  api_key?: string;
   token?: string;
   username?: string;
 }

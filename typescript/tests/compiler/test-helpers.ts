@@ -23,14 +23,19 @@ export async function createTempFile(filename: string, content: string): Promise
 
 /**
  * Create multiple temp files in the same directory.
+ * Supports both string content (written as UTF-8) and Buffer content (written as binary).
  */
-export async function createTempFiles(files: Record<string, string>): Promise<string> {
+export async function createTempFiles(files: Record<string, string | Buffer>): Promise<string> {
   const tempDir = path.join(os.tmpdir(), 'prompd-tests', Date.now().toString());
   await fs.ensureDir(tempDir);
 
   for (const [filename, content] of Object.entries(files)) {
     const filePath = path.join(tempDir, filename);
-    await fs.writeFile(filePath, content, 'utf-8');
+    if (Buffer.isBuffer(content)) {
+      await fs.writeFile(filePath, content);
+    } else {
+      await fs.writeFile(filePath, content, 'utf-8');
+    }
   }
 
   return tempDir;

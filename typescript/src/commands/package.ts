@@ -7,7 +7,7 @@ import archiver from 'archiver';
 import { createHash } from 'crypto';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
-import { needsFrontmatterProtection, getContentType } from '../types';
+import { needsFrontmatterProtection, getContentType, isValidPackageType } from '../types';
 
 interface PackageExclusions {
   directories?: string[];
@@ -20,7 +20,14 @@ interface PackageManifest {
   description: string;
   author?: string;
   type?: string;
-  files?: { [key: string]: any };
+  keywords?: string[];
+  tools?: string[];
+  mcps?: string[];
+  license?: string;
+  homepage?: string;
+  repository?: string;
+  dependencies?: Record<string, string>;
+  files?: { [key: string]: string };
 }
 
 /**
@@ -598,6 +605,11 @@ export async function createPackageFromPrompdJson(
     return { success: false, error: 'prompd.json is missing required field: main (main .prmd entry point)' };
   }
 
+  // Validate package type if specified
+  if (prompdJson.type && !isValidPackageType(prompdJson.type)) {
+    return { success: false, error: `Invalid package type '${prompdJson.type}' in prompd.json. Valid types: package, workflow, skill, node-template` };
+  }
+
   // 4. Auto-discover files if files array is empty or missing
   let filesToPackage: string[] = prompdJson.files || [];
   let autoDiscovered = false;
@@ -875,11 +887,20 @@ export async function createPackageFromPrompdJson(
   const outputPath = path.join(distDir, outputFileName);
 
   // 9. Create manifest for package (includes files array for archive only)
+  // Preserve all metadata fields from prompd.json so the registry stores them correctly
   const manifest: PackageManifest = {
     name: prompdJson.name,
     version: prompdJson.version,
     description: prompdJson.description,
-    author: prompdJson.author
+    author: prompdJson.author,
+    ...(prompdJson.type ? { type: prompdJson.type } : {}),
+    ...(Array.isArray(prompdJson.keywords) && prompdJson.keywords.length > 0 ? { keywords: prompdJson.keywords } : {}),
+    ...(Array.isArray(prompdJson.tools) && prompdJson.tools.length > 0 ? { tools: prompdJson.tools } : {}),
+    ...(Array.isArray(prompdJson.mcps) && prompdJson.mcps.length > 0 ? { mcps: prompdJson.mcps } : {}),
+    ...(prompdJson.license ? { license: prompdJson.license } : {}),
+    ...(prompdJson.homepage ? { homepage: prompdJson.homepage } : {}),
+    ...(prompdJson.repository ? { repository: prompdJson.repository } : {}),
+    ...(prompdJson.dependencies ? { dependencies: prompdJson.dependencies } : {}),
   };
 
   // 10. Create the package

@@ -440,7 +440,7 @@ export class ConfigManager {
       return undefined;
     }
     
-    return cfg.registry.registries[registryName].token;
+    return cfg.registry.registries[registryName].api_key || cfg.registry.registries[registryName].token;
   }
 
   async setRegistryToken(registryName: string, token: string, username?: string): Promise<void> {

@@ -11,6 +11,7 @@ import * as os from 'os';
 import { RegistryClient } from '../registry';
 import { SecurityError } from '../errors';
 import { IFileSystem, MemoryFileSystem } from './file-system';
+import { PACKAGE_TYPE_DIRS } from '../../types';
 
 /**
  * Options for package resolution.
@@ -89,30 +90,44 @@ export async function resolvePackage(
   }
 
   // Default: disk-based resolution
-  // Resolution order (matches Python CLI):
-  // 1. Check local project cache (./.prompd/cache/)
-  // 2. Check global cache (~/.prompd/cache/)
-  // 3. Download from registry
+  // Resolution order:
+  // 1. Check local type directories (.prompd/packages/, .prompd/workflows/, etc.)
+  // 2. Check global type directories (~/.prompd/packages/, ~/.prompd/workflows/, etc.)
+  // 3. Check legacy cache dirs (.prompd/cache/) for backward compatibility
+  // 4. Download from registry
 
-  // Package path follows Python CLI structure: @namespace/package-name/version
-  // e.g., @prompd/public-examples -> cache/@prompd/public-examples/1.1.0/
-  // Also check legacy format: @namespace/package-name@version (frontend packageCache)
+  const localBase = getLocalBaseDir(workspaceRoot);
+  const globalBase = getGlobalBaseDir();
+  const typeDirs = Object.values(PACKAGE_TYPE_DIRS);
 
+  // Check all type directories locally first
+  for (const typeDir of typeDirs) {
+    const dir = path.join(localBase, typeDir, name, version);
+    if (await fs.pathExists(dir)) {
+      return dir;
+    }
+  }
+
+  // Check all type directories globally
+  for (const typeDir of typeDirs) {
+    const dir = path.join(globalBase, typeDir, name, version);
+    if (await fs.pathExists(dir)) {
+      return dir;
+    }
+  }
+
+  // Legacy: check old flat cache directories
   const localCacheDir = getLocalCacheDir(workspaceRoot);
   const globalCacheDir = getGlobalCacheDir();
 
-  // Check local project cache first (both formats)
   const localPackageDir = path.join(localCacheDir, name, version);
   if (await fs.pathExists(localPackageDir)) {
     return localPackageDir;
   }
-  // Legacy format: name@version as single directory (frontend packageCache.ts format)
   const localPackageDirLegacy = path.join(localCacheDir, `${name}@${version}`);
   if (await fs.pathExists(localPackageDirLegacy)) {
     return localPackageDirLegacy;
   }
-
-  // Check global cache (both formats)
   const globalPackageDir = path.join(globalCacheDir, name, version);
   if (await fs.pathExists(globalPackageDir)) {
     return globalPackageDir;
@@ -128,15 +143,19 @@ export async function resolvePackage(
     const registry = new RegistryClient(resolvedRegistryUrl ? { registryUrl: resolvedRegistryUrl } : undefined);
     await registry.install(packageRef, { skipCache: false, workspaceRoot });
 
-    // After installation, check both caches again
-    if (await fs.pathExists(localPackageDir)) {
-      return localPackageDir;
-    }
-    if (await fs.pathExists(globalPackageDir)) {
-      return globalPackageDir;
+    // After installation, check type directories again (new install location)
+    for (const typeDir of typeDirs) {
+      const localDir = path.join(localBase, typeDir, name, version);
+      if (await fs.pathExists(localDir)) {
+        return localDir;
+      }
+      const globalDir = path.join(globalBase, typeDir, name, version);
+      if (await fs.pathExists(globalDir)) {
+        return globalDir;
+      }
     }
 
-    throw new Error(`Package installation succeeded but package not found in cache: ${packageRef}`);
+    throw new Error(`Package installation succeeded but package not found: ${packageRef}`);
   } catch (error) {
     throw new Error(`Failed to resolve package ${packageRef}: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -189,7 +208,24 @@ export function isValidPackageReference(packageRef: string): boolean {
 }
 
 /**
+ * Get the global .prompd base directory (~/.prompd/).
+ */
+export function getGlobalBaseDir(): string {
+  return path.join(os.homedir(), '.prompd');
+}
+
+/**
+ * Get the local project .prompd base directory (./.prompd/).
+ * @param workspaceRoot - Optional workspace root directory. If not provided, uses process.cwd()
+ */
+export function getLocalBaseDir(workspaceRoot?: string): string {
+  const basePath = workspaceRoot || process.cwd();
+  return path.join(basePath, '.prompd');
+}
+
+/**
  * Get the global package cache directory (~/.prompd/cache/).
+ * @deprecated Legacy path. New installs use type-specific dirs (packages/, workflows/, etc.)
  */
 export function getGlobalCacheDir(): string {
   return path.join(os.homedir(), '.prompd', 'cache');
@@ -197,6 +233,7 @@ export function getGlobalCacheDir(): string {
 
 /**
  * Get the local project package cache directory (./.prompd/cache/).
+ * @deprecated Legacy path. New installs use type-specific dirs (packages/, workflows/, etc.)
  * @param workspaceRoot - Optional workspace root directory. If not provided, uses process.cwd()
  */
 export function getLocalCacheDir(workspaceRoot?: string): string {
@@ -206,7 +243,7 @@ export function getLocalCacheDir(workspaceRoot?: string): string {
 
 /**
  * Get the package cache directory (for backward compatibility).
- * @deprecated Use getGlobalCacheDir() or getLocalCacheDir() instead
+ * @deprecated Use getGlobalBaseDir() or getLocalBaseDir() instead
  */
 export function getPackageCacheDir(): string {
   return getGlobalCacheDir();
@@ -241,23 +278,40 @@ export function resolvePackageFile(packagePath: string, filePath: string): strin
 }
 
 /**
- * Check if a package is installed (in local or global cache).
+ * Check if a package is installed (in any type directory, local or global).
  * @param packageRef - Package reference to check
  * @param workspaceRoot - Optional workspace root directory for local cache
  */
 export async function isPackageInstalled(packageRef: string, workspaceRoot?: string): Promise<boolean> {
   try {
     const { name, version } = parsePackageReference(packageRef);
+    const localBase = getLocalBaseDir(workspaceRoot);
+    const globalBase = getGlobalBaseDir();
+    const typeDirs = Object.values(PACKAGE_TYPE_DIRS);
 
-    // Check local cache first
-    const localPackageDir = path.join(getLocalCacheDir(workspaceRoot), name, version);
-    if (await fs.pathExists(localPackageDir)) {
+    // Check all type directories locally
+    for (const typeDir of typeDirs) {
+      if (await fs.pathExists(path.join(localBase, typeDir, name, version))) {
+        return true;
+      }
+    }
+
+    // Check all type directories globally
+    for (const typeDir of typeDirs) {
+      if (await fs.pathExists(path.join(globalBase, typeDir, name, version))) {
+        return true;
+      }
+    }
+
+    // Legacy: check flat cache directories
+    if (await fs.pathExists(path.join(getLocalCacheDir(workspaceRoot), name, version))) {
+      return true;
+    }
+    if (await fs.pathExists(path.join(getGlobalCacheDir(), name, version))) {
       return true;
     }
 
-    // Check global cache
-    const globalPackageDir = path.join(getGlobalCacheDir(), name, version);
-    return await fs.pathExists(globalPackageDir);
+    return false;
   } catch {
     return false;
   }

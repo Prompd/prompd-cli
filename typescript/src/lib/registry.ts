@@ -11,7 +11,7 @@ import * as tar from 'tar';
 import { EventEmitter } from 'events';
 import { SecurityManager } from './security';
 import { ConfigManager } from './config';
-import { Config, RegistryConfig } from '../types';
+import { Config, RegistryConfig, PackageType, PACKAGE_TYPE_DIRS, TOOL_DEPLOY_DIRS, getInstallDirForType, resolveToolDeployDir, isValidPackageType } from '../types';
 import { IFileSystem, MemoryFileSystem, NodeFileSystem } from './compiler/file-system';
 
 // Legacy interface for backward compatibility
@@ -38,7 +38,7 @@ export interface PackageMetadata {
   prompdVersion: string;
   files: string[];
   main?: string;
-  type: 'prompt' | 'workflow' | 'collection';
+  type: 'package' | 'node-template' | 'workflow' | 'skill';
   category: string;
   tags: string[];
   createdAt: string;
@@ -51,12 +51,13 @@ export interface PublishOptions {
   dryRun: boolean;
   force: boolean;
   fileSystem?: IFileSystem;  // Optional file system for in-memory publishing
+  authToken?: string;        // Override auth token (used by IPC handler when token is passed directly)
 }
 
 export interface SearchQuery {
   query?: string;
   category?: string;
-  type?: 'prompt' | 'workflow' | 'collection';
+  type?: string | string[];
   tags?: string[];
   author?: string;
   limit?: number;
@@ -86,6 +87,7 @@ export interface InstallOptions {
   force?: boolean;
   skipCache?: boolean;
   workspaceRoot?: string;
+  tools?: string[];
 }
 
 /**
@@ -105,7 +107,7 @@ export class RegistryClient extends EventEmitter {
   private config: Config;
   private registryName: string;
   private registryConfig: RegistryConfig;
-  private cache: Map<string, any> = new Map();
+  private cache: Map<string, { tarball: Buffer; metadata: PackageMetadata }> = new Map();
 
   constructor(options?: string | RegistryClientOptions) {
     super();
@@ -143,7 +145,7 @@ export class RegistryClient extends EventEmitter {
   }
 
   get authToken(): string | undefined {
-    return this.registryConfig.token;
+    return this.registryConfig.api_key || this.registryConfig.token;
   }
 
   get cacheDir(): string {
@@ -244,8 +246,8 @@ export class RegistryClient extends EventEmitter {
       throw new Error(`Authentication failed: ${errorText}`);
     }
 
-    const userData = await response.json() as any;
-    
+    const userData = await response.json() as { username?: string };
+
     if (!userData.username) {
       throw new Error('Invalid response from registry: missing username');
     }
@@ -327,9 +329,6 @@ export class RegistryClient extends EventEmitter {
   async install(packageName: string, options: InstallOptions = {}): Promise<void> {
     this.emit('installStart', { packageName, options });
 
-    console.log('[RegistryClient.install] Starting install:', packageName);
-    console.log('[RegistryClient.install] Options:', JSON.stringify(options));
-
     try {
       // Parse package reference if it includes @version
       // Format: @namespace/package@version
@@ -344,11 +343,8 @@ export class RegistryClient extends EventEmitter {
         versionSpec = packageName.substring(lastAtIndex + 1);
       }
 
-      console.log('[RegistryClient.install] Parsed name:', name, 'version:', versionSpec);
-
       // Resolve version
       const resolvedVersion = await this.resolveVersion(name, versionSpec);
-      console.log('[RegistryClient.install] Resolved version:', resolvedVersion);
 
       // Check cache first
       const cacheKey = `${name}@${resolvedVersion}`;
@@ -381,9 +377,7 @@ export class RegistryClient extends EventEmitter {
       }
 
       // Extract and install package
-      console.log('[RegistryClient.install] Extracting package to workspace...');
       await this.extractAndInstallPackage(packageData, name, resolvedVersion, options);
-      console.log('[RegistryClient.install] Extraction complete');
 
       // Cache package
       await this.cachePackage(cacheKey, packageData);
@@ -392,7 +386,6 @@ export class RegistryClient extends EventEmitter {
         name: name,
         version: resolvedVersion
       });
-      console.log('[RegistryClient.install] Install complete for', name, '@', resolvedVersion);
 
     } catch (error) {
       this.emit('installError', { packageName, error });
@@ -407,17 +400,19 @@ export class RegistryClient extends EventEmitter {
     try {
       const searchParams = new URLSearchParams();
       
-      if (query.query) searchParams.set('q', query.query);
+      if (query.query) searchParams.set('search', query.query);
       if (query.category) searchParams.set('category', query.category);
-      if (query.type) searchParams.set('type', query.type);
+      if (query.type) {
+        const typeValue = Array.isArray(query.type) ? query.type.join(',') : query.type;
+        searchParams.set('type', typeValue);
+      }
       if (query.tags) searchParams.set('tags', query.tags.join(','));
       if (query.author) searchParams.set('author', query.author);
       if (query.limit) searchParams.set('limit', query.limit.toString());
       if (query.offset) searchParams.set('offset', query.offset.toString());
       if (query.sort) searchParams.set('sort', query.sort);
 
-      // Registry uses /packages?search= endpoint, not /search?q=
-      const response = await fetch(`${this.registryUrl}/packages?search=${encodeURIComponent(query.query || '')}`, {
+      const response = await fetch(`${this.registryUrl}/packages?${searchParams.toString()}`, {
         headers: this.getAuthHeaders()
       });
 
@@ -481,12 +476,14 @@ export class RegistryClient extends EventEmitter {
         throw new Error(`Failed to get package versions: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json() as any;
+      const data = await response.json() as
+        | Array<string | { version: string }>
+        | { versions: Array<string | { version: string }> };
 
       // Handle both response formats (like Python CLI does):
       // 1. Direct array: [{version: "1.0.0", ...}, ...]
       // 2. Wrapped object: {versions: [...]}
-      let versionsList: any[];
+      let versionsList: Array<string | { version: string }>;
       if (Array.isArray(data)) {
         versionsList = data;
       } else if (data.versions && Array.isArray(data.versions)) {
@@ -540,7 +537,7 @@ export class RegistryClient extends EventEmitter {
     metadata.keywords = metadata.keywords || [];
     metadata.dependencies = metadata.dependencies || {};
     metadata.files = metadata.files || ['**/*'];
-    metadata.type = metadata.type || 'collection';
+    metadata.type = metadata.type || 'package';
     metadata.category = metadata.category || 'general';
     metadata.tags = metadata.tags || [];
     metadata.prmdVersion = '0.2.3';
@@ -565,7 +562,7 @@ export class RegistryClient extends EventEmitter {
 
     // Check for required files
     const requiredFiles = [];
-    if (metadata.type === 'prompt' && metadata.main) {
+    if (metadata.type === 'package' && metadata.main) {
       requiredFiles.push(metadata.main);
     }
 
@@ -614,8 +611,8 @@ export class RegistryClient extends EventEmitter {
     formData.append('access', options.access);
     formData.append('tag', options.tag);
 
-    const response = await fetch(`${this.registryUrl}/publish`, {
-      method: 'POST',
+    const response = await fetch(`${this.registryUrl}/packages/${metadata.name}`, {
+      method: 'PUT',
       headers: this.getAuthHeaders(),
       body: formData
     });
@@ -659,7 +656,7 @@ export class RegistryClient extends EventEmitter {
     return this.downloadPackage(packageName, version);
   }
 
-  private async downloadPackage(packageName: string, version: string): Promise<any> {
+  private async downloadPackage(packageName: string, version: string): Promise<{ tarball: Buffer; metadata: PackageMetadata }> {
     // Registry endpoint format: /packages/@scope/name/download/version
     const response = await fetch(`${this.registryUrl}/packages/${packageName}/download/${version}`, {
       headers: this.getAuthHeaders()
@@ -674,7 +671,12 @@ export class RegistryClient extends EventEmitter {
 
     // Extract metadata from the .pdpkg (ZIP) file instead of calling getPackageInfo
     // Try prompd.json first, fall back to manifest.json for older packages
-    const AdmZip = (await import('adm-zip')).default;
+    let AdmZip: { new(buffer: Buffer): InstanceType<typeof import('adm-zip')> };
+    try {
+      AdmZip = (await import('adm-zip')).default;
+    } catch {
+      throw new Error('adm-zip package is required for package installation. Run: npm install adm-zip');
+    }
     const zip = new AdmZip(tarballBuffer);
 
     // Check for prompd.json first (newer format), then manifest.json (legacy)
@@ -703,46 +705,116 @@ export class RegistryClient extends EventEmitter {
     }
   }
 
-  private async extractAndInstallPackage(packageData: any, packageName: string, version: string, options: InstallOptions): Promise<void> {
-    // Use workspace root from options if provided, otherwise use cwd
+  private static readonly MAX_FILE_SIZE_IN_ZIP = 10 * 1024 * 1024; // 10MB per file
+
+  private async extractAndInstallPackage(
+    packageData: { tarball: Buffer; metadata: Partial<PackageMetadata> },
+    packageName: string,
+    version: string,
+    options: InstallOptions
+  ): Promise<void> {
     const workspaceRoot = options.workspaceRoot || process.cwd();
 
-    console.log('[RegistryClient.extractAndInstallPackage] packageName:', packageName);
-    console.log('[RegistryClient.extractAndInstallPackage] version:', version);
-    console.log('[RegistryClient.extractAndInstallPackage] workspaceRoot:', workspaceRoot);
-    console.log('[RegistryClient.extractAndInstallPackage] global:', options.global);
+    // Determine and validate package type from metadata (defaults to 'package')
+    const rawType = packageData.metadata?.type || 'package';
+    if (!isValidPackageType(rawType)) {
+      throw new Error(`Invalid package type '${rawType}' in ${packageName}@${version}. Valid types: package, workflow, skill, node-template`);
+    }
+    const packageType: PackageType = rawType;
+    const typeDir = getInstallDirForType(packageType);
 
+    const os = require('os');
     const installDir = options.global
-      ? path.join(this.cacheDir, 'global', 'packages', packageName, version)
-      : path.join(workspaceRoot, '.prompd', 'cache', packageName, version);
-
-    console.log('[RegistryClient.extractAndInstallPackage] installDir:', installDir);
+      ? path.join(os.homedir(), '.prompd', typeDir, packageName, version)
+      : path.join(workspaceRoot, '.prompd', typeDir, packageName, version);
 
     await fs.ensureDir(installDir);
-    console.log('[RegistryClient.extractAndInstallPackage] Directory ensured');
 
     // Extract .pdpkg (ZIP archive) using adm-zip
-    const AdmZip = (await import('adm-zip')).default;
+    let AdmZip: { new(buffer: Buffer): InstanceType<typeof import('adm-zip')> };
+    try {
+      AdmZip = (await import('adm-zip')).default;
+    } catch {
+      throw new Error('adm-zip package is required for package installation. Run: npm install adm-zip');
+    }
     const zip = new AdmZip(packageData.tarball);
 
-    // Log zip contents
+    // Validate individual file sizes before extraction
     const zipEntries = zip.getEntries();
-    console.log('[RegistryClient.extractAndInstallPackage] ZIP contains', zipEntries.length, 'entries:');
-    zipEntries.forEach(entry => {
-      console.log('  -', entry.entryName);
-    });
+    for (const entry of zipEntries) {
+      if (entry.header.size > RegistryClient.MAX_FILE_SIZE_IN_ZIP) {
+        throw new Error(
+          `File too large in package: ${entry.entryName} (${entry.header.size} bytes, max: ${RegistryClient.MAX_FILE_SIZE_IN_ZIP})`
+        );
+      }
+      // ZIP slip protection: reject path traversal
+      const normalized = path.normalize(entry.entryName);
+      if (normalized.includes('..') || path.isAbsolute(entry.entryName)) {
+        throw new Error(`Security violation: path traversal detected in ${entry.entryName}`);
+      }
+    }
 
     zip.extractAllTo(installDir, true);
-    console.log('[RegistryClient.extractAndInstallPackage] ZIP extracted to:', installDir);
-
-    // Verify extraction
-    const extractedFiles = await fs.readdir(installDir);
-    console.log('[RegistryClient.extractAndInstallPackage] Extracted files:', extractedFiles);
 
     // Write package metadata for cache tracking
     const metadataPath = path.join(installDir, '.prmdmeta');
     await fs.writeJson(metadataPath, packageData.metadata, { spaces: 2 });
-    console.log('[RegistryClient.extractAndInstallPackage] Wrote .prmdmeta');
+
+    // Deploy to tool-native directories if --tools was specified
+    if (options.tools && options.tools.length > 0) {
+      if (packageType !== 'skill') {
+        throw new Error(`--tools flag is only valid for skills, but package type is '${packageType}'`);
+      }
+
+      // Track successful deployments for rollback on failure
+      const deployedDirs: string[] = [];
+      try {
+        for (const toolName of options.tools) {
+          const deployedDir = await this.deploySkillToTool(installDir, packageName, toolName);
+          deployedDirs.push(deployedDir);
+        }
+      } catch (deployError) {
+        // Rollback successful deployments
+        for (const dir of deployedDirs) {
+          await fs.remove(dir).catch(() => {});
+        }
+        throw deployError;
+      }
+    }
+  }
+
+  /**
+   * Deploy skill files to a tool-native directory (e.g., ~/.claude/skills/).
+   * Copies skill files and writes a reference marker back to the prompd source location.
+   * Returns the deployed directory path for rollback support.
+   */
+  private async deploySkillToTool(skillDir: string, packageName: string, toolName: string): Promise<string> {
+    const deployDir = resolveToolDeployDir(toolName);
+    if (!deployDir) {
+      throw new Error(`Unknown tool '${toolName}'. Supported tools: ${Object.keys(TOOL_DEPLOY_DIRS).join(', ')}`);
+    }
+
+    // Verify skill source directory exists before copying
+    if (!await fs.pathExists(skillDir)) {
+      throw new Error(`Skill source directory not found: ${skillDir}`);
+    }
+
+    // Create a subdirectory for this skill within the tool's skills directory
+    const skillDeployDir = path.join(deployDir, packageName);
+    await fs.ensureDir(skillDeployDir);
+
+    // Copy all files from the install dir to the tool deploy dir
+    await fs.copy(skillDir, skillDeployDir, { overwrite: true });
+
+    // Write a reference marker so we know this was deployed by prompd
+    const markerPath = path.join(skillDeployDir, '.prompd-source');
+    await fs.writeJson(markerPath, {
+      source: skillDir,
+      deployedAt: new Date().toISOString(),
+      tool: toolName,
+    }, { spaces: 2 });
+
+    return skillDeployDir;
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -811,23 +883,31 @@ export class RegistryClient extends EventEmitter {
   }
 
   private async installFromCache(cachePath: string, packageName: string, version: string, options: InstallOptions): Promise<void> {
-    console.log('[RegistryClient.installFromCache] Installing from cache:', cachePath);
     this.emit('installingFromCache', { name: packageName, version });
 
-    // Read the cached tarball
     const tarballBuffer = await fs.readFile(cachePath);
-    console.log('[RegistryClient.installFromCache] Read tarball:', tarballBuffer.length, 'bytes');
 
-    // Extract to the workspace
-    const packageData = { tarball: tarballBuffer, metadata: { name: packageName, version } };
+    // Try to read full metadata from the cached .prmdmeta file alongside the tarball
+    const metadataPath = cachePath + '.meta';
+    let metadata: Partial<PackageMetadata> = { name: packageName, version };
+    if (await fs.pathExists(metadataPath)) {
+      try {
+        metadata = await fs.readJson(metadataPath);
+      } catch {
+        // Fall back to minimal metadata if .meta file is corrupt
+      }
+    }
+
+    const packageData = { tarball: tarballBuffer, metadata };
     await this.extractAndInstallPackage(packageData, packageName, version, options);
-    console.log('[RegistryClient.installFromCache] Extraction complete');
   }
 
-  private async cachePackage(cacheKey: string, packageData: any): Promise<void> {
+  private async cachePackage(cacheKey: string, packageData: { tarball: Buffer; metadata: Partial<PackageMetadata> }): Promise<void> {
     const cachePath = path.join(this.cacheDir, 'packages', cacheKey);
     await fs.ensureDir(path.dirname(cachePath));
     await fs.writeFile(cachePath, packageData.tarball);
+    // Save full metadata alongside the tarball so cache installs preserve package type
+    await fs.writeJson(cachePath + '.meta', packageData.metadata, { spaces: 2 });
   }
 
   /**
@@ -838,21 +918,27 @@ export class RegistryClient extends EventEmitter {
     packagePath: string,
     fileSystem: IFileSystem
   ): Promise<PackageMetadata> {
+    // Try prompd.json first (current format), fall back to manifest.json (legacy)
+    const prompdJsonPath = fileSystem.join(packagePath, 'prompd.json');
     const manifestPath = fileSystem.join(packagePath, 'manifest.json');
 
-    const exists = await Promise.resolve(fileSystem.exists(manifestPath));
-    if (!exists) {
-      throw new Error('No manifest.json file found');
+    let resolvedPath: string;
+    if (await Promise.resolve(fileSystem.exists(prompdJsonPath))) {
+      resolvedPath = prompdJsonPath;
+    } else if (await Promise.resolve(fileSystem.exists(manifestPath))) {
+      resolvedPath = manifestPath;
+    } else {
+      throw new Error('No prompd.json (or legacy manifest.json) file found');
     }
 
-    const content = await Promise.resolve(fileSystem.readFile(manifestPath));
+    const content = await Promise.resolve(fileSystem.readFile(resolvedPath));
     const manifest = JSON.parse(content);
 
     // Validate required fields
     const required = ['name', 'version', 'description', 'author'];
     for (const field of required) {
       if (!manifest[field]) {
-        throw new Error(`Missing required field in manifest.json: ${field}`);
+        throw new Error(`Missing required field in ${path.basename(resolvedPath)}: ${field}`);
       }
     }
 
@@ -866,7 +952,7 @@ export class RegistryClient extends EventEmitter {
     manifest.keywords = manifest.keywords || [];
     manifest.dependencies = manifest.dependencies || {};
     manifest.files = manifest.files || ['**/*.prmd'];
-    manifest.type = manifest.type || 'collection';
+    manifest.type = manifest.type || 'package';
     manifest.category = manifest.category || 'general';
     manifest.tags = manifest.tags || [];
     manifest.prompdVersion = manifest.prompdVersion || '0.3.3';
@@ -947,8 +1033,9 @@ export class RegistryClient extends EventEmitter {
 
   /**
    * Upload package Buffer to registry.
+   * Uses form-data's submit() which handles Content-Length, transport, and piping.
    */
-  private async uploadPackageBuffer(
+  async uploadPackageBuffer(
     tarballBuffer: Buffer,
     metadata: PackageMetadata,
     options: PublishOptions
@@ -961,25 +1048,43 @@ export class RegistryClient extends EventEmitter {
       tarballBuffer,
       {
         filename: `${metadata.name}-${metadata.version}.pdpkg`,
-        contentType: 'application/gzip'
+        contentType: 'application/zip'
       }
     );
     formData.append('metadata', JSON.stringify(metadata));
     formData.append('access', options.access);
     formData.append('tag', options.tag);
 
-    const response = await fetch(`${this.registryUrl}/publish`, {
-      method: 'POST',
-      headers: {
-        ...this.getAuthHeaders(),
-        ...formData.getHeaders()
-      },
-      body: formData
+    const token = options.authToken || this.authToken;
+    const url = new URL(`${this.registryUrl}/packages/${metadata.name}`);
+
+    const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      formData.submit(
+        {
+          protocol: url.protocol,
+          hostname: url.hostname,
+          port: url.port || undefined,
+          path: url.pathname,
+          method: 'PUT',
+          headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            'User-Agent': 'prompd-cli/0.5.0'
+          }
+        },
+        (err: Error | null, res: import('http').IncomingMessage) => {
+          if (err) return reject(err);
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('error', reject);
+          res.on('end', () => {
+            resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') });
+          });
+        }
+      );
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Publish failed: ${response.status} ${response.statusText} - ${errorText}`);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`Publish failed: ${response.statusCode} - ${response.body}`);
     }
   }
 }

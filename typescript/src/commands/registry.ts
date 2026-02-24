@@ -4,6 +4,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import { RegistryClient } from '../lib/registry';
 import { ConfigManager } from '../lib/config';
+import { VALID_PACKAGE_TYPES, TOOL_DEPLOY_DIRS, resolveToolDeployDir } from '../types';
 
 export function createRegistryCommand(): Command {
   const command = new Command('registry');
@@ -164,6 +165,7 @@ export function createSearchCommand(): Command {
     .description('Search for packages in the registry')
     .argument('<query>', 'Search query')
     .option('-l, --limit <limit>', 'Maximum number of results', '20')
+    .option('-t, --type <types>', 'Filter by package type (comma-separated: package,workflow,skill,node-template)')
     .option('-r, --registry <registry>', 'Search specific registry')
     .action(async (query: string, options) => {
       try {
@@ -171,10 +173,31 @@ export function createSearchCommand(): Command {
         const registryName = options.registry;
         const client = new RegistryClient(registryName);
 
-        const results = await client.search({ query, limit });
+        // Parse and validate --type flag
+        let typeFilter: string[] | undefined;
+        if (options.type) {
+          const parsed: string[] = options.type.split(',').map((t: string) => t.trim());
+          for (const t of parsed) {
+            if (!VALID_PACKAGE_TYPES.includes(t)) {
+              console.error(chalk.red(`Invalid package type: '${t}'`));
+              console.error(chalk.dim(`Valid types: ${VALID_PACKAGE_TYPES.join(', ')}`));
+              process.exit(1);
+            }
+          }
+          typeFilter = parsed;
+        }
+
+        const results = await client.search({
+          query,
+          limit,
+          type: typeFilter && typeFilter.length === 1 ? typeFilter[0] : typeFilter,
+        });
 
         if (results.packages.length === 0) {
           console.log(`No packages found for: ${chalk.cyan(query)}`);
+          if (typeFilter) {
+            console.log(chalk.dim(`Type filter: ${typeFilter.join(', ')}`));
+          }
           if (registryName) {
             console.log(chalk.dim(`Searched in registry: ${registryName}`));
           }
@@ -186,13 +209,18 @@ export function createSearchCommand(): Command {
         console.log();
 
         for (const pkg of results.packages) {
-          console.log(`${chalk.bold.cyan(pkg.name)} - ${chalk.green(`v${pkg.version}`)}`);
+          // Show type badge if present and not 'package' (the default)
+          const pkgType = (pkg as { type?: string }).type;
+          const typeBadge = pkgType && pkgType !== 'package'
+            ? chalk.magenta(` [${pkgType}]`)
+            : '';
+          console.log(`${chalk.bold.cyan(pkg.name)}${typeBadge} - ${chalk.green(`v${pkg.version}`)}`);
           console.log(`  ${pkg.description || 'No description available'}`);
-          
+
           if (pkg.author) {
             console.log(`  Author: ${pkg.author}`);
           }
-          
+
           console.log();
         }
 
@@ -212,12 +240,13 @@ export function createInstallCommand(): Command {
     .description('Install a package from the registry')
     .argument('<package>', 'Package name')
     .option('--version <version>', 'Specific version to install')
-    .option('--global', 'Install globally')
+    .option('-g, --global', 'Install globally')
+    .option('--tools <tools>', 'Deploy skill to tool-native directories (comma-separated, e.g., claude)')
     .option('--registry <registry>', 'Install from specific registry (overrides scope resolution)')
     .action(async (packageName: string, options) => {
       try {
         const configManager = ConfigManager.getInstance();
-        
+
         // Resolve which registry to use
         let registryName: string;
         if (options.registry) {
@@ -228,6 +257,20 @@ export function createInstallCommand(): Command {
           registryName = configManager.resolveRegistryForPackage(packageName);
         }
 
+        // Parse --tools flag
+        let tools: string[] | undefined;
+        if (options.tools) {
+          const parsed: string[] = options.tools.split(',').map((t: string) => t.trim());
+          for (const t of parsed) {
+            if (!TOOL_DEPLOY_DIRS[t]) {
+              console.error(chalk.red(`Unknown tool: '${t}'`));
+              console.error(chalk.dim(`Supported tools: ${Object.keys(TOOL_DEPLOY_DIRS).join(', ')}`));
+              process.exit(1);
+            }
+          }
+          tools = parsed;
+        }
+
         const client = new RegistryClient(registryName);
 
         console.log(`Installing package: ${chalk.cyan(packageName)}`);
@@ -235,13 +278,24 @@ export function createInstallCommand(): Command {
         if (options.version) {
           console.log(`   Version: ${chalk.green(options.version)}`);
         }
+        if (tools) {
+          console.log(`   Tools: ${chalk.magenta(tools.join(', '))}`);
+        }
 
         await client.install(packageName, {
           version: options.version,
-          global: options.global
+          global: options.global,
+          tools,
         });
 
         console.log(chalk.green('Package installed successfully!'));
+
+        if (tools) {
+          for (const tool of tools) {
+            const resolvedDir = resolveToolDeployDir(tool) || TOOL_DEPLOY_DIRS[tool];
+            console.log(chalk.green(`   Deployed to ${tool}: ${resolvedDir}`));
+          }
+        }
 
       } catch (error) {
         console.error(chalk.red(`Installation failed: ${error}`));

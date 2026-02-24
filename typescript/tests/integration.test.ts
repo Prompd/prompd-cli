@@ -31,6 +31,7 @@ describe('Integration Tests', () => {
   describe('End-to-end .prmd file processing', () => {
     it('should parse, validate, and process a complete .prmd file', async () => {
       const prompdContent = `---
+id: test-integration
 name: test-integration
 description: Integration test prompt
 version: 1.0.0
@@ -80,6 +81,7 @@ Thank you for analyzing {topic}!`;
 
     it('should detect and report validation issues', async () => {
       const invalidPrompdContent = `---
+id: invalid-test
 name: invalid-test
 parameters:
   - name: param1
@@ -165,6 +167,7 @@ customProviders:
       await fs.ensureDir(specialDir);
       
       const prompdContent = `---
+id: special-test
 name: special-test
 description: Test with special file path
 version: 1.0.0
@@ -189,6 +192,7 @@ This is a test with special file path.`;
 
     it('should handle files with BOM (Byte Order Mark)', async () => {
       const prompdContent = `---
+id: bom-test
 name: bom-test
 version: 1.0.0
 ---
