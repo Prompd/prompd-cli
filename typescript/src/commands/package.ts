@@ -7,7 +7,7 @@ import archiver from 'archiver';
 import { createHash } from 'crypto';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
-import { needsFrontmatterProtection, getContentType, isValidPackageType } from '../types';
+import { needsFrontmatterProtection, getContentType, isValidPackageType, VALID_PACKAGE_TYPES, PackageType } from '../types';
 
 interface PackageExclusions {
   directories?: string[];
@@ -33,7 +33,7 @@ interface PackageManifest {
 /**
  * Shared package creation logic (used by both 'package create' and 'pack')
  */
-async function handlePackageCreate(source: string, output?: string, options?: any): Promise<void> {
+async function handlePackageCreate(source: string, output?: string, options?: Record<string, string>): Promise<void> {
   const sourcePath = path.resolve(source);
 
   // Check if source exists
@@ -54,6 +54,14 @@ async function handlePackageCreate(source: string, output?: string, options?: an
     console.error(chalk.red('Package creation requires -n/--name, -v/--pkg-version, and -d/--description options'));
     process.exit(1);
   }
+
+  // Validate --type if provided
+  if (options.type && !isValidPackageType(options.type)) {
+    console.error(chalk.red(`Invalid package type: '${options.type}'`));
+    console.error(chalk.dim(`Valid types: ${VALID_PACKAGE_TYPES.join(', ')}`));
+    process.exit(1);
+  }
+
   await packageFromDirectory(sourcePath, output, options);
 }
 
@@ -71,15 +79,17 @@ export function createPackageCommand(): Command {
     .option('-v, --pkg-version <version>', 'Package version')
     .option('-d, --description <description>', 'Package description')
     .option('-a, --author <author>', 'Package author')
-    .action(async (source: string, output?: string, options?: any) => {
+    .option('-t, --type <type>', 'Package type (package, workflow, skill, node-template)', 'package')
+    .action(async (source: string, output?: string, options?: Record<string, string>) => {
       try {
         // Map pkgVersion to version for backwards compatibility
         if (options?.pkgVersion) {
           options.version = options.pkgVersion;
         }
         await handlePackageCreate(source, output, options);
-      } catch (error: any) {
-        console.error(chalk.red(`❌ Package creation failed: ${error.message}`));
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`Package creation failed: ${message}`));
         process.exit(1);
       }
     });
@@ -127,11 +137,30 @@ export function createPackageCommand(): Command {
 }
 
 async function packageFromDirectory(
-  sourceDir: string, 
-  outputPath?: string, 
-  options: any = {}
+  sourceDir: string,
+  outputPath?: string,
+  options: Record<string, string> = {}
 ): Promise<void> {
   const { name, version, description, author } = options;
+
+  // Resolve package type: explicit --type flag > prompd.json type field > default 'package'
+  let packageType = options.type;
+  if (!packageType || packageType === 'package') {
+    const prompdJsonPath = path.join(sourceDir, 'prompd.json');
+    if (await fs.pathExists(prompdJsonPath)) {
+      try {
+        const prompdJson = await fs.readJson(prompdJsonPath);
+        if (prompdJson.type && isValidPackageType(prompdJson.type)) {
+          packageType = prompdJson.type;
+        }
+      } catch {
+        // Ignore parse errors - fall through to default
+      }
+    }
+  }
+  if (!packageType) {
+    packageType = 'package';
+  }
 
   // Generate output path if not provided
   if (!outputPath) {
@@ -148,7 +177,7 @@ async function packageFromDirectory(
     version,
     description,
     author,
-    type: 'package'
+    type: packageType
   };
 
   // Create package with default exclusions
@@ -415,11 +444,13 @@ export function createPackCommand(): Command {
     .option('-d, --description <description>', 'Package description (overrides .pdproj)')
     .option('--author <author>', 'Package author (overrides .pdproj)')
     .option('-a, --author <author>', 'Package author (overrides .pdproj)')
-    .action(async (source: string, output?: string, options?: any) => {
+    .option('-t, --type <type>', 'Package type (package, workflow, skill, node-template)', 'package')
+    .action(async (source: string, output?: string, options?: Record<string, string>) => {
       try {
         await handlePackageCreate(source, output, options);
-      } catch (error: any) {
-        console.error(chalk.red(`❌ Package creation failed: ${error.message}`));
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`Package creation failed: ${message}`));
         process.exit(1);
       }
     });

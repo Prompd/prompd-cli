@@ -88,6 +88,8 @@ export interface InstallOptions {
   skipCache?: boolean;
   workspaceRoot?: string;
   tools?: string[];
+  /** Package type hint from registry. Used as fallback when the package manifest lacks a type field. */
+  type?: PackageType;
 }
 
 /**
@@ -715,8 +717,8 @@ export class RegistryClient extends EventEmitter {
   ): Promise<void> {
     const workspaceRoot = options.workspaceRoot || process.cwd();
 
-    // Determine and validate package type from metadata (defaults to 'package')
-    const rawType = packageData.metadata?.type || 'package';
+    // Determine and validate package type: manifest > options hint > default 'package'
+    const rawType = packageData.metadata?.type || options.type || 'package';
     if (!isValidPackageType(rawType)) {
       throw new Error(`Invalid package type '${rawType}' in ${packageName}@${version}. Valid types: package, workflow, skill, node-template`);
     }
@@ -887,7 +889,7 @@ export class RegistryClient extends EventEmitter {
 
     const tarballBuffer = await fs.readFile(cachePath);
 
-    // Try to read full metadata from the cached .prmdmeta file alongside the tarball
+    // Try to read full metadata from the cached .meta sidecar file
     const metadataPath = cachePath + '.meta';
     let metadata: Partial<PackageMetadata> = { name: packageName, version };
     if (await fs.pathExists(metadataPath)) {
@@ -895,6 +897,26 @@ export class RegistryClient extends EventEmitter {
         metadata = await fs.readJson(metadataPath);
       } catch {
         // Fall back to minimal metadata if .meta file is corrupt
+      }
+    }
+
+    // If metadata lacks type (old cache entry), extract it from the ZIP's prompd.json/manifest.json
+    if (!metadata.type) {
+      try {
+        let AdmZip: { new(buffer: Buffer): InstanceType<typeof import('adm-zip')> };
+        AdmZip = (await import('adm-zip')).default;
+        const zip = new AdmZip(tarballBuffer);
+        const manifestEntry = zip.getEntry('prompd.json') || zip.getEntry('manifest.json');
+        if (manifestEntry) {
+          const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+          if (manifest.type) {
+            metadata.type = manifest.type;
+          }
+          // Backfill the .meta sidecar so future installs don't need to re-extract
+          await fs.writeJson(metadataPath, { ...metadata, ...manifest }, { spaces: 2 }).catch(() => {});
+        }
+      } catch {
+        // Non-fatal: type will fall back to options.type or 'package'
       }
     }
 
