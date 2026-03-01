@@ -792,11 +792,16 @@ export class TemplateProcessingStage implements CompilerStage {
         }
       });
 
+      let timeoutId: ReturnType<typeof setTimeout>;
       const timeoutPromise = new Promise<string>((_, reject) => {
-        setTimeout(() => reject(new Error('Template rendering timeout')), renderTimeout);
+        timeoutId = setTimeout(() => reject(new Error('Template rendering timeout')), renderTimeout);
       });
 
-      content = await Promise.race([renderPromise, timeoutPromise]);
+      try {
+        content = await Promise.race([renderPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId!);
+      }
     } catch (error) {
       // Report template syntax errors properly
       const errorMessage = error instanceof Error ? error.message : String(error);
