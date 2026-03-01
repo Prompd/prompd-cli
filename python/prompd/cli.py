@@ -64,6 +64,7 @@ def _run_impl(
         # Handle version checkout if specified
         actual_file = file
         temp_file = None
+        md_temp_file = None
 
         if version:
             # Create a temporary file with the specified version
@@ -90,6 +91,20 @@ def _run_impl(
 
                 if verbose:
                     console.print(f"[dim]Using version {version} of {file}[/dim]")
+
+        # Wrap plain .md or .txt files (no frontmatter) with minimal prmd frontmatter
+        actual_content = actual_file.read_text(encoding="utf-8")
+        if not actual_content.startswith("---"):
+            import re
+            stem = actual_file.stem
+            kebab_name = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-") or "prompt"
+            frontmatter = f"---\nname: {kebab_name}\nversion: 1.0.0\n---\n\n"
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".prmd", delete=False, encoding="utf-8") as tmp_md:
+                tmp_md.write(frontmatter + actual_content)
+                md_temp_file = Path(tmp_md.name)
+            actual_file = md_temp_file
+            if verbose:
+                console.print(f"[dim]Wrapping {file.name} with generated frontmatter[/dim]")
 
         # Parse meta alias flags of form --meta:{section} <value>
         # Any section name is accepted. We'll pass through as 'meta:{section}' for executor handling.
@@ -169,9 +184,11 @@ def _run_impl(
             )
         )
 
-        # Clean up temp file if created
+        # Clean up temp files if created
         if temp_file and temp_file.exists():
             temp_file.unlink()
+        if md_temp_file and md_temp_file.exists():
+            md_temp_file.unlink()
 
         # Output result based on format
         if format == "json":
