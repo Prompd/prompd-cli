@@ -84,7 +84,7 @@ func handleCreate() {
 				if paramName == "" {
 					break
 				}
-				paramType := promptWithDefault("Parameter type [string/integer/float/boolean]", "string")
+				paramType := promptWithDefault("Parameter type [string/number/integer/float/boolean/array/object/json/file/base64]", "string")
 				paramDesc := promptWithDefault("Parameter description", "")
 				paramRequired := promptYesNo("Required?", false)
 

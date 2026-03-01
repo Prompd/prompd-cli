@@ -12,12 +12,15 @@ class ParameterType(str, Enum):
     """Supported parameter types."""
 
     STRING = "string"
+    NUMBER = "number"
     INTEGER = "integer"
     FLOAT = "float"
     BOOLEAN = "boolean"
     ARRAY = "array"
     OBJECT = "object"
+    JSON = "json"
     FILE = "file"
+    BASE64 = "base64"
 
 
 class ParameterDefinition(BaseModel):
