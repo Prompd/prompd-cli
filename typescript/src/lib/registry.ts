@@ -13,6 +13,8 @@ import { SecurityManager } from './security';
 import { ConfigManager } from './config';
 import { Config, RegistryConfig, PackageType, PACKAGE_TYPE_DIRS, TOOL_DEPLOY_DIRS, getInstallDirForType, resolveToolDeployDir, isValidPackageType } from '../types';
 import { IFileSystem, MemoryFileSystem, NodeFileSystem } from './compiler/file-system';
+import { findProjectRoot } from './compiler/package-resolver';
+import { validateRegistryUrl } from './validation';
 
 // Legacy interface for backward compatibility
 export interface LegacyRegistryConfig {
@@ -146,6 +148,22 @@ export class RegistryClient extends EventEmitter {
     return this.registryConfig.url;
   }
 
+  /**
+   * Encode a package name for safe URL usage.
+   * Preserves the @ prefix and / separator in scoped packages (e.g. @scope/name),
+   * but encodes all other special characters in each segment.
+   */
+  private encodePackageName(packageName: string): string {
+    // Handle scoped packages: @scope/name
+    if (packageName.startsWith('@') && packageName.includes('/')) {
+      const slashIndex = packageName.indexOf('/');
+      const scope = packageName.substring(1, slashIndex);
+      const name = packageName.substring(slashIndex + 1);
+      return `@${encodeURIComponent(scope)}/${encodeURIComponent(name)}`;
+    }
+    return encodeURIComponent(packageName);
+  }
+
   get authToken(): string | undefined {
     return this.registryConfig.api_key || this.registryConfig.token;
   }
@@ -176,7 +194,16 @@ export class RegistryClient extends EventEmitter {
     const configPath = path.join(os.homedir(), '.prompd', 'config.yaml');
     
     // Use env var for registry URL if set (useful for local development)
-    const registryUrl = process.env.PROMPD_REGISTRY_URL || 'https://registry.prompdhub.ai';
+    const defaultUrl = 'https://registry.prompdhub.ai';
+    let registryUrl = defaultUrl;
+    const envRegistryUrl = process.env.PROMPD_REGISTRY_URL;
+    if (envRegistryUrl) {
+      if (validateRegistryUrl(envRegistryUrl)) {
+        registryUrl = envRegistryUrl;
+      } else {
+        console.warn(`Warning: PROMPD_REGISTRY_URL value is invalid, falling back to default: ${defaultUrl}`);
+      }
+    }
 
     const defaultConfig: Config = {
       apiKeys: {},
@@ -198,8 +225,13 @@ export class RegistryClient extends EventEmitter {
     try {
       if (fs.existsSync(configPath)) {
         const configContent = fs.readFileSync(configPath, 'utf-8');
-        const fileConfig = yaml.parse(configContent);
-        
+        const fileConfig = yaml.parse(configContent, { strict: true, maxAliasCount: 64 });
+
+        // Validate parsed config is a plain object
+        if (!fileConfig || typeof fileConfig !== 'object' || Array.isArray(fileConfig)) {
+          return defaultConfig;
+        }
+
         // Merge with default config
         const mergedConfig = { ...defaultConfig, ...fileConfig };
         
@@ -354,6 +386,10 @@ export class RegistryClient extends EventEmitter {
         const cachedPath = await this.getCachedPackage(cacheKey);
         if (cachedPath) {
           await this.installFromCache(cachedPath, name, resolvedVersion, options);
+          if (!options.global) {
+            await this.addWorkspaceDependency(name, resolvedVersion, options.workspaceRoot);
+          }
+          this.emit('installComplete', { name, version: resolvedVersion });
           return;
         }
       }
@@ -383,6 +419,11 @@ export class RegistryClient extends EventEmitter {
 
       // Cache package
       await this.cachePackage(cacheKey, packageData);
+
+      // Update workspace prompd.json dependencies (skip for global installs)
+      if (!options.global) {
+        await this.addWorkspaceDependency(name, resolvedVersion, options.workspaceRoot);
+      }
 
       this.emit('installComplete', {
         name: name,
@@ -439,9 +480,10 @@ export class RegistryClient extends EventEmitter {
    */
   async getPackageInfo(packageName: string, version?: string): Promise<PackageMetadata> {
     try {
-      const url = version 
-        ? `${this.registryUrl}/packages/${packageName}/${version}`
-        : `${this.registryUrl}/packages/${packageName}`;
+      const encodedName = this.encodePackageName(packageName);
+      const url = version
+        ? `${this.registryUrl}/packages/${encodedName}/${encodeURIComponent(version)}`
+        : `${this.registryUrl}/packages/${encodedName}`;
 
       const response = await fetch(url, {
         headers: this.getAuthHeaders()
@@ -467,7 +509,7 @@ export class RegistryClient extends EventEmitter {
    */
   async getPackageVersions(packageName: string): Promise<string[]> {
     try {
-      const response = await fetch(`${this.registryUrl}/packages/${packageName}/versions`, {
+      const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(packageName)}/versions`, {
         headers: this.getAuthHeaders()
       });
 
@@ -613,7 +655,7 @@ export class RegistryClient extends EventEmitter {
     formData.append('access', options.access);
     formData.append('tag', options.tag);
 
-    const response = await fetch(`${this.registryUrl}/packages/${metadata.name}`, {
+    const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(metadata.name)}`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: formData
@@ -660,7 +702,7 @@ export class RegistryClient extends EventEmitter {
 
   private async downloadPackage(packageName: string, version: string): Promise<{ tarball: Buffer; metadata: PackageMetadata }> {
     // Registry endpoint format: /packages/@scope/name/download/version
-    const response = await fetch(`${this.registryUrl}/packages/${packageName}/download/${version}`, {
+    const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(packageName)}/download/${encodeURIComponent(version)}`, {
       headers: this.getAuthHeaders()
     });
 
@@ -694,6 +736,12 @@ export class RegistryClient extends EventEmitter {
     const manifestContent = manifestEntry.getData().toString('utf8');
     const metadata = JSON.parse(manifestContent) as PackageMetadata;
 
+    // Prevent prototype pollution from untrusted package manifests
+    const metadataObj = metadata as unknown as Record<string, unknown>;
+    delete metadataObj['__proto__'];
+    delete metadataObj['constructor'];
+    delete metadataObj['prototype'];
+
     return {
       tarball: tarballBuffer,
       metadata
@@ -708,6 +756,8 @@ export class RegistryClient extends EventEmitter {
   }
 
   private static readonly MAX_FILE_SIZE_IN_ZIP = 10 * 1024 * 1024; // 10MB per file
+  private static readonly MAX_TOTAL_EXTRACTED_SIZE = 500 * 1024 * 1024; // 500MB total
+  private static readonly MAX_COMPRESSION_RATIO = 100; // 100:1 max ratio per file
 
   private async extractAndInstallPackage(
     packageData: { tarball: Buffer; metadata: Partial<PackageMetadata> },
@@ -715,7 +765,7 @@ export class RegistryClient extends EventEmitter {
     version: string,
     options: InstallOptions
   ): Promise<void> {
-    const workspaceRoot = options.workspaceRoot || process.cwd();
+    const workspaceRoot = options.workspaceRoot || findProjectRoot();
 
     // Determine and validate package type: manifest > options hint > default 'package'
     const rawType = packageData.metadata?.type || options.type || 'package';
@@ -725,14 +775,7 @@ export class RegistryClient extends EventEmitter {
     const packageType: PackageType = rawType;
     const typeDir = getInstallDirForType(packageType);
 
-    const os = require('os');
-    const installDir = options.global
-      ? path.join(os.homedir(), '.prompd', typeDir, packageName, version)
-      : path.join(workspaceRoot, '.prompd', typeDir, packageName, version);
-
-    await fs.ensureDir(installDir);
-
-    // Extract .pdpkg (ZIP archive) using adm-zip
+    // Load adm-zip for archive operations
     let AdmZip: { new(buffer: Buffer): InstanceType<typeof import('adm-zip')> };
     try {
       AdmZip = (await import('adm-zip')).default;
@@ -741,20 +784,84 @@ export class RegistryClient extends EventEmitter {
     }
     const zip = new AdmZip(packageData.tarball);
 
-    // Validate individual file sizes before extraction
+    // Validate ZIP entries: file sizes, decompression bomb, path traversal, null bytes, symlinks
     const zipEntries = zip.getEntries();
+    let cumulativeDecompressedSize = 0;
+
     for (const entry of zipEntries) {
+      // Individual file size limit
       if (entry.header.size > RegistryClient.MAX_FILE_SIZE_IN_ZIP) {
         throw new Error(
           `File too large in package: ${entry.entryName} (${entry.header.size} bytes, max: ${RegistryClient.MAX_FILE_SIZE_IN_ZIP})`
         );
       }
+
+      // Cumulative decompressed size limit (decompression bomb protection)
+      cumulativeDecompressedSize += entry.header.size;
+      if (cumulativeDecompressedSize > RegistryClient.MAX_TOTAL_EXTRACTED_SIZE) {
+        throw new Error(
+          `Package total decompressed size exceeds limit (${RegistryClient.MAX_TOTAL_EXTRACTED_SIZE} bytes). Possible decompression bomb.`
+        );
+      }
+
+      // Compression ratio check per file (decompression bomb detection)
+      const compressedSize = entry.header.compressedSize || 1;
+      if (compressedSize > 0 && entry.header.size / compressedSize > RegistryClient.MAX_COMPRESSION_RATIO) {
+        throw new Error(
+          `Suspicious compression ratio for ${entry.entryName}: ${Math.round(entry.header.size / compressedSize)}:1 (max: ${RegistryClient.MAX_COMPRESSION_RATIO}:1)`
+        );
+      }
+
+      // Null byte check in entry names
+      if (entry.entryName.includes('\0')) {
+        throw new Error(`Security violation: null byte in entry name: ${entry.entryName}`);
+      }
+
+      // Symlink check - reject symlink entries
+      // In ZIP, external attributes can indicate symlinks (Unix mode with S_IFLNK = 0xA000)
+      const externalAttrs = entry.header.attr;
+      if (externalAttrs) {
+        const unixMode = (externalAttrs >>> 16) & 0xFFFF;
+        if ((unixMode & 0xF000) === 0xA000) {
+          throw new Error(`Security violation: symlink detected in archive: ${entry.entryName}`);
+        }
+      }
+
       // ZIP slip protection: reject path traversal
       const normalized = path.normalize(entry.entryName);
       if (normalized.includes('..') || path.isAbsolute(entry.entryName)) {
         throw new Error(`Security violation: path traversal detected in ${entry.entryName}`);
       }
     }
+
+    const os = require('os');
+
+    // Node-templates: install as .pdpkg archive (not extracted) so template
+    // handlers can scan uniformly for .pdpkg files in the templates directory.
+    if (packageType === 'node-template') {
+      const templatesDir = options.global
+        ? path.join(os.homedir(), '.prompd', typeDir)
+        : path.join(workspaceRoot, '.prompd', typeDir);
+
+      await fs.ensureDir(templatesDir);
+
+      // Slugify package name for filename: @scope/name -> scope-name
+      const slugName = packageName
+        .toLowerCase()
+        .replace(/[@/]+/g, '-')
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const pdpkgFileName = `${slugName}-${version}.pdpkg`;
+
+      await fs.writeFile(path.join(templatesDir, pdpkgFileName), packageData.tarball);
+      return;
+    }
+
+    const installDir = options.global
+      ? path.join(os.homedir(), '.prompd', typeDir, packageName, version)
+      : path.join(workspaceRoot, '.prompd', typeDir, packageName, version);
+
+    await fs.ensureDir(installDir);
 
     zip.extractAllTo(installDir, true);
 
@@ -805,8 +912,11 @@ export class RegistryClient extends EventEmitter {
     const skillDeployDir = path.join(deployDir, packageName);
     await fs.ensureDir(skillDeployDir);
 
-    // Copy all files from the install dir to the tool deploy dir
-    await fs.copy(skillDir, skillDeployDir, { overwrite: true });
+    // Pre-copy check: reject if source tree contains symlinks (prevent symlink-based attacks)
+    await this.rejectSymlinks(skillDir);
+
+    // Copy all files from the install dir to the tool deploy dir (dereference: false to not follow symlinks)
+    await fs.copy(skillDir, skillDeployDir, { overwrite: true, dereference: false });
 
     // Write a reference marker so we know this was deployed by prompd
     const markerPath = path.join(skillDeployDir, '.prompd-source');
@@ -817,6 +927,24 @@ export class RegistryClient extends EventEmitter {
     }, { spaces: 2 });
 
     return skillDeployDir;
+  }
+
+  /**
+   * Recursively walk a directory and reject if any symlinks are found.
+   * Prevents symlink-based path traversal attacks during skill deployment.
+   */
+  private async rejectSymlinks(dir: string): Promise<void> {
+    const entries = await fs.readdir(dir);
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry);
+      const lstat = await fs.lstat(fullPath);
+      if (lstat.isSymbolicLink()) {
+        throw new Error(`Security violation: symlink detected in package: ${fullPath}`);
+      }
+      if (lstat.isDirectory()) {
+        await this.rejectSymlinks(fullPath);
+      }
+    }
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -861,18 +989,32 @@ export class RegistryClient extends EventEmitter {
   }
 
   private matchesFilePatterns(filePath: string, patterns: string[]): boolean {
-    // Simple glob matching - in production would use proper glob library
     for (const pattern of patterns) {
       if (pattern === '**/*' || pattern === '*') {
         return true;
       }
-      
+
       if (pattern.includes('*')) {
-        const regex = new RegExp(pattern.replace(/\*/g, '.*'));
-        if (regex.test(filePath)) {
-          return true;
+        // Safely convert glob pattern to regex:
+        // 1. Escape all regex metacharacters EXCEPT *
+        // 2. Replace ** with a full-path wildcard, and * with single-segment wildcard
+        const escaped = pattern.replace(/([.+?^${}()|[\]\\])/g, '\\$1');
+        const regexStr = escaped
+          .replace(/\*\*/g, '\u0000')  // Temporary placeholder for **
+          .replace(/\*/g, '[^/]*')      // * matches within a single path segment
+          .replace(/\u0000/g, '.*');    // ** matches across path segments
+        try {
+          const regex = new RegExp(`^${regexStr}$`);
+          if (regex.test(filePath)) {
+            return true;
+          }
+        } catch {
+          // If regex construction fails, fall back to exact match
+          if (filePath === pattern) {
+            return true;
+          }
         }
-      } else if (filePath === pattern) {
+      } else if (filePath === pattern || filePath.endsWith('/' + pattern)) {
         return true;
       }
     }
@@ -933,6 +1075,127 @@ export class RegistryClient extends EventEmitter {
   }
 
   /**
+   * Add a dependency to the workspace prompd.json file.
+   */
+  private async addWorkspaceDependency(name: string, version: string, workspaceRoot?: string): Promise<void> {
+    const root = workspaceRoot || findProjectRoot();
+    const prompdJsonPath = path.join(root, 'prompd.json');
+
+    try {
+      let prompdJson: Record<string, unknown> = {};
+      if (await fs.pathExists(prompdJsonPath)) {
+        const content = await fs.readFile(prompdJsonPath, 'utf8');
+        if (content && content.trim() !== '') {
+          prompdJson = JSON.parse(content);
+        }
+      }
+
+      if (!prompdJson.dependencies || typeof prompdJson.dependencies !== 'object') {
+        prompdJson.dependencies = {};
+      }
+
+      (prompdJson.dependencies as Record<string, string>)[name] = version;
+      await fs.writeFile(prompdJsonPath, JSON.stringify(prompdJson, null, 2) + '\n');
+    } catch {
+      // Non-fatal: dependency tracking failure shouldn't block install
+    }
+  }
+
+  /**
+   * Remove a dependency from the workspace prompd.json file.
+   */
+  private async removeWorkspaceDependency(name: string, workspaceRoot?: string): Promise<void> {
+    const root = workspaceRoot || findProjectRoot();
+    const prompdJsonPath = path.join(root, 'prompd.json');
+
+    try {
+      if (!await fs.pathExists(prompdJsonPath)) return;
+
+      const content = await fs.readFile(prompdJsonPath, 'utf8');
+      if (!content || content.trim() === '') return;
+
+      const prompdJson = JSON.parse(content);
+      if (!prompdJson.dependencies || typeof prompdJson.dependencies !== 'object') return;
+
+      delete prompdJson.dependencies[name];
+      await fs.writeFile(prompdJsonPath, JSON.stringify(prompdJson, null, 2) + '\n');
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Uninstall a package by name, removing installed files and the prompd.json dependency entry.
+   * Scans type directories to find the installed location.
+   */
+  async uninstall(packageName: string, options: InstallOptions = {}): Promise<void> {
+    const workspaceRoot = options.workspaceRoot || findProjectRoot();
+    const os = require('os');
+    const installBase = options.global
+      ? path.join(os.homedir(), '.prompd')
+      : path.join(workspaceRoot, '.prompd');
+
+    // Parse embedded version from ref (e.g. @scope/name@1.0.0)
+    let name = packageName;
+    const lastAtIndex = packageName.lastIndexOf('@');
+    if (lastAtIndex > 0) {
+      name = packageName.substring(0, lastAtIndex);
+    }
+
+    let removed = false;
+
+    // Scan all type directories for this package
+    for (const [type, dir] of Object.entries(PACKAGE_TYPE_DIRS)) {
+      if (type === 'node-template') {
+        // Node-templates are stored as .pdpkg files at the type root
+        const templatesDir = path.join(installBase, dir);
+        if (!await fs.pathExists(templatesDir)) continue;
+
+        const entries = await fs.readdir(templatesDir);
+        for (const entry of entries) {
+          if (!entry.endsWith('.pdpkg')) continue;
+
+          // Read manifest from archive to match by name
+          const pkgPath = path.join(templatesDir, entry);
+          try {
+            let AdmZip: { new(filePath: string): InstanceType<typeof import('adm-zip')> };
+            AdmZip = (await import('adm-zip')).default;
+            const zip = new AdmZip(pkgPath);
+            const manifestEntry = zip.getEntry('prompd.json') || zip.getEntry('manifest.json');
+            if (!manifestEntry) continue;
+
+            const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+            if (manifest.name === name) {
+              await fs.remove(pkgPath);
+              removed = true;
+            }
+          } catch {
+            // Skip unreadable archives
+          }
+        }
+      } else {
+        // Standard packages: stored in @scope/name/ or name/ directories
+        const pkgDir = path.join(installBase, dir, name);
+        if (await fs.pathExists(pkgDir)) {
+          await fs.remove(pkgDir);
+          removed = true;
+        }
+      }
+    }
+
+    if (!removed) {
+      throw new Error(`Package '${name}' is not installed`);
+    }
+
+    // Remove from workspace prompd.json dependencies
+    if (!options.global) {
+      await this.removeWorkspaceDependency(name, workspaceRoot);
+    }
+
+    this.emit('uninstallComplete', { name });
+  }
+
+  /**
    * Load manifest.json from file system abstraction.
    * Supports both disk-based and in-memory file systems.
    */
@@ -955,6 +1218,12 @@ export class RegistryClient extends EventEmitter {
 
     const content = await Promise.resolve(fileSystem.readFile(resolvedPath));
     const manifest = JSON.parse(content);
+
+    // Prevent prototype pollution from untrusted manifests
+    const manifestObj = manifest as Record<string, unknown>;
+    delete manifestObj['__proto__'];
+    delete manifestObj['constructor'];
+    delete manifestObj['prototype'];
 
     // Validate required fields
     const required = ['name', 'version', 'description', 'author'];
@@ -1078,7 +1347,7 @@ export class RegistryClient extends EventEmitter {
     formData.append('tag', options.tag);
 
     const token = options.authToken || this.authToken;
-    const url = new URL(`${this.registryUrl}/packages/${metadata.name}`);
+    const url = new URL(`${this.registryUrl}/packages/${this.encodePackageName(metadata.name)}`);
 
     const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
       formData.submit(
@@ -1114,10 +1383,22 @@ export class RegistryClient extends EventEmitter {
 /**
  * Default registry configuration
  */
-export const createDefaultRegistryConfig = (): LegacyRegistryConfig => ({
-  registryUrl: process.env.PROMPD_REGISTRY_URL || 'https://registry.prompdhub.ai',
-  authToken: process.env.PROMPD_AUTH_TOKEN,
-  cacheDir: path.join(require('os').homedir(), '.prmd', 'cache'),
-  timeout: 30000,
-  maxPackageSize: 50 * 1024 * 1024 // 50MB
-});
+export const createDefaultRegistryConfig = (): LegacyRegistryConfig => {
+  const defaultUrl = 'https://registry.prompdhub.ai';
+  const envUrl = process.env.PROMPD_REGISTRY_URL;
+  let registryUrl = defaultUrl;
+  if (envUrl) {
+    if (validateRegistryUrl(envUrl)) {
+      registryUrl = envUrl;
+    } else {
+      console.warn(`Warning: PROMPD_REGISTRY_URL value is invalid, falling back to default: ${defaultUrl}`);
+    }
+  }
+  return {
+    registryUrl,
+    authToken: process.env.PROMPD_AUTH_TOKEN,
+    cacheDir: path.join(require('os').homedir(), '.prmd', 'cache'),
+    timeout: 30000,
+    maxPackageSize: 50 * 1024 * 1024 // 50MB
+  };
+};

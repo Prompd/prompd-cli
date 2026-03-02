@@ -40,7 +40,13 @@ export class ConfigManager {
       if (await fs.pathExists(configPath)) {
         try {
           const fileContent = await fs.readFile(configPath, 'utf-8');
-          const fileConfig = yaml.parse(fileContent) as any;
+          const fileConfig = yaml.parse(fileContent, { strict: true, maxAliasCount: 64 });
+
+          // Validate parsed config is a plain object (not a string, array, null, etc.)
+          if (!fileConfig || typeof fileConfig !== 'object' || Array.isArray(fileConfig)) {
+            console.warn(`Warning: Config file ${configPath} did not parse to a valid object, skipping.`);
+            continue;
+          }
 
           // Convert snake_case keys from YAML to camelCase for TypeScript
           if (fileConfig.api_keys) {
@@ -104,6 +110,14 @@ export class ConfigManager {
         await fs.ensureDir(path.dirname(configPath));
         const yamlContent = yaml.stringify(config);
         await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+        // Restrict file permissions to owner read/write only (config may contain tokens)
+        try {
+          await fs.chmod(configPath, 0o600);
+        } catch {
+          // chmod may fail on some platforms (e.g., Windows); non-fatal
+        }
+
         console.log(`Config saved to: ${configPath}`);
         this.config = config;
         return;

@@ -70,6 +70,14 @@ class PrompdParser:
         # Pre-process YAML to handle package references with @ symbols
         yaml_content = self._preprocess_package_references(yaml_content)
 
+        # Check YAML content size before parsing (100KB limit to prevent resource exhaustion)
+        max_yaml_size = 100 * 1024  # 100KB
+        if len(yaml_content.encode("utf-8")) > max_yaml_size:
+            raise ParseError(
+                f"YAML frontmatter exceeds maximum size limit of {max_yaml_size // 1024}KB. "
+                f"Please reduce the size of your YAML frontmatter."
+            )
+
         # Parse YAML frontmatter
         try:
             metadata_dict = yaml.safe_load(yaml_content) or {}

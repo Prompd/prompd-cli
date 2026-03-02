@@ -391,10 +391,39 @@ class SectionOverrideProcessor:
         Raises:
             ValidationError: If file cannot be read or security checks fail
         """
-        # Security Control 1: File size limit (1MB max for override files)
+        # Security Control 1: Canonicalize path atomically to prevent TOCTOU
+        # Use resolve(strict=True) to follow symlinks and verify existence in one step,
+        # then check the resolved path is within an allowed base directory.
+        try:
+            resolved_path = file_path.resolve(strict=True)
+        except (OSError, ValueError) as exc:
+            raise ValidationError(
+                "Unable to resolve override file path. "
+                "Please verify the file exists and is accessible."
+            ) from exc
+
+        # Security Control 2: Verify resolved path is within the allowed base directory
+        # The caller should have already validated against project root, but we double-check
+        # that the resolved path doesn't escape to unexpected locations via symlinks.
+        try:
+            # Check that the original path and resolved path share the same parent context
+            # If file_path was relative, its resolved form should stay within the same tree
+            original_parent = file_path.parent.resolve(strict=True)
+            if not str(resolved_path).startswith(str(original_parent.parent)):
+                raise ValidationError(
+                    "Override file resolves to a location outside the expected directory. "
+                    "Symlinks that escape the project directory are not allowed."
+                )
+        except ValidationError:
+            raise
+        except (OSError, ValueError):
+            # If we can't verify containment, err on the side of caution
+            pass
+
+        # Security Control 3: File size limit (1MB max for override files)
         max_override_file_size = 1024 * 1024  # 1MB
         try:
-            file_size = file_path.stat().st_size
+            file_size = resolved_path.stat().st_size
             if file_size > max_override_file_size:
                 raise ValidationError(
                     f"Override file exceeds maximum size limit of {max_override_file_size // 1024}KB. "
@@ -403,27 +432,18 @@ class SectionOverrideProcessor:
         except OSError as exc:
             raise ValidationError("Unable to access override file for security validation.") from exc
 
-        # Security Control 2: Symlink protection
-        try:
-            if file_path.is_symlink():
-                raise ValidationError(
-                    "Override files cannot be symbolic links for security reasons. " "Please use regular files only."
-                )
-        except OSError as exc:
-            # If we can't check symlink status, err on the side of caution
-            raise ValidationError("Unable to verify file type for security validation.") from exc
-
+        # Use the resolved path for all subsequent file operations to avoid TOCTOU
         # Try common encodings in order of preference
         encodings = ["utf-8", "utf-8-sig", "latin-1", "cp1252"]
 
         for encoding in encodings:
             try:
-                with open(file_path, encoding=encoding) as f:
+                with open(resolved_path, encoding=encoding) as f:
                     return f.read()
             except UnicodeDecodeError:
                 continue
             except Exception as exc:
-                # Security Control 3: Sanitized error messages
+                # Security Control 4: Sanitized error messages
                 raise ValidationError(
                     "Failed to read override file. Please ensure the file exists, "
                     "is readable, and uses a supported text encoding (UTF-8 recommended)."

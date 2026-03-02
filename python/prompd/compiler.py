@@ -1093,7 +1093,8 @@ class TemplateProcessingStage(CompilerStage):
         # Process templates with Jinja2/Nunjucks (with {% include %} support)
         if content:
             try:
-                from jinja2 import Environment, TemplateSyntaxError
+                from jinja2 import TemplateSyntaxError
+                from jinja2.sandbox import SandboxedEnvironment
 
                 from .prompd_loader import PrompdLoader, cleanup_compilation
 
@@ -1109,7 +1110,7 @@ class TemplateProcessingStage(CompilerStage):
 
                 # Configure Jinja2 with double braces for variables (Nunjucks/Jinja2 standard)
                 # This matches the npm CLI behavior
-                env = Environment(
+                env = SandboxedEnvironment(
                     loader=loader,
                     autoescape=False,  # Don't escape HTML - we're doing markdown
                     trim_blocks=True,

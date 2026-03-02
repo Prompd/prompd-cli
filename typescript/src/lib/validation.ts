@@ -236,14 +236,22 @@ export function detectSecrets(content: string): Array<{ type: string; match: str
 
   // Secret patterns to detect
   const patterns = [
-    { type: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9]{32,}/g },
+    { type: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9]{20,}/g },
     { type: 'Anthropic API Key', regex: /sk-ant-[a-zA-Z0-9-_]{32,}/g },
     { type: 'Prompd Registry Token', regex: /prompd_[a-zA-Z0-9-_]{32,}/g },
     { type: 'Generic API Key', regex: /api[_-]?key["\s:=]+[a-zA-Z0-9-_]{20,}/gi },
     { type: 'Generic Secret', regex: /secret["\s:=]+[a-zA-Z0-9-_]{20,}/gi },
-    { type: 'Private Key Header', regex: /-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----/g },
+    { type: 'Generic Password', regex: /password["\s:=]+[^\s"',]{8,}/gi },
+    { type: 'Private Key Header', regex: /-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g },
     { type: 'AWS Access Key', regex: /AKIA[0-9A-Z]{16}/g },
+    { type: 'AWS Secret Key', regex: /(?:aws_secret_access_key|AWS_SECRET)["\s:=]+[A-Za-z0-9/+=]{40}/gi },
     { type: 'GitHub Token', regex: /gh[pousr]_[a-zA-Z0-9]{36,}/g },
+    { type: 'Slack Token', regex: /xox[bporas]-[a-zA-Z0-9-]{10,}/g },
+    { type: 'Google API Key', regex: /AIza[0-9A-Za-z_-]{35}/g },
+    { type: 'Stripe Key', regex: /[sr]k_(test|live)_[a-zA-Z0-9]{20,}/g },
+    { type: 'URL-Embedded Credentials', regex: /https?:\/\/[^:@\s]+:[^:@\s]+@[^\s]+/g },
+    { type: 'Bearer Token', regex: /bearer\s+[a-zA-Z0-9._\-]{20,}/gi },
+    { type: 'JWT Token', regex: /eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g },
   ];
 
   lines.forEach((line, index) => {

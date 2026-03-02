@@ -597,6 +597,99 @@ async function discoverPackableFiles(
   return files.sort();
 }
 
+/**
+ * Parse a single .prmd file and return all local file dependencies as
+ * workspace-relative paths.  Traces:
+ *   - system:, user:, task:, assistant:, response:, output: (file path values)
+ *   - context: / contexts: (string or array of strings)
+ *   - override: (object whose values are file paths)
+ *   - inherits: (local .prmd path — excludes @scope/pkg references)
+ *   - {% include "..." %} directives in the body
+ *
+ * Only paths starting with ./ or ../ are treated as file references.
+ * Returns workspace-relative forward-slash paths.
+ */
+async function tracePrmdFileDependencies(
+  prmdRelativePath: string,
+  workspacePath: string
+): Promise<string[]> {
+  const deps = new Set<string>();
+  const prmdDir = path.dirname(path.join(workspacePath, prmdRelativePath));
+
+  let content: string;
+  try {
+    content = (await fs.readFile(path.join(workspacePath, prmdRelativePath), 'utf-8')).replace(/\r\n/g, '\n');
+  } catch {
+    return [];
+  }
+
+  // Parse YAML frontmatter
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return [];
+
+  let frontmatter: Record<string, unknown>;
+  try {
+    frontmatter = (yaml.load(fmMatch[1]) as Record<string, unknown>) || {};
+  } catch {
+    return [];
+  }
+
+  /** Resolve a ref relative to the .prmd file and return workspace-relative path, or null if out-of-workspace or not a path ref */
+  function resolve(ref: unknown): string | null {
+    if (typeof ref !== 'string') return null;
+    if (!ref.startsWith('./') && !ref.startsWith('../')) return null;
+    const abs = path.resolve(prmdDir, ref);
+    const wsRoot = path.resolve(workspacePath);
+    if (!abs.startsWith(wsRoot + path.sep) && abs !== wsRoot) return null;
+    return path.relative(workspacePath, abs).replace(/\\/g, '/');
+  }
+
+  // system:, user:, task:, assistant:, response:, output:
+  const sectionFields = ['system', 'user', 'task', 'assistant', 'response', 'output'];
+  for (const field of sectionFields) {
+    const val = frontmatter[field];
+    const refs = Array.isArray(val) ? val : [val];
+    for (const ref of refs) {
+      const r = resolve(ref);
+      if (r) deps.add(r);
+    }
+  }
+
+  // context: / contexts:
+  const ctxVal = frontmatter['context'] ?? frontmatter['contexts'];
+  const ctxRefs = Array.isArray(ctxVal) ? ctxVal : ctxVal !== undefined ? [ctxVal] : [];
+  for (const ref of ctxRefs) {
+    const r = resolve(ref);
+    if (r) deps.add(r);
+  }
+
+  // override: { key: "path" }
+  if (frontmatter['override'] && typeof frontmatter['override'] === 'object' && !Array.isArray(frontmatter['override'])) {
+    for (const val of Object.values(frontmatter['override'] as Record<string, unknown>)) {
+      const r = resolve(val);
+      if (r) deps.add(r);
+    }
+  }
+
+  // inherits: (local only — skip @scope/pkg refs)
+  const inherits = frontmatter['inherits'];
+  if (typeof inherits === 'string' && !inherits.startsWith('@')) {
+    const r = resolve(inherits.startsWith('./') || inherits.startsWith('../') ? inherits : './' + inherits);
+    if (r) deps.add(r);
+  }
+
+  // {% include "..." %} in body
+  const body = content.slice(fmMatch[0].length);
+  const includeRe = /\{%-?\s*include\s+["']([^"']+)["']\s*-?%\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = includeRe.exec(body)) !== null) {
+    const r = resolve(m[1].startsWith('./') || m[1].startsWith('../') ? m[1] : './' + m[1]);
+    if (r) deps.add(r);
+  }
+
+  return Array.from(deps);
+}
+
 export async function createPackageFromPrompdJson(
   workspacePath: string,
   outputDir?: string
@@ -904,6 +997,52 @@ export async function createPackageFromPrompdJson(
       success: false,
       error: `Validation errors in .pdflow workflow files:\n${errorList}`
     };
+  }
+
+  // 6d. Trace .prmd file dependencies and verify all are present and included in package
+  const depErrors: Array<{ file: string; missing: string[]; excluded: string[] }> = [];
+
+  for (const filePath of filesToPackage) {
+    if (!filePath.endsWith('.prmd')) continue;
+
+    const deps = await tracePrmdFileDependencies(filePath, workspacePath);
+    if (deps.length === 0) continue;
+
+    const missing: string[] = [];
+    const excluded: string[] = [];
+
+    for (const dep of deps) {
+      const depFullPath = path.join(workspacePath, dep);
+      if (!await fs.pathExists(depFullPath)) {
+        missing.push(dep);
+      } else if (!filesToPackage.includes(dep)) {
+        excluded.push(dep);
+        // Auto-include so the package is self-contained
+        filesToPackage.push(dep);
+      }
+    }
+
+    if (missing.length > 0 || excluded.length > 0) {
+      depErrors.push({ file: filePath, missing, excluded });
+    }
+  }
+
+  if (depErrors.length > 0) {
+    // Missing files are a hard error; auto-included files are warnings surfaced in the log
+    const hardErrors = depErrors.filter(e => e.missing.length > 0);
+    if (hardErrors.length > 0) {
+      const errorList = hardErrors.map(e =>
+        `  ${e.file}:\n${e.missing.map(f => `    - missing: ${f}`).join('\n')}`
+      ).join('\n');
+      return {
+        success: false,
+        error: `Missing dependency files referenced in .prmd frontmatter:\n${errorList}`
+      };
+    }
+    // Soft warnings (auto-included) — continue, they've been added to filesToPackage
+    for (const e of depErrors.filter(d => d.excluded.length > 0)) {
+      console.warn(`[Package] Auto-included dependencies for ${e.file}:\n${e.excluded.map(f => `  + ${f}`).join('\n')}`);
+    }
   }
 
   // 7. Create output directory

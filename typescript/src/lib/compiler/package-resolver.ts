@@ -208,6 +208,42 @@ export function isValidPackageReference(packageRef: string): boolean {
 }
 
 /**
+ * Find the project root by walking up the directory tree looking for a
+ * prompd.json with both 'name' and 'version' fields (a real project manifest,
+ * not a dependency-only fragment).
+ *
+ * Falls back to startDir (or process.cwd()) if no project root is found.
+ *
+ * @param startDir - Directory to start searching from. Defaults to process.cwd().
+ */
+export function findProjectRoot(startDir?: string): string {
+  let dir = path.resolve(startDir || process.cwd());
+  const root = path.parse(dir).root;
+
+  while (true) {
+    const candidate = path.join(dir, 'prompd.json');
+    if (fs.pathExistsSync(candidate)) {
+      try {
+        const content = fs.readJsonSync(candidate);
+        if (content.name && content.version) {
+          return dir;
+        }
+      } catch {
+        // Invalid JSON, skip and keep walking
+      }
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir || dir === root) {
+      break;
+    }
+    dir = parent;
+  }
+
+  return path.resolve(startDir || process.cwd());
+}
+
+/**
  * Get the global .prompd base directory (~/.prompd/).
  */
 export function getGlobalBaseDir(): string {
@@ -216,10 +252,10 @@ export function getGlobalBaseDir(): string {
 
 /**
  * Get the local project .prompd base directory (./.prompd/).
- * @param workspaceRoot - Optional workspace root directory. If not provided, uses process.cwd()
+ * @param workspaceRoot - Optional workspace root directory. If not provided, auto-detects project root.
  */
 export function getLocalBaseDir(workspaceRoot?: string): string {
-  const basePath = workspaceRoot || process.cwd();
+  const basePath = workspaceRoot || findProjectRoot();
   return path.join(basePath, '.prompd');
 }
 
@@ -234,10 +270,10 @@ export function getGlobalCacheDir(): string {
 /**
  * Get the local project package cache directory (./.prompd/cache/).
  * @deprecated Legacy path. New installs use type-specific dirs (packages/, workflows/, etc.)
- * @param workspaceRoot - Optional workspace root directory. If not provided, uses process.cwd()
+ * @param workspaceRoot - Optional workspace root directory. If not provided, auto-detects project root.
  */
 export function getLocalCacheDir(workspaceRoot?: string): string {
-  const basePath = workspaceRoot || process.cwd();
+  const basePath = workspaceRoot || findProjectRoot();
   return path.join(basePath, '.prompd', 'cache');
 }
 

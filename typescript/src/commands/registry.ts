@@ -4,6 +4,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import { RegistryClient } from '../lib/registry';
 import { ConfigManager } from '../lib/config';
+import { findProjectRoot } from '../lib/compiler/package-resolver';
 import { VALID_PACKAGE_TYPES, TOOL_DEPLOY_DIRS, resolveToolDeployDir } from '../types';
 
 export function createRegistryCommand(): Command {
@@ -243,6 +244,7 @@ export function createInstallCommand(): Command {
     .option('-g, --global', 'Install globally')
     .option('--tools <tools>', 'Deploy skill to tool-native directories (comma-separated, e.g., claude)')
     .option('--registry <registry>', 'Install from specific registry (overrides scope resolution)')
+    .option('-d, --dir <path>', 'Workspace root directory (default: auto-detect from prompd.json)')
     .action(async (packageName: string, options) => {
       try {
         const configManager = ConfigManager.getInstance();
@@ -286,6 +288,7 @@ export function createInstallCommand(): Command {
           version: options.version,
           global: options.global,
           tools,
+          workspaceRoot: options.dir ? path.resolve(options.dir) : findProjectRoot(),
         });
 
         console.log(chalk.green('Package installed successfully!'));

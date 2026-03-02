@@ -8,57 +8,76 @@ import (
 
 func TestDetectSecretsInContent(t *testing.T) {
 	tests := []struct {
-		name     string
-		content  string
-		expected int
+		name        string
+		content     string
+		minExpected int // minimum number of detected secrets (broadened patterns may catch multiple types)
 	}{
 		{
-			name:     "OpenAI key",
-			content:  "OPENAI_API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyzABCDEFGH",
-			expected: 1,
+			name:        "OpenAI key",
+			content:     "OPENAI_API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyzABCDEFGH",
+			minExpected: 1, // matches OpenAI pattern + possibly Generic API Key pattern
 		},
 		{
-			name:     "Anthropic key",
-			content:  "sk-ant-api01-aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVw",
-			expected: 1,
+			name:        "Anthropic key",
+			content:     "sk-ant-api01-aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVw",
+			minExpected: 1,
 		},
 		{
-			name:     "AWS access key",
-			content:  "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
-			expected: 1,
+			name:        "AWS access key",
+			content:     "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+			minExpected: 1,
 		},
 		{
-			name:     "GitHub token",
-			content:  "GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz",
-			expected: 1,
+			name:        "GitHub token",
+			content:     "GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz",
+			minExpected: 1, // matches GitHub pattern + possibly Generic Secret (token=) pattern
 		},
 		{
-			name:     "No secrets",
-			content:  "This is just regular text with no secrets",
-			expected: 0,
+			name:        "No secrets",
+			content:     "This is just regular text with no secrets",
+			minExpected: 0,
 		},
 		{
-			name:     "Private key",
-			content:  "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQ...",
-			expected: 1,
+			name:        "Private key",
+			content:     "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQ...",
+			minExpected: 1,
 		},
 		{
-			name:     "Multiple secrets",
-			content:  "OPENAI_API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyzABCDEFGH\nGITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz",
-			expected: 2,
+			name:        "Multiple secrets",
+			content:     "OPENAI_API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyzABCDEFGH\nGITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz",
+			minExpected: 2, // at least one per line, possibly more from broadened patterns
 		},
 		{
-			name:     "Bearer token",
-			content:  "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ",
-			expected: 1,
+			name:        "Bearer token",
+			content:     "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ",
+			minExpected: 1,
+		},
+		{
+			name:        "URL-embedded credentials",
+			content:     "DATABASE_URL=https://admin:secretpass123@db.example.com:5432/mydb",
+			minExpected: 1,
+		},
+		{
+			name:        "Stripe key",
+			content:     "STRIPE_KEY=sk_test_4eC39HqLyjWDarjtT1zdp7dc",
+			minExpected: 1,
+		},
+		{
+			name:        "Google API key",
+			content:     "GOOGLE_KEY=AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe",
+			minExpected: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			matches := detectSecretsInContent(tt.content)
-			if len(matches) != tt.expected {
-				t.Errorf("expected %d secrets, got %d", tt.expected, len(matches))
+			if tt.minExpected == 0 {
+				if len(matches) != 0 {
+					t.Errorf("expected 0 secrets, got %d", len(matches))
+				}
+			} else if len(matches) < tt.minExpected {
+				t.Errorf("expected at least %d secrets, got %d", tt.minExpected, len(matches))
 			}
 		})
 	}

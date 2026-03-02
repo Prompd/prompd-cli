@@ -428,10 +428,26 @@ func createPackage(sourceDir, outputPath string, manifest PackageManifest, exclu
 		return err
 	}
 
+	// SECURITY: Track total size to prevent oversized packages
+	const maxTotalSize int64 = 200 * 1024 * 1024 // 200MB total package limit
+	const maxFileSize int64 = 50 * 1024 * 1024    // 50MB per file limit
+	var totalSize int64
+
 	// Walk source directory and add files
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// SECURITY: Reject symlinks to prevent including files from outside the package directory
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("security violation: symlinks not allowed in packages: %s", path)
+		}
+
+		// SECURITY: Double-check with Lstat to catch symlinks that Walk may follow
+		lstatInfo, lstatErr := os.Lstat(path)
+		if lstatErr == nil && lstatInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("security violation: symlink detected: %s", path)
 		}
 
 		// Get relative path
@@ -443,6 +459,11 @@ func createPackage(sourceDir, outputPath string, manifest PackageManifest, exclu
 		// Skip the source directory itself
 		if relPath == "." {
 			return nil
+		}
+
+		// SECURITY: Validate path is safe (no traversal, null bytes, etc.)
+		if pathErr := isSecurePath(relPath, sourceDir); pathErr != nil {
+			return fmt.Errorf("security violation in path %s: %v", relPath, pathErr)
 		}
 
 		// Check exclusions
@@ -458,9 +479,20 @@ func createPackage(sourceDir, outputPath string, manifest PackageManifest, exclu
 			return nil
 		}
 
+		// SECURITY: Enforce per-file size limit
+		if info.Size() > maxFileSize {
+			return fmt.Errorf("file too large: %s (%d bytes, max %d bytes)", relPath, info.Size(), maxFileSize)
+		}
+
+		// SECURITY: Enforce total package size limit
+		totalSize += info.Size()
+		if totalSize > maxTotalSize {
+			return fmt.Errorf("total package size exceeds limit (%d bytes max)", maxTotalSize)
+		}
+
 		// Add file to zip
 		zipPath := filepath.ToSlash(relPath) // Ensure forward slashes in zip
-		
+
 		zipFileWriter, err := zipWriter.Create(zipPath)
 		if err != nil {
 			return err
@@ -472,7 +504,8 @@ func createPackage(sourceDir, outputPath string, manifest PackageManifest, exclu
 		}
 		defer fileReader.Close()
 
-		_, err = io.Copy(zipFileWriter, fileReader)
+		// SECURITY: Use LimitReader to enforce file size limit during copy
+		_, err = io.Copy(zipFileWriter, io.LimitReader(fileReader, maxFileSize+1))
 		return err
 	})
 }
@@ -507,6 +540,16 @@ func shouldExclude(relPath string, info os.FileInfo, exclusions PDProjExclusions
 
 
 func validatePdpkgFile(filePath string) error {
+	// SECURITY: Check package file size before opening
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %v", err)
+	}
+	const maxPackageSize int64 = 200 * 1024 * 1024 // 200MB
+	if stat.Size() > maxPackageSize {
+		return fmt.Errorf("package file too large: %d bytes (max %d bytes)", stat.Size(), maxPackageSize)
+	}
+
 	// Open ZIP file
 	zipReader, err := zip.OpenReader(filePath)
 	if err != nil {
@@ -514,12 +557,50 @@ func validatePdpkgFile(filePath string) error {
 	}
 	defer zipReader.Close()
 
-	// SECURITY: Check for ZIP slip/directory traversal attacks
+	// SECURITY: Check for ZIP slip/directory traversal, symlinks, and decompression bombs
+	const maxDecompressedSize uint64 = 500 * 1024 * 1024 // 500MB total decompressed limit
+	const maxCompressionRatio uint64 = 100                // 100:1 max ratio
+	const maxFileCount = 1000
+	var totalDecompressedSize uint64
+
+	if len(zipReader.File) > maxFileCount {
+		return fmt.Errorf("too many files in package: %d (max %d)", len(zipReader.File), maxFileCount)
+	}
+
 	for _, file := range zipReader.File {
+		// SECURITY: Check for null bytes in raw name before cleaning
+		if strings.Contains(file.Name, "\x00") {
+			return fmt.Errorf("security violation: null byte in file name: %s", file.Name)
+		}
+
 		// Normalize path and check for traversal
 		cleanPath := filepath.Clean(file.Name)
-		if strings.Contains(cleanPath, "..") || filepath.IsAbs(file.Name) {
+		if strings.Contains(cleanPath, "..") || filepath.IsAbs(file.Name) || filepath.IsAbs(cleanPath) {
 			return fmt.Errorf("security violation: path traversal detected in %s", file.Name)
+		}
+
+		// SECURITY: Check for backslash-based traversal on all platforms
+		if strings.Contains(file.Name, "\\..") || strings.Contains(file.Name, "..\\") {
+			return fmt.Errorf("security violation: path traversal detected in %s", file.Name)
+		}
+
+		// SECURITY: Detect symlinks in ZIP entries
+		if file.FileInfo().Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("security violation: symlink detected in package: %s", file.Name)
+		}
+
+		// SECURITY: Track cumulative decompressed size for bomb detection
+		totalDecompressedSize += file.UncompressedSize64
+		if totalDecompressedSize > maxDecompressedSize {
+			return fmt.Errorf("security violation: total decompressed size exceeds limit (%d bytes max)", maxDecompressedSize)
+		}
+
+		// SECURITY: Check individual file compression ratio
+		if file.CompressedSize64 > 0 {
+			ratio := file.UncompressedSize64 / file.CompressedSize64
+			if ratio > maxCompressionRatio {
+				return fmt.Errorf("security violation: suspicious compression ratio %d:1 in %s (max %d:1)", ratio, file.Name, maxCompressionRatio)
+			}
 		}
 	}
 
@@ -528,7 +609,13 @@ func validatePdpkgFile(filePath string) error {
 	for _, file := range zipReader.File {
 		if file.Name == "manifest.json" {
 			manifestFound = true
-			
+
+			// SECURITY: Enforce manifest size limit
+			const maxManifestSize uint64 = 1024 * 1024 // 1MB
+			if file.UncompressedSize64 > maxManifestSize {
+				return fmt.Errorf("manifest.json too large: %d bytes (max %d bytes)", file.UncompressedSize64, maxManifestSize)
+			}
+
 			// Read and validate manifest
 			reader, err := file.Open()
 			if err != nil {
@@ -536,9 +623,13 @@ func validatePdpkgFile(filePath string) error {
 			}
 			defer reader.Close()
 
-			content, err := io.ReadAll(reader)
+			// SECURITY: Use LimitReader to enforce size during read
+			content, err := io.ReadAll(io.LimitReader(reader, int64(maxManifestSize)+1))
 			if err != nil {
 				return fmt.Errorf("failed to read manifest content: %v", err)
+			}
+			if uint64(len(content)) > maxManifestSize {
+				return fmt.Errorf("manifest.json content exceeds size limit")
 			}
 
 			var manifest PackageManifest
@@ -555,6 +646,19 @@ func validatePdpkgFile(filePath string) error {
 			}
 			if manifest.Description == "" {
 				return fmt.Errorf("missing 'description' in manifest.json")
+			}
+
+			// SECURITY: Validate manifest type field
+			if manifest.Type != "" && manifest.Type != "package" {
+				return fmt.Errorf("invalid manifest type: %s (expected 'package')", manifest.Type)
+			}
+
+			// SECURITY: Validate manifest field formats
+			if err := validatePackageName(manifest.Name); err != nil {
+				return fmt.Errorf("invalid package name in manifest: %v", err)
+			}
+			if err := validateVersion(manifest.Version); err != nil {
+				return fmt.Errorf("invalid version in manifest: %v", err)
 			}
 
 			break

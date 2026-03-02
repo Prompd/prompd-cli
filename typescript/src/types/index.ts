@@ -207,7 +207,19 @@ export function resolveToolDeployDir(toolName: string): string | undefined {
 
 export interface PrompdParameter {
   name: string;
-  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  /**
+   * string   — plain text
+   * number   — integer or float
+   * integer  — whole number only
+   * float    — decimal number
+   * boolean  — true / false
+   * array    — JSON array (untyped elements)
+   * object   — plain key-value object (non-array)
+   * json     — any JSON value: objects, arrays of objects, nested structures, etc.
+   * file     — file path; caller supplies file content as a string
+   * base64   — base64-encoded binary data (images, blobs, streams)
+   */
+  type: 'string' | 'number' | 'integer' | 'float' | 'boolean' | 'array' | 'object' | 'json' | 'file' | 'base64';
   description?: string;
   required?: boolean;
   default?: any;

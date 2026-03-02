@@ -251,6 +251,12 @@ class PackageValidator:
             return None
 
         try:
+            # Check manifest file size before reading (1MB limit)
+            manifest_info = zip_file.getinfo(manifest_file)
+            if manifest_info.file_size > 1_048_576:  # 1MB limit
+                errors.append(f"{manifest_file} exceeds size limit (1MB max)")
+                return None
+
             with zip_file.open(manifest_file) as f:
                 manifest = json.loads(f.read().decode("utf-8"))
         except json.JSONDecodeError as e:
@@ -269,16 +275,36 @@ class PackageValidator:
         """Validate the internal structure of a .pdpkg package."""
         file_list = zip_file.namelist()
 
+        # Use a synthetic base directory for path containment checks
+        base_dir = Path("/safe_extraction_root")
+
         # SECURITY: Check for ZIP slip/directory traversal attacks
         for file_name in file_list:
+            # Check for null bytes
+            if "\x00" in file_name:
+                errors.append(f"Security violation: Null byte detected in path: {file_name}")
+                continue
+
             # Normalize path and check for traversal
             normalized_path = os.path.normpath(file_name)
             if ".." in normalized_path or normalized_path.startswith("/") or normalized_path.startswith("\\"):
                 errors.append(f"Security violation: Path traversal detected in {file_name}")
+                continue
 
             # Check for absolute paths (Windows and Unix)
             if os.path.isabs(file_name):
                 errors.append(f"Security violation: Absolute path detected in {file_name}")
+                continue
+
+            # Resolve path against base directory and verify containment
+            # This matches the approach used in package_resolver.py
+            try:
+                resolved = (base_dir / normalized_path).resolve()
+                resolved_base = base_dir.resolve()
+                if not str(resolved).startswith(str(resolved_base)):
+                    errors.append(f"Security violation: Path escapes extraction directory: {file_name}")
+            except (ValueError, OSError):
+                errors.append(f"Security violation: Cannot resolve path safely: {file_name}")
 
         # Check for common directories
         has_prompts = any(f.startswith("prompts/") or f.endswith(".prmd") for f in file_list)

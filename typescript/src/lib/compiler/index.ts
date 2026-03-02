@@ -133,3 +133,4 @@ export { SectionOverrideProcessor } from './section-override';
 export { MarkdownFormatter } from './formatters/markdown';
 export { OpenAIFormatter } from './formatters/openai';
 export { AnthropicFormatter } from './formatters/anthropic';
+export { findProjectRoot, resolvePackage, resolvePackageFile, isPackageInstalled, parsePackageReference, getLocalBaseDir, getGlobalBaseDir } from './package-resolver';

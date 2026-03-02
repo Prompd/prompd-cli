@@ -40,6 +40,15 @@ export class SemanticAnalysisStage implements CompilerStage {
           context.addWarning(`Required parameter '${param.name}' not provided`);
         }
 
+        // Type coercion for provided parameters.
+        // CLI args always arrive as strings; coerce to the declared type before validation.
+        if (param.name in context.parameters) {
+          context.parameters[param.name] = this.coerceParameterValue(
+            context.parameters[param.name],
+            param.type
+          );
+        }
+
         // Type validation for provided parameters
         if (param.name in context.parameters) {
           const value = context.parameters[param.name];
@@ -92,22 +101,77 @@ export class SemanticAnalysisStage implements CompilerStage {
   /**
    * Validate parameter type.
    */
-  private validateParameterType(value: any, expectedType: string): boolean {
+  private validateParameterType(value: unknown, expectedType: string): boolean {
     switch (expectedType) {
       case 'string':
+      case 'file':   // file path provided as a string
+      case 'base64': // base64-encoded binary provided as a string
         return typeof value === 'string';
       case 'number':
-      case 'integer':
       case 'float':
-        return typeof value === 'number' && !isNaN(value);
+        return typeof value === 'number' && !isNaN(value as number);
+      case 'integer':
+        return typeof value === 'number' && !isNaN(value as number) && Number.isInteger(value);
       case 'boolean':
         return typeof value === 'boolean';
       case 'array':
         return Array.isArray(value);
       case 'object':
         return typeof value === 'object' && value !== null && !Array.isArray(value);
+      case 'json':
+        // Accepts any JSON-compatible value: already-parsed object/array, primitives,
+        // or a string that is valid JSON.
+        if (value === null || value === undefined) return false;
+        if (typeof value !== 'string') return true; // already parsed
+        try { JSON.parse(value as string); return true; } catch { return false; }
       default:
-        return true; // Unknown type, allow it
+        return true; // Unknown type — allow it
+    }
+  }
+
+  /**
+   * Coerce a parameter value to its declared type.
+   * CLI args always arrive as strings; this converts them to the correct runtime type
+   * before the value is handed to the template engine.
+   * Already-correct types (e.g. from a JSON params file) are passed through unchanged.
+   */
+  private coerceParameterValue(value: unknown, type: string): unknown {
+    if (value === null || value === undefined) return value;
+
+    switch (type) {
+      case 'boolean':
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+          if (value.toLowerCase() === 'true') return true;
+          if (value.toLowerCase() === 'false') return false;
+        }
+        return value;
+
+      case 'integer':
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          const n = Number(value);
+          if (!isNaN(n)) return n;
+        }
+        return value;
+
+      case 'number':
+      case 'float':
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          const n = parseFloat(value);
+          if (!isNaN(n)) return n;
+        }
+        return value;
+
+      case 'json':
+      case 'array':
+      case 'object':
+        if (typeof value !== 'string') return value; // already parsed
+        try { return JSON.parse(value); } catch { return value; }
+
+      default:
+        return value;
     }
   }
 

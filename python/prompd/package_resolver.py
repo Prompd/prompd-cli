@@ -475,6 +475,8 @@ class BasePackageCache:
     def _validate_zip_contents_secure(self, zip_file: zipfile.ZipFile):
         """Enhanced ZIP validation using battle-tested security patterns."""
         total_size = 0
+        cumulative_decompressed_size = 0
+        max_cumulative_decompressed = 500 * 1024 * 1024  # 500MB cumulative cap
         file_count = 0
 
         for member in zip_file.namelist():
@@ -492,11 +494,19 @@ class BasePackageCache:
             if file_info.file_size > 50 * 1024 * 1024:  # 50MB per file
                 raise PrompdError(f"File too large: {member} ({file_info.file_size} bytes)")
 
-            # ZIP bomb protection: check compression ratio
+            # ZIP bomb protection: check compression ratio (lowered from 1000 to 100)
             if file_info.compress_size > 0:
                 ratio = file_info.file_size / file_info.compress_size
-                if ratio > 1000:  # Suspicious compression ratio
+                if ratio > 100:  # Suspicious compression ratio
                     raise PrompdError(f"Suspicious compression ratio in file: {member}")
+
+            # Track cumulative decompressed size to catch distributed ZIP bombs
+            cumulative_decompressed_size += file_info.file_size
+            if cumulative_decompressed_size > max_cumulative_decompressed:
+                raise PrompdError(
+                    f"Cumulative decompressed size exceeds limit: "
+                    f"{cumulative_decompressed_size} bytes (max {max_cumulative_decompressed // (1024 * 1024)}MB)"
+                )
 
             total_size += file_info.file_size
             file_count += 1
@@ -616,8 +626,23 @@ class BasePackageCache:
         else:
             expected_id = package_ref.name
 
-        # Check 'id' field first (package identifier), fallback to 'name' for compatibility
-        manifest_id = manifest.get("id", manifest.get("name", ""))
+        # Check 'id' field for package identity verification
+        manifest_id = manifest.get("id")
+        if manifest_id is None:
+            # 'id' field not present - use 'name' but only for display/logging,
+            # not for security-critical identity comparisons
+            manifest_name = manifest.get("name", "")
+            import logging
+
+            logger = logging.getLogger("prompd.package_resolver")
+            logger.warning(
+                "Package manifest missing 'id' field, falling back to 'name' for identity check. "
+                "Package: %s. This fallback may be removed in a future version.",
+                manifest_name,
+            )
+            # Use name as a best-effort check but warn about the mismatch
+            manifest_id = manifest_name
+
         if manifest_id != expected_id:
             raise PrompdError(f"Package ID mismatch: expected {expected_id}, got {manifest_id}")
 
