@@ -14,7 +14,7 @@
  *   4. Mirror in frontend nodeTypeRegistry.ts + node components
  */
 
-import type { WorkflowNodeType } from './workflowTypes.js'
+import type { WorkflowNodeType } from './workflowTypes'
 
 // ============================================================================
 // Types

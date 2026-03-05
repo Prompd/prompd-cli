@@ -6,8 +6,8 @@
  */
 
 import { spawn } from 'child_process'
-import { BUILTIN_COMMAND_EXECUTABLES, type CustomCommandConfig } from './workflowTypes.js'
-import type { ToolCallRequest, ToolCallResult } from './workflowExecutor.js'
+import { BUILTIN_COMMAND_EXECUTABLES, type CustomCommandConfig } from './workflowTypes'
+import type { ToolCallRequest, ToolCallResult } from './workflowExecutor'
 
 export interface CommandExecutionResult {
   success: boolean

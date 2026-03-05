@@ -231,6 +231,8 @@ export interface PromptExecuteRequest {
 export interface PromptExecuteResult {
   success: boolean
   response?: unknown  // Can be string or structured response with tool_calls
+  /** Thinking content from models with extended thinking (e.g., Claude) */
+  thinking?: string
   error?: string
 }
 
@@ -6121,6 +6123,7 @@ Analyze the input above. Return a JSON object:
   }
 
   const effectiveMaxIterations = loopMode === 'single-turn' ? 1 : maxIterations
+  let accumulatedThinking = ''
 
   // Agent iteration loop
   while (iteration < effectiveMaxIterations) {
@@ -6152,7 +6155,7 @@ Analyze the input above. Return a JSON object:
     }, options)
 
     // Call LLM
-    const llmResponse = await callAgentLLM(
+    const llmResult = await callAgentLLM(
       systemPromptWithTools,
       conversationHistory,
       resolvedProvider,
@@ -6164,6 +6167,10 @@ Analyze the input above. Return a JSON object:
       data.temperature,
       undefined // llmTimeout
     )
+    const llmResponse = llmResult.response
+    if (llmResult.thinking) {
+      accumulatedThinking += (accumulatedThinking ? '\n\n' : '') + llmResult.thinking
+    }
 
     // Parse for tool calls
     const toolCallResult = parseToolCall(llmResponse, data.toolCallFormat || 'auto', collectedTools)
@@ -6393,6 +6400,7 @@ Analyze the input above. Return a JSON object:
     case 'full-conversation':
       output = {
         finalResponse,
+        thinking: accumulatedThinking || undefined,
         conversationHistory,
         iterations: iteration,
         totalToolCalls,
@@ -6404,7 +6412,9 @@ Analyze the input above. Return a JSON object:
       break
     case 'final-response':
     default:
-      output = finalResponse
+      output = accumulatedThinking
+        ? { response: finalResponse, thinking: accumulatedThinking }
+        : finalResponse
       break
   }
 
@@ -6593,7 +6603,7 @@ async function callAgentLLM(
   _trace: ExecutionTrace,
   temperature?: number,
   _timeout?: number
-): Promise<unknown> {
+): Promise<{ response: unknown; thinking?: string }> {
   // Build messages array
   const messages = conversationHistory.map(msg => {
     if (msg.role === 'tool') {
@@ -6618,7 +6628,7 @@ async function callAgentLLM(
       throw new Error(`LLM call failed: ${result.error || 'Unknown error'}`)
     }
 
-    return result.response
+    return { response: result.response, thinking: result.thinking }
   }
 
   // Fallback: return a message asking for onPromptExecute callback

@@ -48,6 +48,8 @@ export interface TokenUsage {
 export interface ExecutionResult {
   success: boolean
   response?: string
+  /** Thinking content from models with extended thinking (e.g., Claude) */
+  thinking?: string
   error?: string
   usage: TokenUsage
   /** Execution duration in milliseconds */
@@ -64,6 +66,8 @@ export interface StreamChunk {
   done: boolean
   /** Token usage (only available on final chunk for some providers) */
   usage?: TokenUsage
+  /** Thinking content chunk from models with extended thinking */
+  thinking?: string
 }
 
 /**

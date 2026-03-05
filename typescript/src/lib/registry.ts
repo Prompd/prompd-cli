@@ -145,7 +145,7 @@ export class RegistryClient extends EventEmitter {
   }
 
   get registryUrl(): string {
-    return this.registryConfig.url;
+    return this.registryConfig.url.replace(/\/+$/, '');
   }
 
   /**
