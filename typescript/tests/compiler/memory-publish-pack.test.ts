@@ -6,9 +6,9 @@ import { MemoryFileSystem } from '../../src/lib/compiler/file-system';
 import { RegistryClient } from '../../src/lib/registry';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import * as tar from 'tar';
+import AdmZip from 'adm-zip';
 
-// Increase timeout for tarball operations
+// Increase timeout for zip operations
 jest.setTimeout(30000);
 
 describe('In-Memory Package Pack, Publish, and Security', () => {
@@ -112,19 +112,14 @@ describe('In-Memory Package Pack, Publish, and Security', () => {
 
       const buffer = await memoryFS.createPackageBuffer('pkg', manifest);
 
-      // Extract and verify manifest is present
-      const tempDir = await fs.mkdtemp(path.join(require('os').tmpdir(), 'test-'));
-      try {
-        const tarPath = path.join(tempDir, 'test.tar.gz');
-        await fs.writeFile(tarPath, buffer);
+      // Extract and verify manifest is present (ZIP format)
+      const zip = new AdmZip(buffer);
+      const manifestEntry = zip.getEntry('manifest.json');
+      expect(manifestEntry).not.toBeNull();
 
-        await tar.x({ file: tarPath, cwd: tempDir });
-
-        const manifestExists = await fs.pathExists(path.join(tempDir, 'package', 'manifest.json'));
-        expect(manifestExists).toBe(true);
-      } finally {
-        await fs.remove(tempDir);
-      }
+      const manifestContent = JSON.parse(manifestEntry!.getData().toString('utf8'));
+      expect(manifestContent.name).toBe('@test/pkg');
+      expect(manifestContent.version).toBe('1.0.0');
     });
 
     it('should reject packages with missing required manifest fields', async () => {
@@ -181,34 +176,23 @@ Hello!`);
       // Create package buffer
       const buffer = await memoryFS.createPackageBuffer('mypackage', manifest);
 
-      // Verify we can extract it
-      const tempDir = await fs.mkdtemp(path.join(require('os').tmpdir(), 'pack-test-'));
-      try {
-        const tarPath = path.join(tempDir, 'package.tar.gz');
-        await fs.writeFile(tarPath, buffer);
+      // Verify we can extract it (ZIP format)
+      const zip = new AdmZip(buffer);
+      const entries = zip.getEntries().map(e => e.entryName);
 
-        await tar.x({ file: tarPath, cwd: tempDir, strip: 1 });
-
-        const prmdExists = await fs.pathExists(path.join(tempDir, 'prompts', 'greeting.prmd'));
-        const manifestExists = await fs.pathExists(path.join(tempDir, 'manifest.json'));
-
-        expect(prmdExists).toBe(true);
-        expect(manifestExists).toBe(true);
-      } finally {
-        await fs.remove(tempDir);
-      }
+      expect(entries).toContain('manifest.json');
+      expect(entries.some(e => e.includes('greeting.prmd'))).toBe(true);
     });
   });
 
   describe('Backward Compatibility', () => {
     it('should maintain compatibility with existing tests', async () => {
-      // Existing in-memory package tests should still work
-      const testFiles: Record<string, string> = {
-        'package/test.prmd': '---\\nname: test\\nversion: 1.0.0\\n---\\n# Test'
-      };
+      // Create a valid ZIP package for addPackage
+      const testBuffer = createZipPackage({
+        'test.prmd': '---\nname: test\nversion: 1.0.0\n---\n# Test'
+      });
 
-      const tarballBuffer = await createTarball(testFiles);
-      await memoryFS.addPackage('@test/compat', '1.0.0', tarballBuffer);
+      await memoryFS.addPackage('@test/compat', '1.0.0', testBuffer);
 
       const packagePath = memoryFS.getPackagePath('@test/compat', '1.0.0');
       expect(memoryFS.exists(`${packagePath}/test.prmd`)).toBe(true);
@@ -217,31 +201,15 @@ Hello!`);
 });
 
 /**
- * Helper function to create a tarball from file map
+ * Helper function to create a ZIP package buffer from a file map.
+ * Uses AdmZip to match the .pdpkg format expected by MemoryFileSystem.addPackage.
  */
-async function createTarball(files: Record<string, string>): Promise<Buffer> {
-  const tempDir = await fs.mkdtemp(path.join(require('os').tmpdir(), 'prompd-test-'));
+function createZipPackage(files: Record<string, string>): Buffer {
+  const zip = new AdmZip();
 
-  try {
-    // Write files to temp directory
-    for (const [filePath, content] of Object.entries(files)) {
-      const fullPath = path.join(tempDir, filePath);
-      await fs.ensureDir(path.dirname(fullPath));
-      await fs.writeFile(fullPath, content, 'utf-8');
-    }
-
-    // Create tarball
-    const tarballPath = path.join(tempDir, 'package.tar');
-    await tar.create({
-      file: tarballPath,
-      cwd: tempDir
-    }, ['package']);
-
-    // Read tarball as buffer
-    const buffer = await fs.readFile(tarballPath);
-    return buffer;
-  } finally {
-    // Cleanup
-    await fs.remove(tempDir);
+  for (const [filePath, content] of Object.entries(files)) {
+    zip.addFile(filePath, Buffer.from(content, 'utf-8'));
   }
+
+  return zip.toBuffer();
 }

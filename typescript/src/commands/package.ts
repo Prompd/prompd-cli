@@ -7,7 +7,7 @@ import archiver from 'archiver';
 import { createHash } from 'crypto';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
-import { needsFrontmatterProtection, getContentType } from '../types';
+import { needsFrontmatterProtection, getContentType, isValidPackageType, VALID_PACKAGE_TYPES, PackageType } from '../types';
 
 interface PackageExclusions {
   directories?: string[];
@@ -20,13 +20,20 @@ interface PackageManifest {
   description: string;
   author?: string;
   type?: string;
-  files?: { [key: string]: any };
+  keywords?: string[];
+  tools?: string[];
+  mcps?: string[];
+  license?: string;
+  homepage?: string;
+  repository?: string;
+  dependencies?: Record<string, string>;
+  files?: { [key: string]: string };
 }
 
 /**
  * Shared package creation logic (used by both 'package create' and 'pack')
  */
-async function handlePackageCreate(source: string, output?: string, options?: any): Promise<void> {
+async function handlePackageCreate(source: string, output?: string, options?: Record<string, string>): Promise<void> {
   const sourcePath = path.resolve(source);
 
   // Check if source exists
@@ -47,6 +54,14 @@ async function handlePackageCreate(source: string, output?: string, options?: an
     console.error(chalk.red('Package creation requires -n/--name, -v/--pkg-version, and -d/--description options'));
     process.exit(1);
   }
+
+  // Validate --type if provided
+  if (options.type && !isValidPackageType(options.type)) {
+    console.error(chalk.red(`Invalid package type: '${options.type}'`));
+    console.error(chalk.dim(`Valid types: ${VALID_PACKAGE_TYPES.join(', ')}`));
+    process.exit(1);
+  }
+
   await packageFromDirectory(sourcePath, output, options);
 }
 
@@ -64,15 +79,17 @@ export function createPackageCommand(): Command {
     .option('-v, --pkg-version <version>', 'Package version')
     .option('-d, --description <description>', 'Package description')
     .option('-a, --author <author>', 'Package author')
-    .action(async (source: string, output?: string, options?: any) => {
+    .option('-t, --type <type>', 'Package type (package, workflow, skill, node-template)', 'package')
+    .action(async (source: string, output?: string, options?: Record<string, string>) => {
       try {
         // Map pkgVersion to version for backwards compatibility
         if (options?.pkgVersion) {
           options.version = options.pkgVersion;
         }
         await handlePackageCreate(source, output, options);
-      } catch (error: any) {
-        console.error(chalk.red(`❌ Package creation failed: ${error.message}`));
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`Package creation failed: ${message}`));
         process.exit(1);
       }
     });
@@ -120,11 +137,30 @@ export function createPackageCommand(): Command {
 }
 
 async function packageFromDirectory(
-  sourceDir: string, 
-  outputPath?: string, 
-  options: any = {}
+  sourceDir: string,
+  outputPath?: string,
+  options: Record<string, string> = {}
 ): Promise<void> {
   const { name, version, description, author } = options;
+
+  // Resolve package type: explicit --type flag > prompd.json type field > default 'package'
+  let packageType = options.type;
+  if (!packageType || packageType === 'package') {
+    const prompdJsonPath = path.join(sourceDir, 'prompd.json');
+    if (await fs.pathExists(prompdJsonPath)) {
+      try {
+        const prompdJson = await fs.readJson(prompdJsonPath);
+        if (prompdJson.type && isValidPackageType(prompdJson.type)) {
+          packageType = prompdJson.type;
+        }
+      } catch {
+        // Ignore parse errors - fall through to default
+      }
+    }
+  }
+  if (!packageType) {
+    packageType = 'package';
+  }
 
   // Generate output path if not provided
   if (!outputPath) {
@@ -141,7 +177,7 @@ async function packageFromDirectory(
     version,
     description,
     author,
-    type: 'package'
+    type: packageType
   };
 
   // Create package with default exclusions
@@ -408,11 +444,13 @@ export function createPackCommand(): Command {
     .option('-d, --description <description>', 'Package description (overrides .pdproj)')
     .option('--author <author>', 'Package author (overrides .pdproj)')
     .option('-a, --author <author>', 'Package author (overrides .pdproj)')
-    .action(async (source: string, output?: string, options?: any) => {
+    .option('-t, --type <type>', 'Package type (package, workflow, skill, node-template)', 'package')
+    .action(async (source: string, output?: string, options?: Record<string, string>) => {
       try {
         await handlePackageCreate(source, output, options);
-      } catch (error: any) {
-        console.error(chalk.red(`❌ Package creation failed: ${error.message}`));
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`Package creation failed: ${message}`));
         process.exit(1);
       }
     });
@@ -559,6 +597,99 @@ async function discoverPackableFiles(
   return files.sort();
 }
 
+/**
+ * Parse a single .prmd file and return all local file dependencies as
+ * workspace-relative paths.  Traces:
+ *   - system:, user:, task:, assistant:, response:, output: (file path values)
+ *   - context: / contexts: (string or array of strings)
+ *   - override: (object whose values are file paths)
+ *   - inherits: (local .prmd path — excludes @scope/pkg references)
+ *   - {% include "..." %} directives in the body
+ *
+ * Only paths starting with ./ or ../ are treated as file references.
+ * Returns workspace-relative forward-slash paths.
+ */
+async function tracePrmdFileDependencies(
+  prmdRelativePath: string,
+  workspacePath: string
+): Promise<string[]> {
+  const deps = new Set<string>();
+  const prmdDir = path.dirname(path.join(workspacePath, prmdRelativePath));
+
+  let content: string;
+  try {
+    content = (await fs.readFile(path.join(workspacePath, prmdRelativePath), 'utf-8')).replace(/\r\n/g, '\n');
+  } catch {
+    return [];
+  }
+
+  // Parse YAML frontmatter
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return [];
+
+  let frontmatter: Record<string, unknown>;
+  try {
+    frontmatter = (yaml.load(fmMatch[1]) as Record<string, unknown>) || {};
+  } catch {
+    return [];
+  }
+
+  /** Resolve a ref relative to the .prmd file and return workspace-relative path, or null if out-of-workspace or not a path ref */
+  function resolve(ref: unknown): string | null {
+    if (typeof ref !== 'string') return null;
+    if (!ref.startsWith('./') && !ref.startsWith('../')) return null;
+    const abs = path.resolve(prmdDir, ref);
+    const wsRoot = path.resolve(workspacePath);
+    if (!abs.startsWith(wsRoot + path.sep) && abs !== wsRoot) return null;
+    return path.relative(workspacePath, abs).replace(/\\/g, '/');
+  }
+
+  // system:, user:, task:, assistant:, response:, output:
+  const sectionFields = ['system', 'user', 'task', 'assistant', 'response', 'output'];
+  for (const field of sectionFields) {
+    const val = frontmatter[field];
+    const refs = Array.isArray(val) ? val : [val];
+    for (const ref of refs) {
+      const r = resolve(ref);
+      if (r) deps.add(r);
+    }
+  }
+
+  // context: / contexts:
+  const ctxVal = frontmatter['context'] ?? frontmatter['contexts'];
+  const ctxRefs = Array.isArray(ctxVal) ? ctxVal : ctxVal !== undefined ? [ctxVal] : [];
+  for (const ref of ctxRefs) {
+    const r = resolve(ref);
+    if (r) deps.add(r);
+  }
+
+  // override: { key: "path" }
+  if (frontmatter['override'] && typeof frontmatter['override'] === 'object' && !Array.isArray(frontmatter['override'])) {
+    for (const val of Object.values(frontmatter['override'] as Record<string, unknown>)) {
+      const r = resolve(val);
+      if (r) deps.add(r);
+    }
+  }
+
+  // inherits: (local only — skip @scope/pkg refs)
+  const inherits = frontmatter['inherits'];
+  if (typeof inherits === 'string' && !inherits.startsWith('@')) {
+    const r = resolve(inherits.startsWith('./') || inherits.startsWith('../') ? inherits : './' + inherits);
+    if (r) deps.add(r);
+  }
+
+  // {% include "..." %} in body
+  const body = content.slice(fmMatch[0].length);
+  const includeRe = /\{%-?\s*include\s+["']([^"']+)["']\s*-?%\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = includeRe.exec(body)) !== null) {
+    const r = resolve(m[1].startsWith('./') || m[1].startsWith('../') ? m[1] : './' + m[1]);
+    if (r) deps.add(r);
+  }
+
+  return Array.from(deps);
+}
+
 export async function createPackageFromPrompdJson(
   workspacePath: string,
   outputDir?: string
@@ -596,6 +727,11 @@ export async function createPackageFromPrompdJson(
   }
   if (!prompdJson.main) {
     return { success: false, error: 'prompd.json is missing required field: main (main .prmd entry point)' };
+  }
+
+  // Validate package type if specified
+  if (prompdJson.type && !isValidPackageType(prompdJson.type)) {
+    return { success: false, error: `Invalid package type '${prompdJson.type}' in prompd.json. Valid types: package, workflow, skill, node-template` };
   }
 
   // 4. Auto-discover files if files array is empty or missing
@@ -863,6 +999,52 @@ export async function createPackageFromPrompdJson(
     };
   }
 
+  // 6d. Trace .prmd file dependencies and verify all are present and included in package
+  const depErrors: Array<{ file: string; missing: string[]; excluded: string[] }> = [];
+
+  for (const filePath of filesToPackage) {
+    if (!filePath.endsWith('.prmd')) continue;
+
+    const deps = await tracePrmdFileDependencies(filePath, workspacePath);
+    if (deps.length === 0) continue;
+
+    const missing: string[] = [];
+    const excluded: string[] = [];
+
+    for (const dep of deps) {
+      const depFullPath = path.join(workspacePath, dep);
+      if (!await fs.pathExists(depFullPath)) {
+        missing.push(dep);
+      } else if (!filesToPackage.includes(dep)) {
+        excluded.push(dep);
+        // Auto-include so the package is self-contained
+        filesToPackage.push(dep);
+      }
+    }
+
+    if (missing.length > 0 || excluded.length > 0) {
+      depErrors.push({ file: filePath, missing, excluded });
+    }
+  }
+
+  if (depErrors.length > 0) {
+    // Missing files are a hard error; auto-included files are warnings surfaced in the log
+    const hardErrors = depErrors.filter(e => e.missing.length > 0);
+    if (hardErrors.length > 0) {
+      const errorList = hardErrors.map(e =>
+        `  ${e.file}:\n${e.missing.map(f => `    - missing: ${f}`).join('\n')}`
+      ).join('\n');
+      return {
+        success: false,
+        error: `Missing dependency files referenced in .prmd frontmatter:\n${errorList}`
+      };
+    }
+    // Soft warnings (auto-included) — continue, they've been added to filesToPackage
+    for (const e of depErrors.filter(d => d.excluded.length > 0)) {
+      console.warn(`[Package] Auto-included dependencies for ${e.file}:\n${e.excluded.map(f => `  + ${f}`).join('\n')}`);
+    }
+  }
+
   // 7. Create output directory
   const distDir = outputDir || path.join(workspacePath, 'dist');
   await fs.ensureDir(distDir);
@@ -875,11 +1057,20 @@ export async function createPackageFromPrompdJson(
   const outputPath = path.join(distDir, outputFileName);
 
   // 9. Create manifest for package (includes files array for archive only)
+  // Preserve all metadata fields from prompd.json so the registry stores them correctly
   const manifest: PackageManifest = {
     name: prompdJson.name,
     version: prompdJson.version,
     description: prompdJson.description,
-    author: prompdJson.author
+    author: prompdJson.author,
+    ...(prompdJson.type ? { type: prompdJson.type } : {}),
+    ...(Array.isArray(prompdJson.keywords) && prompdJson.keywords.length > 0 ? { keywords: prompdJson.keywords } : {}),
+    ...(Array.isArray(prompdJson.tools) && prompdJson.tools.length > 0 ? { tools: prompdJson.tools } : {}),
+    ...(Array.isArray(prompdJson.mcps) && prompdJson.mcps.length > 0 ? { mcps: prompdJson.mcps } : {}),
+    ...(prompdJson.license ? { license: prompdJson.license } : {}),
+    ...(prompdJson.homepage ? { homepage: prompdJson.homepage } : {}),
+    ...(prompdJson.repository ? { repository: prompdJson.repository } : {}),
+    ...(prompdJson.dependencies ? { dependencies: prompdJson.dependencies } : {}),
   };
 
   // 10. Create the package

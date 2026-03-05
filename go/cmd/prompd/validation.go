@@ -118,13 +118,13 @@ func validateRegistryURL(urlStr string) error {
 
 // sanitizeFilePath sanitizes file paths to prevent directory traversal
 func sanitizeFilePath(path string, basePath string) (string, error) {
-	// Clean the path
-	cleanPath := filepath.Clean(path)
-
-	// Check for null bytes
-	if strings.Contains(cleanPath, "\x00") {
+	// SECURITY: Check for null bytes on raw input BEFORE cleaning
+	if strings.Contains(path, "\x00") {
 		return "", errors.New("path contains null bytes")
 	}
+
+	// Clean the path
+	cleanPath := filepath.Clean(path)
 
 	// Check for absolute paths (should be relative)
 	if filepath.IsAbs(cleanPath) {
@@ -163,13 +163,13 @@ func sanitizeFilePath(path string, basePath string) (string, error) {
 
 // isSecurePath validates that a path is safe for ZIP operations (enhanced ZIP slip protection)
 func isSecurePath(path string, basePath string) error {
-	// Clean and normalize path
-	cleanPath := filepath.Clean(path)
-
-	// Check for null bytes
-	if strings.Contains(cleanPath, "\x00") {
+	// SECURITY: Check for null bytes on raw input BEFORE cleaning
+	if strings.Contains(path, "\x00") {
 		return errors.New("path contains null bytes")
 	}
+
+	// Clean and normalize path
+	cleanPath := filepath.Clean(path)
 
 	// Check for absolute paths
 	if filepath.IsAbs(cleanPath) {

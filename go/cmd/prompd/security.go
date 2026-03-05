@@ -19,15 +19,22 @@ type SecretMatch struct {
 
 // secretPatterns defines patterns for detecting various types of secrets
 var secretPatterns = map[string]*regexp.Regexp{
-	"OpenAI API Key":        regexp.MustCompile(`sk-[a-zA-Z0-9]{48}`),
-	"Anthropic API Key":     regexp.MustCompile(`sk-ant-api[0-9]{2}-[a-zA-Z0-9_-]{95}`),
+	"OpenAI API Key":        regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),
+	"Anthropic API Key":     regexp.MustCompile(`sk-ant-[a-zA-Z0-9_-]{20,}`),
 	"AWS Access Key":        regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
+	"AWS Secret Key":        regexp.MustCompile(`(?i)aws[_-]?secret[_-]?access[_-]?key[=:\s]+['"]?[a-zA-Z0-9/+=]{40}['"]?`),
 	"GitHub Token":          regexp.MustCompile(`gh[ps]_[a-zA-Z0-9]{36}`),
+	"GitHub Fine-Grained":   regexp.MustCompile(`github_pat_[a-zA-Z0-9_]{22,}`),
 	"Prompd Registry Token": regexp.MustCompile(`prompd_[a-zA-Z0-9]{32,}`),
-	"Private Key":           regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----`),
-	"Generic API Key":       regexp.MustCompile(`(?i)api[_-]?key[_-]?[=:]\s*['"]?([a-zA-Z0-9_\-]{32,})['"]?`),
-	"Bearer Token":          regexp.MustCompile(`[Bb]earer\s+[a-zA-Z0-9_\-\.]{32,}`),
+	"Private Key":           regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`),
+	"Generic API Key":       regexp.MustCompile(`(?i)(?:api[_-]?key|apikey|api_secret|apisecret)[_-]?[=:]\s*['"]?([a-zA-Z0-9_\-]{20,})['"]?`),
+	"Generic Secret":        regexp.MustCompile(`(?i)(?:secret|password|passwd|token)[_-]?[=:]\s*['"]?([a-zA-Z0-9_\-!@#$%^&*]{16,})['"]?`),
+	"Bearer Token":          regexp.MustCompile(`[Bb]earer\s+[a-zA-Z0-9_\-.]{32,256}`),
 	"JWT Token":             regexp.MustCompile(`eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}`),
+	"URL-Embedded Creds":    regexp.MustCompile(`https?://[^:\s]+:[^@\s]+@[a-zA-Z0-9.-]+`),
+	"Slack Token":           regexp.MustCompile(`xox[bpors]-[a-zA-Z0-9-]{10,}`),
+	"Google API Key":        regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`),
+	"Stripe Key":            regexp.MustCompile(`(?:sk|pk)_(?:test|live)_[a-zA-Z0-9]{20,}`),
 }
 
 // detectSecretsInContent scans content string for secrets

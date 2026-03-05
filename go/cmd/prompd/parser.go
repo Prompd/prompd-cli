@@ -117,12 +117,15 @@ func validateFile(filename string) error {
 	allParams := append(prompd.Metadata.Parameters, prompd.Metadata.Variables...)
 	validTypes := map[string]bool{
 		"string":  true,
+		"number":  true,
 		"integer": true,
 		"float":   true,
 		"boolean": true,
 		"array":   true,
 		"object":  true,
+		"json":    true,
 		"file":    true,
+		"base64":  true,
 	}
 	
 	for _, param := range allParams {
@@ -132,7 +135,7 @@ func validateFile(filename string) error {
 		
 		// Validate parameter type
 		if param.Type != "" && !validTypes[param.Type] {
-			return fmt.Errorf("invalid parameter type '%s' for parameter '%s'. Must be one of: string, integer, float, boolean, array, object, file", param.Type, param.Name)
+			return fmt.Errorf("invalid parameter type '%s' for parameter '%s'. Must be one of: string, number, integer, float, boolean, array, object, json, file, base64", param.Type, param.Name)
 		}
 		
 		// Validate pattern if present (for string types)
@@ -148,7 +151,7 @@ func validateFile(filename string) error {
 		
 		// Validate min/max constraints (for numeric types)
 		if param.Min != nil || param.Max != nil {
-			if param.Type != "" && param.Type != "integer" && param.Type != "float" {
+			if param.Type != "" && param.Type != "integer" && param.Type != "float" && param.Type != "number" {
 				return fmt.Errorf("min/max constraints are only valid for numeric types, but '%s' has type '%s'", param.Name, param.Type)
 			}
 			if param.Min != nil && param.Max != nil && *param.Min > *param.Max {
@@ -182,9 +185,16 @@ func validateFile(filename string) error {
 
 func validateDefaultType(paramName, paramType string, defaultValue interface{}) error {
 	switch paramType {
-	case "string":
+	case "string", "file", "base64":
 		if _, ok := defaultValue.(string); !ok {
 			return fmt.Errorf("default value for parameter '%s' must be a string", paramName)
+		}
+	case "number", "float":
+		switch defaultValue.(type) {
+		case float32, float64, int, int32, int64:
+			// Valid numeric types
+		default:
+			return fmt.Errorf("default value for parameter '%s' must be a number", paramName)
 		}
 	case "integer":
 		switch v := defaultValue.(type) {
@@ -197,13 +207,6 @@ func validateDefaultType(paramName, paramType string, defaultValue interface{}) 
 			}
 		default:
 			return fmt.Errorf("default value for parameter '%s' must be an integer", paramName)
-		}
-	case "float":
-		switch defaultValue.(type) {
-		case float32, float64, int, int32, int64:
-			// Valid numeric types
-		default:
-			return fmt.Errorf("default value for parameter '%s' must be a float", paramName)
 		}
 	case "boolean":
 		if _, ok := defaultValue.(bool); !ok {
@@ -220,6 +223,8 @@ func validateDefaultType(paramName, paramType string, defaultValue interface{}) 
 		if _, ok := defaultValue.(map[string]interface{}); !ok {
 			return fmt.Errorf("default value for parameter '%s' must be an object", paramName)
 		}
+	case "json":
+		// Any non-nil value is acceptable as a default for json type
 	}
 	return nil
 }

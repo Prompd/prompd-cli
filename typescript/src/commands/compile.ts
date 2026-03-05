@@ -7,8 +7,9 @@
 
 import { Command } from 'commander';
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
 import { PrompdCompiler } from '../lib/compiler';
+import { findProjectRoot } from '../lib/compiler/package-resolver';
 
 export function createCompileCommand(): Command {
   const cmd = new Command('compile');
@@ -23,6 +24,7 @@ export function createCompileCommand(): Command {
     .option('-f, --params-file <file>', 'JSON parameter file')
     .option('-o, --output <file>', 'Output file path')
     .option('-v, --verbose', 'Verbose output with compilation details', false)
+    .option('-d, --dir <path>', 'Workspace root directory (default: auto-detect from prompd.json)')
     .action(async (source: string, options: any) => {
       try {
         // Collect parameters from different sources
@@ -62,12 +64,18 @@ export function createCompileCommand(): Command {
           console.log('');
         }
 
+        // Resolve workspace root: explicit --dir, or auto-detect from source file
+        const workspaceRoot = options.dir
+          ? resolve(options.dir)
+          : findProjectRoot(dirname(resolve(source)));
+
         // Compile with the 6-stage pipeline
         const result = await compiler.compile(source, {
           outputFormat,
           parameters,
           outputFile: options.output,
-          verbose: options.verbose
+          verbose: options.verbose,
+          workspaceRoot
         });
 
         // Output result (if not written to file)

@@ -300,6 +300,12 @@ export class MemoryFileSystem implements IFileSystem {
     const packagePath = this.getPackagePath(packageName, version);
     const entries = zip.getEntries();
 
+    // Normalize the package path prefix for comparison
+    const normalizedPackagePath = this.normalizePath(packagePath);
+    const packagePrefix = normalizedPackagePath.endsWith('/')
+      ? normalizedPackagePath
+      : normalizedPackagePath + '/';
+
     for (const entry of entries) {
       // Skip directories
       if (entry.isDirectory) {
@@ -312,6 +318,15 @@ export class MemoryFileSystem implements IFileSystem {
 
       // Build virtual path: /packages/@namespace/package@version/path/to/file
       const filePath = this.join(packagePath, entryPath);
+
+      // Validate the resolved path stays within the expected package directory
+      const normalizedFilePath = this.normalizePath(filePath);
+      if (!normalizedFilePath.startsWith(packagePrefix) && normalizedFilePath !== normalizedPackagePath) {
+        throw new Error(
+          `Security violation: extracted path escapes package directory: ${entryPath}`
+        );
+      }
+
       this.addFile(filePath, content);
     }
   }

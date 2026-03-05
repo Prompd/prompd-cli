@@ -167,7 +167,7 @@ class PrompdValidator:
 
         # Validate min/max for numeric types
         if var_def.min_value is not None or var_def.max_value is not None:
-            if var_def.type.value not in ["integer", "float"]:
+            if var_def.type.value not in ["integer", "float", "number"]:
                 issues.append(
                     {
                         "level": "warning",
@@ -334,12 +334,17 @@ class PrompdValidator:
         Raises:
             ValidationError: If value is invalid
         """
+        import json as _json
+
         var_type = var_def.get("type", "string")
 
         # Type validation
         if var_type == "integer":
             try:
-                value = int(value)
+                int_val = int(value)
+                if isinstance(value, float) and not value.is_integer():
+                    raise ValidationError(f"Parameter '{name}' must be an integer, not a float")
+                value = int_val
             except (TypeError, ValueError) as e:
                 raise ValidationError(f"Parameter '{name}' must be an integer") from e
 
@@ -349,11 +354,11 @@ class PrompdValidator:
             if "max" in var_def and value > var_def["max"]:
                 raise ValidationError(f"Parameter '{name}' value {value} is above maximum {var_def['max']}")
 
-        elif var_type == "float":
+        elif var_type in ("float", "number"):
             try:
                 value = float(value)
             except (TypeError, ValueError) as e:
-                raise ValidationError(f"Parameter '{name}' must be a float") from e
+                raise ValidationError(f"Parameter '{name}' must be a number") from e
 
             # Range validation
             if "min" in var_def and value < var_def["min"]:
@@ -365,11 +370,11 @@ class PrompdValidator:
             if str(value).lower() not in ["true", "false", "yes", "no", "1", "0"]:
                 raise ValidationError(f"Parameter '{name}' must be a boolean")
 
-        elif var_type == "string":
+        elif var_type in ("string", "file", "base64"):
             value = str(value)
 
-            # Pattern validation
-            if "pattern" in var_def:
+            # Pattern validation (only for string type)
+            if var_type == "string" and "pattern" in var_def:
                 if not re.match(var_def["pattern"], value):
                     error_msg = var_def.get(
                         "error_message", f"Parameter '{name}' does not match required pattern: {var_def['pattern']}"
@@ -387,3 +392,11 @@ class PrompdValidator:
         elif var_type == "object":
             if not isinstance(value, dict):
                 raise ValidationError(f"Parameter '{name}' must be an object")
+
+        elif var_type == "json":
+            # Accept any already-parsed value, or a string that is valid JSON
+            if isinstance(value, str):
+                try:
+                    _json.loads(value)
+                except _json.JSONDecodeError as e:
+                    raise ValidationError(f"Parameter '{name}' must be valid JSON: {e}") from e

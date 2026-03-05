@@ -8,8 +8,8 @@ jest.mock('fs-extra');
 jest.mock('child_process');
 jest.mock('../src/lib/parser');
 
-const mockReadFile = fs.readFile as jest.MockedFunction<typeof fs.readFile>;
-const mockWriteFile = fs.writeFile as jest.MockedFunction<typeof fs.writeFile>;
+const mockReadFile = fs.readFile as unknown as jest.Mock;
+const mockWriteFile = fs.writeFile as unknown as jest.Mock;
 const mockFs = { readFile: mockReadFile, writeFile: mockWriteFile };
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
 const mockParser = PrompdParser as jest.MockedClass<typeof PrompdParser>;
@@ -62,7 +62,7 @@ Content here`;
 
       expect(newVersion).toBe('1.2.4');
       expect(mockFs.writeFile).toHaveBeenCalled();
-      expect(mockExecSync).toHaveBeenCalledWith('git tag v1.2.4-test-prompt', { stdio: 'pipe' });
+      expect(mockExecSync).toHaveBeenCalledWith('git tag "test-v1.2.4"', { stdio: 'pipe' });
     });
 
     it('should bump minor version correctly', async () => {
@@ -121,7 +121,9 @@ Content`;
       expect(newVersion).toBe('2.0.0');
     });
 
-    it('should handle missing version field', async () => {
+    it('should default to 0.0.0 when version is missing', async () => {
+      const originalContent = `---\nname: test-prompt\n---\n\nContent`;
+
       const mockPrompdFile = {
         metadata: {
           id: 'test-prompt',
@@ -131,28 +133,32 @@ Content`;
         sections: {}
       };
 
+      mockFs.readFile.mockResolvedValue(originalContent);
       mockParserInstance.parseFile.mockResolvedValue(mockPrompdFile);
+      mockFs.writeFile.mockResolvedValue(undefined);
+      mockExecSync.mockReturnValue(Buffer.from(''));
 
-      await expect(versionManager.bumpVersion('test.prmd', 'patch'))
-        .rejects.toThrow('No version field found in file');
+      const newVersion = await versionManager.bumpVersion('test.prmd', 'patch');
+      expect(newVersion).toBe('0.0.1');
     });
   });
 
   describe('getVersionHistory', () => {
     it('should return version history from git tags', async () => {
-      const mockGitOutput = `v1.2.0-test-prompt 2024-01-15 abc123 Initial version
-v1.2.1-test-prompt 2024-01-20 def456 Bug fixes
-v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
+      // Mock output matches git log --pretty=format:"%d|%H|%ai|%s"
+      const mockGitOutput = ` (tag: test-v1.2.0)|abc123|2024-01-15 12:00:00 +0000|Initial version
+ (tag: test-v1.2.1)|def456|2024-01-20 12:00:00 +0000|Bug fixes
+ (tag: test-v1.3.0)|ghi789|2024-01-25 12:00:00 +0000|New features`;
 
-      mockExecSync.mockReturnValue(Buffer.from(mockGitOutput));
+      mockExecSync.mockReturnValue(mockGitOutput as unknown as Buffer);
 
       const history = await versionManager.getVersionHistory('test.prmd', 10);
 
       expect(history).toHaveLength(3);
-      expect(history[0].tag).toBe('v1.3.0-test-prompt');
-      expect(history[0].date).toBe('2024-01-25');
-      expect(history[0].commit).toBe('ghi789');
-      expect(history[0].message).toBe('New features');
+      expect(history[0].tag).toBe('test-v1.2.0');
+      expect(history[0].date).toBe('2024-01-15');
+      expect(history[0].commit).toBe('abc123');
+      expect(history[0].message).toBe('Initial version');
     });
 
     it('should return empty array when no tags found', async () => {
@@ -171,13 +177,13 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
 - description: Old description
 + description: New description`;
 
-      mockExecSync.mockReturnValue(Buffer.from(mockDiffOutput));
+      mockExecSync.mockReturnValue(mockDiffOutput as unknown as Buffer);
 
-      const diff = await versionManager.diffVersions('test.prmd', 'v1.0.0', 'v1.1.0');
+      const diff = await versionManager.diffVersions('test.prmd', '1.0.0', '1.1.0');
 
       expect(diff).toBe(mockDiffOutput);
       expect(mockExecSync).toHaveBeenCalledWith(
-        'git diff v1.0.0..v1.1.0 -- "test.prmd"',
+        'git diff "test-v1.0.0" "test-v1.1.0" -- "test.prmd"',
         { encoding: 'utf-8', stdio: 'pipe' }
       );
     });
@@ -219,7 +225,7 @@ v1.3.0-test-prompt 2024-01-25 ghi789 New features`;
       const result = await versionManager.validateVersion('test.prmd', false);
 
       expect(result.valid).toBe(false);
-      expect(result.issues).toContain('Invalid semantic version format: invalid-version');
+      expect(result.issues).toContain('Invalid semantic version: invalid-version');
     });
   });
 

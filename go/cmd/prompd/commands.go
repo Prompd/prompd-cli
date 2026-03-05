@@ -383,19 +383,45 @@ func handleGitCommit() {
 			break
 		}
 	}
-	
+
 	if message == "" {
 		fmt.Println("Error: git commit requires -m <message>")
 		os.Exit(1)
 	}
-	
+
+	// SECURITY: Sanitize commit message
+	if err := validateGitMessage(message); err != nil {
+		fmt.Printf("Error: invalid commit message: %v\n", err)
+		os.Exit(1)
+	}
+
 	cmd := exec.Command("git", "commit", "-m", message)
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Error committing: %v\n", err)
 		os.Exit(1)
 	}
-	
-	fmt.Printf("✓ Committed with message: %s\n", message)
+
+	fmt.Printf("Committed with message: %s\n", message)
+}
+
+// validateGitMessage sanitizes git commit messages to prevent injection
+func validateGitMessage(msg string) error {
+	const maxMessageLength = 5000
+	if len(msg) > maxMessageLength {
+		return fmt.Errorf("message too long (%d chars, max %d)", len(msg), maxMessageLength)
+	}
+
+	// Reject null bytes and control characters (except newline, tab, carriage return)
+	for i, c := range msg {
+		if c == 0 {
+			return fmt.Errorf("message contains null byte at position %d", i)
+		}
+		if c < 32 && c != '\n' && c != '\r' && c != '\t' {
+			return fmt.Errorf("message contains control character (0x%02x) at position %d", c, i)
+		}
+	}
+
+	return nil
 }
 
 
@@ -864,8 +890,8 @@ func saveConfig(config *Config) error {
 			return fmt.Errorf("failed to marshal config: %w", err)
 		}
 		
-		// Write to file
-		if err := os.WriteFile(path, data, 0644); err != nil {
+		// SECURITY: Write config with restrictive permissions (owner read/write only)
+		if err := os.WriteFile(path, data, 0600); err != nil {
 			continue // Try next path
 		}
 		

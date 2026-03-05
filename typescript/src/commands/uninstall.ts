@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as os from 'os';
+import { PACKAGE_TYPE_DIRS, resolveToolDeployDir, TOOL_DEPLOY_DIRS } from '../types';
 
 export function createUninstallCommand(): Command {
   const uninstallCommand = new Command('uninstall');
@@ -11,7 +12,6 @@ export function createUninstallCommand(): Command {
     .description('Uninstall packages')
     .argument('<packages...>', 'Package names to uninstall')
     .option('-g, --global', 'Uninstall packages globally')
-    .option('--save-dev', 'Remove from development dependencies')
     .action(async (packages: string[], options) => {
       try {
         for (const packageName of packages) {
@@ -21,7 +21,7 @@ export function createUninstallCommand(): Command {
           const removed = await uninstallPackage(packageName, options.global);
 
           if (removed) {
-            console.log(chalk.green(`✓ Uninstalled ${packageName}`));
+            console.log(chalk.green(`Uninstalled ${packageName}`));
           } else {
             console.log(chalk.yellow(`Package ${packageName} not found`));
           }
@@ -35,31 +35,68 @@ export function createUninstallCommand(): Command {
   return uninstallCommand;
 }
 
+/**
+ * Uninstall a package by searching across all type directories.
+ * Also cleans up tool deployments if the package was a skill deployed to a tool.
+ */
 async function uninstallPackage(packageName: string, global: boolean): Promise<boolean> {
-  const cacheDir = getCacheDir(global);
-  const packageDir = path.join(cacheDir, sanitizePackageName(packageName));
+  const baseDir = global
+    ? path.join(os.homedir(), '.prompd')
+    : path.join(process.cwd(), '.prompd');
 
-  // Check if package exists
-  if (!await fs.pathExists(packageDir)) {
-    return false;
+  let removed = false;
+
+  // Search across all type directories (packages/, workflows/, skills/, templates/)
+  for (const typeDir of Object.values(PACKAGE_TYPE_DIRS)) {
+    const packageDir = path.join(baseDir, typeDir, packageName);
+
+    if (await fs.pathExists(packageDir)) {
+      // Before removing, check if this was a skill with tool deployments
+      if (typeDir === 'skills') {
+        await cleanupToolDeployments(packageName);
+      }
+
+      await fs.remove(packageDir);
+      removed = true;
+    }
   }
 
-  // Remove the package directory
-  await fs.remove(packageDir);
+  // Also check legacy cache directory for backward compatibility
+  const legacyCacheDir = path.join(baseDir, 'cache');
+  const legacyPackageDir = path.join(legacyCacheDir, packageName);
+  if (await fs.pathExists(legacyPackageDir)) {
+    await fs.remove(legacyPackageDir);
+    removed = true;
+  }
 
-  return true;
-}
-
-function getCacheDir(global: boolean): string {
-  const homeDir = os.homedir();
-
+  // Also check legacy global cache structure
   if (global) {
-    return path.join(homeDir, '.prompd', 'cache', 'global');
+    const legacyGlobalDir = path.join(baseDir, 'cache', 'global', 'packages', packageName);
+    if (await fs.pathExists(legacyGlobalDir)) {
+      await fs.remove(legacyGlobalDir);
+      removed = true;
+    }
   }
-  return path.join(homeDir, '.prompd', 'cache', 'packages');
+
+  return removed;
 }
 
-function sanitizePackageName(name: string): string {
-  // Convert @namespace/name to namespace-name for directory
-  return name.replace('@', '').replace('/', '-');
+/**
+ * Clean up tool-native deployments for a skill package.
+ * Checks each known tool's skill directory for a deployment marker (.prompd-source).
+ */
+async function cleanupToolDeployments(packageName: string): Promise<void> {
+  for (const toolName of Object.keys(TOOL_DEPLOY_DIRS)) {
+    const deployDir = resolveToolDeployDir(toolName);
+    if (!deployDir) continue;
+
+    const skillDeployDir = path.join(deployDir, packageName);
+    const markerPath = path.join(skillDeployDir, '.prompd-source');
+
+    // Only remove if the .prompd-source marker exists (confirms prompd deployed it)
+    if (await fs.pathExists(markerPath)) {
+      await fs.remove(skillDeployDir);
+      console.log(chalk.dim(`  Cleaned up ${toolName} deployment: ${skillDeployDir}`));
+    }
+  }
 }

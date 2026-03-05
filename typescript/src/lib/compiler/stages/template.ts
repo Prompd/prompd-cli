@@ -57,13 +57,14 @@ export class TemplateProcessingStage implements CompilerStage {
       return this.parseCsv(csvString);
     });
 
-    // fromjson - Parse JSON string into object/array
-    this.nunjucksEnv.addFilter('fromjson', (jsonString: string) => {
-      if (!jsonString || typeof jsonString !== 'string') {
-        return null;
-      }
+    // fromjson - Parse JSON string into object/array.
+    // If the value is already a parsed object or array (e.g. from a JSON params file),
+    // pass it through unchanged instead of returning null.
+    this.nunjucksEnv.addFilter('fromjson', (value: unknown) => {
+      if (value === null || value === undefined) return null;
+      if (typeof value !== 'string') return value; // already parsed
       try {
-        return JSON.parse(jsonString);
+        return JSON.parse(value);
       } catch {
         return null;
       }
@@ -792,11 +793,16 @@ export class TemplateProcessingStage implements CompilerStage {
         }
       });
 
+      let timeoutId: ReturnType<typeof setTimeout>;
       const timeoutPromise = new Promise<string>((_, reject) => {
-        setTimeout(() => reject(new Error('Template rendering timeout')), renderTimeout);
+        timeoutId = setTimeout(() => reject(new Error('Template rendering timeout')), renderTimeout);
       });
 
-      content = await Promise.race([renderPromise, timeoutPromise]);
+      try {
+        content = await Promise.race([renderPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId!);
+      }
     } catch (error) {
       // Report template syntax errors properly
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -905,13 +911,14 @@ export class TemplateProcessingStage implements CompilerStage {
       return this.parseCsv(csvString);
     });
 
-    // fromjson - Parse JSON string into object/array
-    env.addFilter('fromjson', (jsonString: string) => {
-      if (!jsonString || typeof jsonString !== 'string') {
-        return null;
-      }
+    // fromjson - Parse JSON string into object/array.
+    // If the value is already a parsed object or array (e.g. from a JSON params file),
+    // pass it through unchanged instead of returning null.
+    env.addFilter('fromjson', (value: unknown) => {
+      if (value === null || value === undefined) return null;
+      if (typeof value !== 'string') return value; // already parsed
       try {
-        return JSON.parse(jsonString);
+        return JSON.parse(value);
       } catch {
         return null;
       }

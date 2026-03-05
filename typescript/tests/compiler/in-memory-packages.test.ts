@@ -4,13 +4,24 @@
 
 import { MemoryFileSystem } from '../../src/lib/compiler/file-system';
 import { PrompdCompiler } from '../../src/lib/compiler';
-import * as tar from 'tar';
+import AdmZip from 'adm-zip';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { Readable } from 'stream';
 
-// Increase timeout for tarball operations
+// Increase timeout for zip operations
 jest.setTimeout(30000);
+
+/**
+ * Helper function to create a ZIP package buffer from file map.
+ * Keys are file paths inside the ZIP (no package/ prefix needed).
+ */
+function createZipPackage(files: Record<string, string>): Buffer {
+  const zip = new AdmZip();
+  for (const [filePath, content] of Object.entries(files)) {
+    zip.addFile(filePath, Buffer.from(content, 'utf-8'));
+  }
+  return zip.toBuffer();
+}
 
 describe('In-Memory Package Installation', () => {
   let memoryFS: MemoryFileSystem;
@@ -20,10 +31,9 @@ describe('In-Memory Package Installation', () => {
   });
 
   describe('MemoryFileSystem.addPackage()', () => {
-    it('should extract tarball to memory', async () => {
-      // Create a mock tarball with test files
-      const testFiles: Record<string, string> = {
-        'package/base.prmd': `---
+    it('should extract zip package to memory', async () => {
+      const zipBuffer = createZipPackage({
+        'base.prmd': `---
 name: base-template
 version: 1.0.0
 description: Base template
@@ -35,57 +45,45 @@ You are a helpful assistant.
 # User
 {user_input}
 `,
-        'package/manifest.json': JSON.stringify({
+        'manifest.json': JSON.stringify({
           name: '@test/package',
           version: '1.0.0',
           description: 'Test package'
         })
-      };
+      });
 
-      // Create tarball buffer
-      const tarballBuffer = await createTarball(testFiles);
+      await memoryFS.addPackage('@test/package', '1.0.0', zipBuffer);
 
-      // Add package to memory
-      await memoryFS.addPackage('@test/package', '1.0.0', tarballBuffer);
-
-      // Verify files are accessible in memory
       const packagePath = memoryFS.getPackagePath('@test/package', '1.0.0');
 
       expect(memoryFS.exists(`${packagePath}/base.prmd`)).toBe(true);
       expect(memoryFS.exists(`${packagePath}/manifest.json`)).toBe(true);
 
-      // Verify content
       const prmdContent = memoryFS.readFile(`${packagePath}/base.prmd`);
       expect(prmdContent).toContain('name: base-template');
       expect(prmdContent).toContain('You are a helpful assistant');
     });
 
-    it('should handle package/ prefix stripping', async () => {
-      const testFiles: Record<string, string> = {
-        'package/test.prmd': '---\nname: test\n---\n# User\nHello'
-      };
+    it('should store files at correct virtual paths', async () => {
+      const zipBuffer = createZipPackage({
+        'test.prmd': '---\nname: test\n---\n# User\nHello'
+      });
 
-      const tarballBuffer = await createTarball(testFiles);
-      await memoryFS.addPackage('@test/pkg', '1.0.0', tarballBuffer);
+      await memoryFS.addPackage('@test/pkg', '1.0.0', zipBuffer);
 
       const packagePath = memoryFS.getPackagePath('@test/pkg', '1.0.0');
 
-      // Should be accessible without 'package/' prefix
       expect(memoryFS.exists(`${packagePath}/test.prmd`)).toBe(true);
-
-      // Should NOT have 'package/' in the path
-      expect(memoryFS.exists(`${packagePath}/package/test.prmd`)).toBe(false);
     });
 
     it('should support nested directory structures', async () => {
-      const testFiles: Record<string, string> = {
-        'package/prompts/greeting.prmd': '---\nname: greeting\n---\n# User\nHi',
-        'package/prompts/farewell.prmd': '---\nname: farewell\n---\n# User\nBye',
-        'package/utils/helper.prmd': '---\nname: helper\n---\n# System\nHelper'
-      };
+      const zipBuffer = createZipPackage({
+        'prompts/greeting.prmd': '---\nname: greeting\n---\n# User\nHi',
+        'prompts/farewell.prmd': '---\nname: farewell\n---\n# User\nBye',
+        'utils/helper.prmd': '---\nname: helper\n---\n# System\nHelper'
+      });
 
-      const tarballBuffer = await createTarball(testFiles);
-      await memoryFS.addPackage('@test/nested', '2.0.0', tarballBuffer);
+      await memoryFS.addPackage('@test/nested', '2.0.0', zipBuffer);
 
       const packagePath = memoryFS.getPackagePath('@test/nested', '2.0.0');
 
@@ -108,12 +106,8 @@ You are a helpful assistant.
 
   describe('Package Resolution with MemoryFileSystem', () => {
     it('should resolve package references from memory', async () => {
-      // This test requires a mock registry client
-      // For now, we'll test the basic flow
-
-      // Add a base package to memory
-      const basePackage: Record<string, string> = {
-        'package/base.prmd': `---
+      const baseZip = createZipPackage({
+        'base.prmd': `---
 name: base-template
 version: 1.0.0
 ---
@@ -121,12 +115,10 @@ version: 1.0.0
 # System
 Base system prompt.
 `
-      };
+      });
 
-      const baseTarball = await createTarball(basePackage);
-      await memoryFS.addPackage('@prompd.io/base', '1.0.0', baseTarball);
+      await memoryFS.addPackage('@prompd.io/base', '1.0.0', baseZip);
 
-      // Add a prompt that inherits from the base package
       memoryFS.addFile('/test-prompt.prmd', `---
 name: my-prompt
 version: 1.0.0
@@ -137,7 +129,6 @@ inherits: "@prompd.io/base@1.0.0/base.prmd"
 User request goes here.
 `);
 
-      // Verify the package is accessible
       const packagePath = memoryFS.getPackagePath('@prompd.io/base', '1.0.0');
       expect(memoryFS.exists(`${packagePath}/base.prmd`)).toBe(true);
     });
@@ -145,9 +136,8 @@ User request goes here.
 
   describe('Compiler Integration with In-Memory Packages', () => {
     it('should compile prompts using in-memory packages', async () => {
-      // Create a base package
-      const basePackage: Record<string, string> = {
-        'package/base.prmd': `---
+      const baseZip = createZipPackage({
+        'base.prmd': `---
 name: base
 version: 1.0.0
 parameters:
@@ -164,12 +154,10 @@ You are a helpful AI assistant.
 {{ context }}
 {%- endif %}
 `
-      };
+      });
 
-      const baseTarball = await createTarball(basePackage);
-      await memoryFS.addPackage('@test/base', '1.0.0', baseTarball);
+      await memoryFS.addPackage('@test/base', '1.0.0', baseZip);
 
-      // Create a prompt that uses the package
       memoryFS.addFile('/my-prompt.prmd', `---
 name: my-prompt
 version: 1.0.0
@@ -184,8 +172,6 @@ parameters:
 {{ user_input }}
 `);
 
-      // Compile the prompt (Note: This will require the full compilation pipeline to support MemoryFS)
-      // For now, we verify the setup is correct
       expect(memoryFS.exists('/my-prompt.prmd')).toBe(true);
       expect(memoryFS.exists('/packages/@test/base@1.0.0/base.prmd')).toBe(true);
     });
@@ -204,8 +190,8 @@ parameters:
       expect(memoryFS.exists(packagePath)).toBe(false);
     });
 
-    it('should handle corrupt tarballs', async () => {
-      const corruptBuffer = Buffer.from('this is not a valid tarball');
+    it('should handle corrupt zip data', async () => {
+      const corruptBuffer = Buffer.from('this is not a valid zip');
 
       await expect(async () => {
         await memoryFS.addPackage('@test/corrupt', '1.0.0', corruptBuffer);
@@ -217,7 +203,6 @@ parameters:
     it('should preserve virtual paths when using MemoryFileSystem', async () => {
       const memoryFS = new MemoryFileSystem();
 
-      // Add a file with a virtual path
       memoryFS.addFile('/main.prmd', `---
 id: test-prompt
 name: test-prompt
@@ -226,18 +211,15 @@ version: 1.0.0
 # User
 Test prompt content`);
 
-      // Compile using MemoryFileSystem with virtual path
       const compiler = new PrompdCompiler();
       const output = await compiler.compile('/main.prmd', {
         fileSystem: memoryFS
       });
 
-      // Should compile successfully without trying to resolve to OS path
       expect(output).toContain('Test prompt content');
     });
 
     it('should resolve to absolute paths when using NodeFileSystem', async () => {
-      // This test verifies that disk-based paths still get resolved
       const tempDir = await fs.mkdtemp(path.join(require('os').tmpdir(), 'prompd-path-test-'));
 
       try {
@@ -250,13 +232,11 @@ version: 1.0.0
 # User
 Disk-based prompt`, 'utf-8');
 
-        // Use relative path (should be resolved to absolute)
         const compiler = new PrompdCompiler();
         const relativePath = path.relative(process.cwd(), testFile);
 
         const output = await compiler.compile(relativePath);
 
-        // Should compile successfully with resolved path
         expect(output).toContain('Disk-based prompt');
       } finally {
         await fs.remove(tempDir);
@@ -264,36 +244,3 @@ Disk-based prompt`, 'utf-8');
     });
   });
 });
-
-/**
- * Helper function to create a tarball from file map
- */
-async function createTarball(files: Record<string, string>): Promise<Buffer> {
-  const tempDir = await fs.mkdtemp(path.join(require('os').tmpdir(), 'prompd-test-'));
-
-  try {
-    // Write files to temp directory
-    for (const [filePath, content] of Object.entries(files)) {
-      const fullPath = path.join(tempDir, filePath);
-      await fs.ensureDir(path.dirname(fullPath));
-      await fs.writeFile(fullPath, content, 'utf-8');
-    }
-
-    // Create tarball
-    const tarballPath = path.join(tempDir, 'package.tar');
-    await tar.create(
-      {
-        file: tarballPath,
-        cwd: tempDir
-      },
-      ['package']
-    );
-
-    // Read tarball as buffer
-    const buffer = await fs.readFile(tarballPath);
-    return buffer;
-  } finally {
-    // Cleanup
-    await fs.remove(tempDir);
-  }
-}
