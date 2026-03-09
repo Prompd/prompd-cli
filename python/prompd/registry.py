@@ -1,5 +1,5 @@
 """
-Prompd Registry Integration
+PrompdHub Integration
 
 Provides commands for publishing, searching, and installing packages from the Prompd registry.
 Integrates with registry.prompdhub.ai API endpoints.
