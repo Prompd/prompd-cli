@@ -1,4 +1,4 @@
-module github.com/Logikbug/prompd-cli
+module github.com/prompd/prompd-cli
 
 go 1.20
 

@@ -29,10 +29,10 @@ This document outlines the distribution strategy for the Prompd CLI, keeping the
 **Usage**:
 ```bash
 # Latest release download
-curl -sSL https://github.com/Logikbug/prompt-markdown/raw/main/install.sh | bash
+curl -sSL https://github.com/prompd/prompd-cli/raw/main/install.sh | bash
 
 # Windows PowerShell
-iwr https://github.com/Logikbug/prompt-markdown/raw/main/install.ps1 | iex
+iwr https://github.com/prompd/prompd-cli/raw/main/install.ps1 | iex
 ```
 
 ### 2. Go Module Registry
@@ -40,7 +40,7 @@ iwr https://github.com/Logikbug/prompt-markdown/raw/main/install.ps1 | iex
 
 Users can install directly from source:
 ```bash
-go install github.com/Logikbug/prompt-markdown/cli/prompd/go/cmd/prompd@latest
+go install github.com/prompd/prompd-cli/go/cmd/prompd@latest
 ```
 
 ### 3. Package Managers (Future)
@@ -82,7 +82,7 @@ snap install prompd
 ### Public Entry Point
 - **Location**: `cmd/prompd/main.go`
 - **Purpose**: Redirect users to appropriate implementation
-- **Go Module**: `github.com/Logikbug/prompt-markdown`
+- **Go Module**: `github.com/prompd/prompd-cli`
 
 ## Release Process
 
@@ -117,10 +117,10 @@ git push origin v1.0.0
 ### Quick Install (Recommended)
 ```bash
 # Linux/macOS
-curl -sSL https://github.com/Logikbug/prompt-markdown/raw/main/install.sh | bash
+curl -sSL https://github.com/prompd/prompd-cli/raw/main/install.sh | bash
 
 # Windows (PowerShell)
-iwr https://github.com/Logikbug/prompt-markdown/raw/main/install.ps1 | iex
+iwr https://github.com/prompd/prompd-cli/raw/main/install.ps1 | iex
 ```
 
 ### From Source

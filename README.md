@@ -1,6 +1,6 @@
 # Prompd - Structured Prompt Definitions for LLMs
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Elastic-2.0](https://img.shields.io/badge/License-Elastic--2.0-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
 Prompd is a CLI tool and file format for managing structured AI prompts. Write once, run anywhere - execute the same prompt across OpenAI, Anthropic, Ollama, local models, or any OpenAI-compatible API.
@@ -420,10 +420,10 @@ Contributions welcome! Please:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
+Elastic License 2.0 (ELv2) - see [LICENSE](LICENSE) file.
 
 ## Related
 
 - [Prompd Desktop App](https://github.com/Prompd/prompd-app) — Visual IDE for building and deploying AI workflows
 - [Community Prompts](https://github.com/Prompd/prompds) — Open-source prompt packages and templates
-- [Prompd Registry](https://www.prompdhub.ai/registry) — Browse and install community packages
+- [PrompdHub](https://www.prompdhub.ai/registry) — Browse and install community packages

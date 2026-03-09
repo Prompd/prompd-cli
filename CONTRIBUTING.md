@@ -45,8 +45,8 @@ Be respectful, inclusive, and constructive in all interactions.
 
 ```bash
 # Clone the repository
-git clone https://github.com/Logikbug/prompt-markdown.git
-cd prompt-markdown
+git clone https://github.com/prompd/prompd-cli.git
+cd prompd-cli
 
 # Install in development mode
 pip install -e ".[dev]"
