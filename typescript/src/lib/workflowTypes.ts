@@ -1832,7 +1832,7 @@ export interface AgentTool {
   }
 
   /** How this tool is executed */
-  toolType: 'function' | 'http' | 'mcp' | 'workflow' | 'command' | 'code'
+  toolType: 'function' | 'http' | 'mcp' | 'workflow' | 'command' | 'code' | 'web-search' | 'database-query'
 
   /** For HTTP tools */
   httpConfig?: {

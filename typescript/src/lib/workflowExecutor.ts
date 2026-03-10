@@ -47,12 +47,173 @@ import type {
   MemoryNodeData,
   WebSearchNodeData,
   DatabaseQueryNodeData,
+  ApiNodeData,
   BaseNodeData,
 } from './workflowTypes'
 import { getExecutionOrder, type ParsedWorkflow } from './workflowParser'
 import { MemoryBackend, InMemoryBackend, NoOpBackend } from './memoryBackend'
 
 type ExecutionCallback = (state: WorkflowExecutionState) => void
+
+/**
+ * Node types that represent callable tools.
+ * Must match TOOL_NODE_TYPES in the frontend's workflowTypes.ts.
+ */
+const TOOL_NODE_TYPES: ReadonlySet<string> = new Set([
+  'tool', 'mcp-tool', 'web-search', 'skill', 'api',
+  'command', 'code', 'claude-code', 'database-query',
+])
+
+/** Node types allowed as children in tool containers (tool-call-router, chat-agent) */
+const TOOL_CONTAINER_CHILD_TYPES: ReadonlySet<string> = new Set([
+  ...TOOL_NODE_TYPES, 'tool-call-parser',
+])
+
+/**
+ * Convert any tool-like workflow node to an AgentTool definition.
+ * Handles all node types that extend BaseToolNodeData (tool, mcp-tool, web-search,
+ * skill, command, code, claude-code, database-query, api).
+ */
+function nodeToAgentTool(toolNode: WorkflowNode): AgentTool & { _toolNodeId?: string; _originalToolType?: string; _connectionId?: string } {
+  const data = toolNode.data as Record<string, unknown>
+  const nodeType = toolNode.type || 'tool'
+
+  // Read BaseToolNodeData fields (all tool-like nodes have these)
+  const toolName = (data.toolName as string) || (data.label as string) || nodeType
+  const description = (data.description as string) || `Tool: ${toolName}`
+  const parameterSchema = data.parameterSchema as AgentTool['parameters']
+
+  // Determine AgentTool toolType based on node type
+  let agentToolType: AgentTool['toolType'] = 'function'
+  let originalToolType: string = nodeType
+
+  if (nodeType === 'tool') {
+    // ToolNode has its own toolType field
+    const tt = (data.toolType as string) || 'function'
+    originalToolType = tt
+    agentToolType = tt === 'http' ? 'http' : tt === 'mcp' ? 'mcp' : 'function'
+  } else if (nodeType === 'mcp-tool') {
+    agentToolType = 'mcp'
+  } else if (nodeType === 'api') {
+    agentToolType = 'http'
+  } else if (nodeType === 'command' || nodeType === 'claude-code') {
+    agentToolType = 'command'
+  } else if (nodeType === 'code') {
+    agentToolType = 'code'
+  } else if (nodeType === 'web-search') {
+    agentToolType = 'web-search'
+  } else if (nodeType === 'database-query') {
+    agentToolType = 'database-query'
+  }
+  // skill → 'function' (default)
+
+  // Auto-generate parameterSchema for node types that have known inputs
+  // but no explicit schema set by the user
+  let resolvedParameters = parameterSchema
+  if (!resolvedParameters || !resolvedParameters.properties || Object.keys(resolvedParameters.properties).length === 0) {
+    if (nodeType === 'web-search') {
+      resolvedParameters = {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query to look up on the web' },
+        },
+        required: ['query'],
+      }
+    } else if (nodeType === 'database-query') {
+      const dbData = data as unknown as DatabaseQueryNodeData
+      // For MongoDB: the LLM provides a JSON query document and optionally a collection
+      // For SQL: the LLM provides the SQL query and optionally parameters
+      // The node's configured values serve as defaults
+      resolvedParameters = {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: dbData.collection
+              ? `Query to execute. For MongoDB, provide a JSON filter document (e.g. {"name": "John"}). Default collection: ${dbData.collection}`
+              : 'SQL query or database command to execute',
+          },
+          ...(dbData.collection ? {
+            collection: {
+              type: 'string',
+              description: `MongoDB collection name (default: ${dbData.collection})`,
+            },
+          } : {}),
+        },
+        required: ['query'],
+      }
+    } else if (nodeType === 'command') {
+      resolvedParameters = {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Input to pass to the command' },
+        },
+      }
+    } else if (nodeType === 'api') {
+      resolvedParameters = {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Input data for the API request' },
+        },
+      }
+    }
+  }
+
+  const agentTool: AgentTool & { _toolNodeId?: string; _originalToolType?: string; _connectionId?: string } = {
+    name: toolName,
+    description,
+    toolType: agentToolType,
+    parameters: resolvedParameters,
+    _toolNodeId: toolNode.id,
+    _originalToolType: originalToolType,
+  }
+
+  // Add type-specific config
+  if (nodeType === 'tool') {
+    const toolData = data as unknown as ToolNodeData
+    if (toolData.toolType === 'http') {
+      agentTool.httpConfig = {
+        method: toolData.httpMethod || 'GET',
+        url: toolData.httpUrl || '',
+        headers: toolData.httpHeaders,
+        bodyTemplate: toolData.httpBody,
+      }
+    } else if (toolData.toolType === 'mcp') {
+      agentTool.mcpConfig = {
+        serverUrl: toolData.mcpServerUrl,
+        serverName: toolData.mcpServerName,
+      }
+    }
+  } else if (nodeType === 'mcp-tool') {
+    const mcpData = data as unknown as McpToolNodeData
+    agentTool.mcpConfig = {
+      serverUrl: mcpData.serverConfig?.serverUrl,
+      serverName: mcpData.serverConfig?.serverName,
+    }
+  } else if (nodeType === 'api') {
+    const apiData = data as unknown as ApiNodeData
+    agentTool.httpConfig = {
+      method: apiData.method || 'GET',
+      url: apiData.url || '',
+      headers: apiData.headers,
+      bodyTemplate: apiData.body,
+    }
+    // Carry connectionId so execution can resolve baseUrl from the http-api connection
+    if ((data as BaseNodeData).connectionId) {
+      agentTool._connectionId = (data as BaseNodeData).connectionId
+    }
+  } else if (nodeType === 'command') {
+    const cmdData = data as unknown as CommandNodeData
+    agentTool.commandConfig = {
+      executable: cmdData.command || '',
+      args: cmdData.args?.join(' '),
+      cwd: cmdData.cwd,
+      requiresApproval: cmdData.requiresApproval,
+    }
+  }
+
+  return agentTool
+}
 
 /** Execution mode determines how callback nodes behave */
 export type ExecutionMode = 'automated' | 'debug' | 'step'
@@ -164,6 +325,8 @@ export interface ToolCallRequest {
     url: string
     headers?: Record<string, string>
     body?: string
+    /** Reference to a saved http-api connection for baseUrl/auth resolution */
+    connectionId?: string
   }
   /** For MCP tools */
   mcpConfig?: {
@@ -194,6 +357,8 @@ export interface ToolCallRequest {
       apiKey?: string
       instanceUrl?: string
     }
+    /** Reference to a saved connection for provider/apiKey resolution */
+    connectionId?: string
   }
   /** For database query tools */
   databaseConfig?: {
@@ -4685,6 +4850,334 @@ async function emitAgentCheckpoint(
  * history is captured and included in the output for downstream analysis.
  * Use a Checkpoint node connected to the agent output to inspect agent state.
  */
+
+/**
+ * Build memory tools based on the docked memory node's mode.
+ *
+ * When a memory node is docked to an agent's 'memory' handle, the tools
+ * adapt to the memory mode:
+ * - kv: memory_get, memory_set, memory_delete, memory_list
+ * - conversation: memory_get_history, memory_append, memory_clear_history
+ * - cache: memory_get (with TTL info), memory_set (with TTL), memory_delete, memory_list
+ *
+ * When no memory node is docked, defaults to KV tools for backward compatibility.
+ * Scope and namespace are pre-filled from the memory node config to simplify LLM usage.
+ */
+function buildMemoryTools(
+  agentNodeId: string,
+  workflowFile?: WorkflowFile,
+): AgentTool[] {
+  // Find docked memory node
+  let memoryMode: 'kv' | 'conversation' | 'cache' = 'kv'
+  let defaultScope = 'workflow'
+  let defaultNamespace = ''
+  let defaultConversationId = 'default'
+  let maxMessages = 0
+
+  if (workflowFile) {
+    const dockedMemoryNode = workflowFile.nodes.find(n => {
+      const nodeData = n.data as BaseNodeData
+      return n.type === 'memory' &&
+        nodeData.dockedTo?.nodeId === agentNodeId &&
+        nodeData.dockedTo?.handleId === 'memory'
+    })
+
+    // Also check for edge-connected memory nodes (non-docked)
+    const edgeConnectedMemoryNode = !dockedMemoryNode ? workflowFile.nodes.find(n => {
+      if (n.type !== 'memory') return false
+      return workflowFile.edges.some(
+        e => e.source === agentNodeId && e.sourceHandle === 'memory' && e.target === n.id
+      )
+    }) : undefined
+
+    const memoryNode = dockedMemoryNode || edgeConnectedMemoryNode
+    if (memoryNode) {
+      const memData = memoryNode.data as MemoryNodeData
+      memoryMode = memData.mode || 'kv'
+      defaultScope = memData.scope || 'workflow'
+      defaultNamespace = memData.namespace || ''
+      if (memoryMode === 'conversation') {
+        defaultConversationId = memData.conversationId || 'default'
+        maxMessages = memData.maxMessages ?? 0
+      }
+    }
+  }
+
+  const scopeDescription = defaultScope === 'execution'
+    ? 'execution: data is cleared when this workflow run ends'
+    : defaultScope === 'global'
+      ? 'global: data shared across all workflows'
+      : 'workflow: data persists across executions of this workflow'
+
+  switch (memoryMode) {
+    case 'conversation': {
+      return [
+        {
+          name: 'memory_get_history',
+          description: `Retrieve conversation history. Returns an array of messages with role and content.${maxMessages > 0 ? ` Sliding window: last ${maxMessages} messages.` : ''}`,
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              conversation_id: {
+                type: 'string',
+                description: `Conversation thread ID (default: "${defaultConversationId}")`,
+              },
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace for isolation (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: [],
+          },
+        },
+        {
+          name: 'memory_append',
+          description: 'Append a message to conversation history. The message is added with a role and content.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              role: {
+                type: 'string',
+                enum: ['user', 'assistant', 'system'],
+                description: 'The role of the message sender',
+              },
+              content: {
+                type: 'string',
+                description: 'The message content to append',
+              },
+              conversation_id: {
+                type: 'string',
+                description: `Conversation thread ID (default: "${defaultConversationId}")`,
+              },
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace for isolation (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: ['role', 'content'],
+          },
+        },
+        {
+          name: 'memory_clear_history',
+          description: 'Clear all messages from a conversation history.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              conversation_id: {
+                type: 'string',
+                description: `Conversation thread ID (default: "${defaultConversationId}")`,
+              },
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace for isolation (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: [],
+          },
+        },
+      ]
+    }
+
+    case 'cache': {
+      return [
+        {
+          name: 'memory_get',
+          description: 'Retrieve a cached value. Returns null if expired or not found.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'The cache key to retrieve' },
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace for isolation (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: ['key'],
+          },
+        },
+        {
+          name: 'memory_set',
+          description: 'Store a value in cache with optional TTL (time-to-live in seconds).',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'The cache key' },
+              value: { type: 'string', description: 'The value to cache (any JSON-serializable data)' },
+              ttl: { type: 'number', description: 'Time-to-live in seconds (0 = no expiration)' },
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace for isolation (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: ['key', 'value'],
+          },
+        },
+        {
+          name: 'memory_delete',
+          description: 'Delete a cached value.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'The cache key to delete' },
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace for isolation (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: ['key'],
+          },
+        },
+        {
+          name: 'memory_list',
+          description: 'List all cache keys in a namespace.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace for isolation (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: [],
+          },
+        },
+      ]
+    }
+
+    case 'kv':
+    default: {
+      return [
+        {
+          name: 'memory_get',
+          description: 'Retrieve a value from workflow or global memory. Use this to recall information stored in previous workflow executions.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace to organize related data (default: "${defaultNamespace || 'default'}")`,
+              },
+              key: { type: 'string', description: 'The key to retrieve' },
+            },
+            required: ['key'],
+          },
+        },
+        {
+          name: 'memory_set',
+          description: 'Store a value in workflow or global memory for future executions.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace to organize related data (default: "${defaultNamespace || 'default'}")`,
+              },
+              key: { type: 'string', description: 'The key to store under' },
+              value: { type: 'string', description: 'The value to store (any JSON-serializable data)' },
+            },
+            required: ['key', 'value'],
+          },
+        },
+        {
+          name: 'memory_delete',
+          description: 'Delete a value from workflow or global memory.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace containing the key (default: "${defaultNamespace || 'default'}")`,
+              },
+              key: { type: 'string', description: 'The key to delete' },
+            },
+            required: ['key'],
+          },
+        },
+        {
+          name: 'memory_list',
+          description: 'List all keys in a namespace for workflow or global memory.',
+          toolType: 'function',
+          parameters: {
+            type: 'object',
+            properties: {
+              scope: {
+                type: 'string',
+                enum: ['workflow', 'global'],
+                description: scopeDescription,
+              },
+              namespace: {
+                type: 'string',
+                description: `Namespace to list keys from (default: "${defaultNamespace || 'default'}")`,
+              },
+            },
+            required: [],
+          },
+        },
+      ]
+    }
+  }
+}
+
 async function executeAgentNode(
   node: WorkflowNode,
   context: {
@@ -4734,48 +5227,14 @@ async function executeAgentNode(
       if (toolRouterNode) {
         connectedToolRouterNodeId = toolRouterNode.id
 
-        // Find all Tool nodes that are children of this Tool Router
+        // Find all tool-like nodes that are children of this Tool Router
         const childToolNodes = workflowFile.nodes.filter(
-          n => n.parentId === toolRouterNode.id && n.type === 'tool'
+          n => n.parentId === toolRouterNode.id && TOOL_CONTAINER_CHILD_TYPES.has(n.type || '')
         )
 
-        // Convert Tool nodes to AgentTool format
+        // Convert tool nodes to AgentTool format
         for (const toolNode of childToolNodes) {
-          const toolData = toolNode.data as ToolNodeData
-
-          // Map toolType: command -> function (we'll handle it specially during execution)
-          // Map toolType: code -> function (same handling)
-          const agentToolType: AgentTool['toolType'] =
-            toolData.toolType === 'http' ? 'http' :
-            toolData.toolType === 'mcp' ? 'mcp' :
-            'function'  // command, code, and function all map to 'function'
-
-          const agentTool: AgentTool = {
-            name: toolData.toolName,
-            description: toolData.description || `Tool: ${toolData.toolName}`,
-            toolType: agentToolType,
-            parameters: toolData.parameterSchema,
-            // Store original data for execution routing
-            httpConfig: toolData.toolType === 'http' ? {
-              method: toolData.httpMethod || 'GET',
-              url: toolData.httpUrl || '',
-              headers: toolData.httpHeaders,
-              bodyTemplate: toolData.httpBody,
-            } : undefined,
-            mcpConfig: toolData.toolType === 'mcp' ? {
-              serverUrl: toolData.mcpServerUrl,
-              serverName: toolData.mcpServerName,
-            } : undefined,
-          }
-
-          // Store tool node ID and original type for routing during execution
-          // We'll use this in executeAgentTool to route to the actual Tool node
-          ;(agentTool as AgentTool & { _toolNodeId?: string; _originalToolType?: string }).
-            _toolNodeId = toolNode.id
-          ;(agentTool as AgentTool & { _toolNodeId?: string; _originalToolType?: string }).
-            _originalToolType = toolData.toolType
-
-          collectedTools.push(agentTool)
+          collectedTools.push(nodeToAgentTool(toolNode))
         }
 
         addTraceEntry(trace, {
@@ -4786,118 +5245,15 @@ async function executeAgentNode(
           message: `Collected ${childToolNodes.length} tools from Tool Router '${toolRouterNode.data.label}'`,
           data: {
             toolRouterNodeId: toolRouterNode.id,
-            collectedToolNames: childToolNodes.map(n => (n.data as ToolNodeData).toolName),
+            collectedToolNames: childToolNodes.map(n => (n.data as Record<string, unknown>).toolName as string || (n.data as BaseNodeData).label),
           },
         }, options)
       }
     }
   }
 
-  // Add memory tools to enable LLM access to workflow/global memory
-  const memoryTools: AgentTool[] = [
-    {
-      name: 'memory_get',
-      description: 'Retrieve a value from workflow or global memory. Use this to recall information stored in previous workflow executions.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow: data persists across executions of this workflow; global: data shared across all workflows'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace to organize related data (e.g., "user_preferences", "session_data")'
-          },
-          key: {
-            type: 'string',
-            description: 'The key to retrieve'
-          }
-        },
-        required: ['scope', 'namespace', 'key']
-      }
-    },
-    {
-      name: 'memory_set',
-      description: 'Store a value in workflow or global memory for future executions. Use this to remember information across workflow runs.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow: data persists across executions of this workflow; global: data shared across all workflows'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace to organize related data (e.g., "user_preferences", "session_data")'
-          },
-          key: {
-            type: 'string',
-            description: 'The key to store under'
-          },
-          value: {
-            type: 'string',
-            description: 'The value to store (any JSON-serializable data)'
-          },
-          ttl: {
-            type: 'number',
-            description: 'Optional: Time-to-live in seconds (for cache mode only)'
-          }
-        },
-        required: ['scope', 'namespace', 'key', 'value']
-      }
-    },
-    {
-      name: 'memory_delete',
-      description: 'Delete a value from workflow or global memory.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow or global scope'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace containing the key'
-          },
-          key: {
-            type: 'string',
-            description: 'The key to delete'
-          }
-        },
-        required: ['scope', 'namespace', 'key']
-      }
-    },
-    {
-      name: 'memory_list',
-      description: 'List all keys in a namespace for workflow or global memory.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow or global scope'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace to list keys from'
-          }
-        },
-        required: ['scope', 'namespace']
-      }
-    }
-  ]
-
-  // Add memory tools to collected tools
+  // Add memory tools adapted to the docked memory node's mode (kv/conversation/cache)
+  const memoryTools = buildMemoryTools(node.id, workflowFile)
   collectedTools.push(...memoryTools)
 
   // Resolve user prompt with template expressions
@@ -5083,7 +5439,9 @@ async function executeAgentNode(
 
     // Tool call found - execute it
     totalToolCalls++
-    const toolName = toolCallResult.toolName!
+    // Normalize tool name: strip 'functions.' prefix that some LLMs add (e.g. "functions.web_search" → "web_search")
+    const rawToolName = toolCallResult.toolName!
+    const toolName = rawToolName.startsWith('functions.') ? rawToolName.slice('functions.'.length) : rawToolName
     const toolParams = toolCallResult.toolParameters || {}
 
     // Add assistant message with tool call to history
@@ -5856,39 +6214,14 @@ Analyze the input above. Return a JSON object:
   // Collect tools from child nodes or inline tools
   let collectedTools: AgentTool[] = [...(data.tools || [])]
 
-  // Find tool nodes that are children of this chat-agent node
+  // Find tool-like nodes that are children of this chat-agent node
   if (workflowFile) {
     const childToolNodes = workflowFile.nodes.filter(
-      n => n.parentId === node.id && n.type === 'tool'
+      n => n.parentId === node.id && TOOL_CONTAINER_CHILD_TYPES.has(n.type || '')
     )
 
     for (const toolNode of childToolNodes) {
-      const toolData = toolNode.data as ToolNodeData
-      const agentToolType: AgentTool['toolType'] =
-        toolData.toolType === 'http' ? 'http' :
-        toolData.toolType === 'mcp' ? 'mcp' : 'function'
-
-      const agentTool: AgentTool = {
-        name: toolData.toolName,
-        description: toolData.description || `Tool: ${toolData.toolName}`,
-        toolType: agentToolType,
-        parameters: toolData.parameterSchema,
-        httpConfig: toolData.toolType === 'http' ? {
-          method: toolData.httpMethod || 'GET',
-          url: toolData.httpUrl || '',
-          headers: toolData.httpHeaders,
-          bodyTemplate: toolData.httpBody,
-        } : undefined,
-        mcpConfig: toolData.toolType === 'mcp' ? {
-          serverUrl: toolData.mcpServerUrl,
-          serverName: toolData.mcpServerName,
-        } : undefined,
-      }
-
-      ;(agentTool as AgentTool & { _toolNodeId?: string; _originalToolType?: string })._toolNodeId = toolNode.id
-      ;(agentTool as AgentTool & { _toolNodeId?: string; _originalToolType?: string })._originalToolType = toolData.toolType
-
-      collectedTools.push(agentTool)
+      collectedTools.push(nodeToAgentTool(toolNode))
     }
 
     // Also check for connected tool-call-router
@@ -5896,132 +6229,17 @@ Analyze the input above. Return a JSON object:
       const toolRouterNode = workflowFile.nodes.find(n => n.id === data.toolRouterNodeId && n.type === 'tool-call-router')
       if (toolRouterNode) {
         const routerChildTools = workflowFile.nodes.filter(
-          n => n.parentId === toolRouterNode.id && n.type === 'tool'
+          n => n.parentId === toolRouterNode.id && TOOL_CONTAINER_CHILD_TYPES.has(n.type || '')
         )
         for (const toolNode of routerChildTools) {
-          const toolData = toolNode.data as ToolNodeData
-          const agentToolType: AgentTool['toolType'] =
-            toolData.toolType === 'http' ? 'http' :
-            toolData.toolType === 'mcp' ? 'mcp' : 'function'
-
-          const agentTool: AgentTool = {
-            name: toolData.toolName,
-            description: toolData.description || `Tool: ${toolData.toolName}`,
-            toolType: agentToolType,
-            parameters: toolData.parameterSchema,
-          }
-          ;(agentTool as AgentTool & { _toolNodeId?: string })._toolNodeId = toolNode.id
-          collectedTools.push(agentTool)
+          collectedTools.push(nodeToAgentTool(toolNode))
         }
       }
     }
   }
 
-  // Add memory tools to enable LLM access to workflow/global memory
-  const memoryTools: AgentTool[] = [
-    {
-      name: 'memory_get',
-      description: 'Retrieve a value from workflow or global memory. Use this to recall information stored in previous workflow executions.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow: data persists across executions of this workflow; global: data shared across all workflows'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace to organize related data (e.g., "user_preferences", "session_data")'
-          },
-          key: {
-            type: 'string',
-            description: 'The key to retrieve'
-          }
-        },
-        required: ['scope', 'namespace', 'key']
-      }
-    },
-    {
-      name: 'memory_set',
-      description: 'Store a value in workflow or global memory for future executions. Use this to remember information across workflow runs.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow: data persists across executions of this workflow; global: data shared across all workflows'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace to organize related data (e.g., "user_preferences", "session_data")'
-          },
-          key: {
-            type: 'string',
-            description: 'The key to store under'
-          },
-          value: {
-            type: 'string',
-            description: 'The value to store (any JSON-serializable data)'
-          },
-          ttl: {
-            type: 'number',
-            description: 'Optional: Time-to-live in seconds (for cache mode only)'
-          }
-        },
-        required: ['scope', 'namespace', 'key', 'value']
-      }
-    },
-    {
-      name: 'memory_delete',
-      description: 'Delete a value from workflow or global memory.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow or global scope'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace containing the key'
-          },
-          key: {
-            type: 'string',
-            description: 'The key to delete'
-          }
-        },
-        required: ['scope', 'namespace', 'key']
-      }
-    },
-    {
-      name: 'memory_list',
-      description: 'List all keys in a namespace for workflow or global memory.',
-      toolType: 'function',
-      parameters: {
-        type: 'object',
-        properties: {
-          scope: {
-            type: 'string',
-            enum: ['workflow', 'global'],
-            description: 'workflow or global scope'
-          },
-          namespace: {
-            type: 'string',
-            description: 'Namespace to list keys from'
-          }
-        },
-        required: ['scope', 'namespace']
-      }
-    }
-  ]
-
-  // Add memory tools to collected tools
+  // Add memory tools adapted to the docked memory node's mode (kv/conversation/cache)
+  const memoryTools = buildMemoryTools(node.id, workflowFile)
   collectedTools.push(...memoryTools)
 
   // Debug: log collected tools
@@ -6292,7 +6510,9 @@ Analyze the input above. Return a JSON object:
 
     // Tool call found
     totalToolCalls++
-    const toolName = toolCallResult.toolName!
+    // Normalize tool name: strip 'functions.' prefix that some LLMs add
+    const rawToolName = toolCallResult.toolName!
+    const toolName = rawToolName.startsWith('functions.') ? rawToolName.slice('functions.'.length) : rawToolName
     const toolParams = toolCallResult.toolParameters || {}
 
     // Log the tool call with parameters
@@ -6642,7 +6862,7 @@ async function callAgentLLM(
  * actual Tool node using the stored _toolNodeId and _originalToolType.
  */
 async function executeAgentTool(
-  tool: AgentTool & { _toolNodeId?: string; _originalToolType?: string },
+  tool: AgentTool & { _toolNodeId?: string; _originalToolType?: string; _connectionId?: string },
   params: Record<string, unknown>,
   context: {
     nodeOutputs: Record<string, unknown>
@@ -6911,6 +7131,114 @@ async function executeAgentTool(
           return { keys, count: keys.length }
         }
 
+        // Conversation memory tools
+        case 'memory_get_history': {
+          const conversationId = (params.conversation_id as string) || 'default'
+          const convKey = `__conv__${conversationId}`
+          const resolvedScope = scope || 'workflow'
+          const resolvedNamespace = namespace || ''
+
+          addTraceEntry(trace, {
+            type: 'debug_step',
+            nodeId,
+            nodeName: tool.name,
+            nodeType: 'agent',
+            message: `Getting conversation history: ${resolvedScope}:${resolvedNamespace}:${convKey}`,
+            data: { scope: resolvedScope, namespace: resolvedNamespace, conversationId },
+          }, options)
+
+          const stored = await memoryBackend.get(resolvedScope, resolvedNamespace, convKey)
+          const messages = Array.isArray(stored) ? stored : []
+          return { messages, messageCount: messages.length, conversationId }
+        }
+
+        case 'memory_append': {
+          const conversationId = (params.conversation_id as string) || 'default'
+          const convKey = `__conv__${conversationId}`
+          const role = params.role as string
+          const content = params.content as string
+          const resolvedScope = scope || 'workflow'
+          const resolvedNamespace = namespace || ''
+
+          addTraceEntry(trace, {
+            type: 'debug_step',
+            nodeId,
+            nodeName: tool.name,
+            nodeType: 'agent',
+            message: `Appending ${role} message to conversation ${conversationId}`,
+            data: { scope: resolvedScope, namespace: resolvedNamespace, conversationId, role },
+          }, options)
+
+          // Load existing conversation
+          const stored = await memoryBackend.get(resolvedScope, resolvedNamespace, convKey)
+          const messages: Array<{ role: string; content: string; timestamp: number }> = Array.isArray(stored) ? stored : []
+
+          // Append new message
+          const message = { role, content, timestamp: Date.now() }
+          messages.push(message)
+
+          // Apply max messages limit if configured via the docked memory node
+          // The buildMemoryTools function embeds maxMessages in the tool description
+          // but we also check the docked memory node directly
+          if (workflowFile) {
+            const dockedMemoryNode = workflowFile.nodes.find(n => {
+              const nd = n.data as BaseNodeData
+              return n.type === 'memory' &&
+                nd.dockedTo?.nodeId === nodeId &&
+                nd.dockedTo?.handleId === 'memory'
+            })
+            if (dockedMemoryNode) {
+              const memData = dockedMemoryNode.data as MemoryNodeData
+              const maxMessages = memData.maxMessages ?? 0
+              if (maxMessages > 0) {
+                const includeSystem = memData.includeSystemInWindow ?? true
+                if (includeSystem) {
+                  while (messages.length > maxMessages) {
+                    messages.shift()
+                  }
+                } else {
+                  const systemMsgs = messages.filter(m => m.role === 'system')
+                  const nonSystemMsgs = messages.filter(m => m.role !== 'system')
+                  while (nonSystemMsgs.length > maxMessages) {
+                    nonSystemMsgs.shift()
+                  }
+                  // Rebuild preserving order
+                  messages.length = 0
+                  messages.push(...systemMsgs, ...nonSystemMsgs)
+                  messages.sort((a, b) => a.timestamp - b.timestamp)
+                }
+              }
+            }
+          }
+
+          // Store back
+          await memoryBackend.set(resolvedScope, resolvedNamespace, convKey, messages)
+          return { success: true, conversationId, messageCount: messages.length, appended: message }
+        }
+
+        case 'memory_clear_history': {
+          const conversationId = (params.conversation_id as string) || 'default'
+          const convKey = `__conv__${conversationId}`
+          const resolvedScope = scope || 'workflow'
+          const resolvedNamespace = namespace || ''
+
+          addTraceEntry(trace, {
+            type: 'debug_step',
+            nodeId,
+            nodeName: tool.name,
+            nodeType: 'agent',
+            message: `Clearing conversation history: ${conversationId}`,
+            data: { scope: resolvedScope, namespace: resolvedNamespace, conversationId },
+          }, options)
+
+          // Get count before clearing
+          const stored = await memoryBackend.get(resolvedScope, resolvedNamespace, convKey)
+          const count = Array.isArray(stored) ? stored.length : 0
+
+          await memoryBackend.delete(resolvedScope, resolvedNamespace, convKey)
+          return { success: true, conversationId, clearedCount: count }
+        }
+
         default:
           throw new Error(`Unknown memory tool: ${tool.name}`)
       }
@@ -6978,6 +7306,7 @@ async function executeAgentTool(
                 ...tool.httpConfig.headers,
               },
               body,
+              connectionId: (tool as { _connectionId?: string })._connectionId,
             },
           }
 
@@ -7088,6 +7417,97 @@ async function executeAgentTool(
       if (!result.success) {
         throw new Error(result.error || 'MCP tool execution failed')
       }
+
+      return applyOutputTransform(result.result, tool._toolNodeId)
+    }
+
+    case 'command':
+    case 'web-search':
+    case 'database-query': {
+      // Route through onToolCall callback for Electron-side execution
+      if (!options.onToolCall) {
+        throw new Error(`Tool '${tool.name}' (type: ${tool.toolType}) requires onToolCall callback`)
+      }
+
+      addTraceEntry(trace, {
+        type: 'debug_step',
+        nodeId,
+        nodeName: tool.name,
+        nodeType: 'agent',
+        message: `Executing ${tool.toolType} tool '${tool.name}' via onToolCall`,
+        data: { toolType: tool.toolType, params },
+      }, options)
+
+      const toolCallRequest: ToolCallRequest = {
+        nodeId,
+        toolName: tool.name,
+        toolType: tool.toolType as ToolCallRequest['toolType'],
+        parameters: params,
+      }
+
+      // Add type-specific config from the source tool node
+      if (tool._toolNodeId && workflowFile) {
+        const toolNode = workflowFile.nodes.find(n => n.id === tool._toolNodeId)
+        if (toolNode) {
+          if (tool.toolType === 'command') {
+            const toolData = toolNode.data as ToolNodeData
+            let commandArgs = toolData.commandArgs || ''
+            for (const [key, value] of Object.entries(params)) {
+              commandArgs = commandArgs.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), String(value))
+            }
+            toolCallRequest.commandConfig = {
+              executable: toolData.commandExecutable || '',
+              args: commandArgs,
+              cwd: toolData.commandCwd,
+              requiresApproval: toolData.commandRequiresApproval,
+            }
+          } else if (tool.toolType === 'web-search') {
+            const toolData = toolNode.data as WebSearchNodeData
+            const baseData = toolNode.data as BaseNodeData
+            // LLM sends query via params (e.g. { query: "...", input: "..." })
+            const searchQuery = (params.query as string) || (params.input as string) || (params.search_query as string) || ''
+            toolCallRequest.webSearchConfig = {
+              query: searchQuery,
+              resultCount: toolData.resultCount || 5,
+              // Pass inline config if set, otherwise pass connectionId for resolution
+              connectionConfig: toolData.provider ? {
+                provider: toolData.provider,
+                apiKey: toolData.apiKey,
+                instanceUrl: toolData.instanceUrl,
+              } : undefined,
+              connectionId: baseData.connectionId,
+            }
+          } else if (tool.toolType === 'database-query') {
+            const toolData = toolNode.data as DatabaseQueryNodeData
+            // LLM may override query via params, otherwise use node's configured query
+            const query = (params.query as string) || toolData.query || ''
+            toolCallRequest.databaseConfig = {
+              connectionId: toolData.connectionId,
+              queryType: toolData.queryType || 'select',
+              query,
+              parameters: (params.parameters as string) || toolData.parameters,
+              collection: (params.collection as string) || toolData.collection,
+              maxRows: toolData.maxRows,
+              timeoutMs: toolData.timeoutMs,
+            }
+          }
+        }
+      }
+
+      const result = await options.onToolCall(toolCallRequest)
+
+      if (!result.success) {
+        throw new Error(result.error || `Tool '${tool.name}' execution failed`)
+      }
+
+      addTraceEntry(trace, {
+        type: 'debug_step',
+        nodeId,
+        nodeName: tool.name,
+        nodeType: 'agent',
+        message: `${tool.toolType} tool '${tool.name}' completed`,
+        data: { success: result.success, output: result.result },
+      }, options)
 
       return applyOutputTransform(result.result, tool._toolNodeId)
     }
