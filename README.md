@@ -13,20 +13,16 @@ Prompd is a CLI tool and file format for managing structured AI prompts. Write o
 # Option 1: Python CLI (Full Featured - Recommended)
 pip install prompd
 
-# Option 2: Go CLI (Zero Dependencies, Single Binary)
-# Download from releases or build:
-cd go && go build -o prompd ./cmd/prompd
-
-# Option 3: Node.js/TypeScript CLI (Developer Focused)
-cd typescript && npm install && npm run build
+# Option 2: Node.js/TypeScript CLI (Developer Focused)
+npm install -g @prompd/cli
 ```
 
 **Choose based on your deployment needs:**
 - **Python CLI**: Full-featured with compilation pipeline, AI shell, MCP server, and all advanced features
-- **Go CLI**: Lightweight, zero-dependency binary for containers, CI/CD, minimal environments
 - **Node.js CLI**: Developer-focused with TypeScript and MCP integration
+- **Go CLI**: *In progress* — lightweight, zero-dependency binary for containers and CI/CD
 
-> **Note**: The Python CLI is the most feature-complete implementation. Go and Node.js CLIs are being updated to achieve feature parity.
+> **Note**: The Python CLI is the most feature-complete implementation. The Go CLI is under active development and not yet available for general use.
 
 ### Install Python CLI from PyPI
 
@@ -426,4 +422,4 @@ Elastic License 2.0 (ELv2) - see [LICENSE](LICENSE) file.
 
 - [Prompd Desktop App](https://github.com/Prompd/prompd-app) — Visual IDE for building and deploying AI workflows
 - [Community Prompts](https://github.com/Prompd/prompds) — Open-source prompt packages and templates
-- [PrompdHub](https://www.prompdhub.ai/registry) — Browse and install community packages
+- [PrompdHub](https://prompdhub.ai) — Browse and install community packages
