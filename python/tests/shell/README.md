@@ -41,7 +41,7 @@ This directory contains comprehensive tests for the enhanced Prompd Shell with c
 ### Individual Test Files
 ```bash
 # Run from the python CLI directory
-cd /c/git/github/Logikbug/prompd-cli/python
+cd /c/git/github/Prompd/prompd-cli/python
 python tests/shell/test_compact_mode.py
 ```
 
