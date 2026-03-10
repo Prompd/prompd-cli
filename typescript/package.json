@@ -63,12 +63,12 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.5.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@types/nunjucks": "^3.2.6",
     "adm-zip": "^0.5.16",
     "archiver": "^6.0.1",
     "axios": "^1.6.2",
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "compression": "^1.7.4",
