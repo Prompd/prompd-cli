@@ -1,6 +1,6 @@
 {
   "name": "@prompd/cli",
-  "version": "0.5.0-beta.4",
+  "version": "0.5.0-beta.5",
   "description": "Node.js CLI for structured prompt definitions with universal LLM provider support. Also usable as a library in TypeScript/React apps.",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
@@ -68,7 +68,6 @@
     "adm-zip": "^0.5.16",
     "archiver": "^6.0.1",
     "axios": "^1.6.2",
-    "bcrypt": "^6.0.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "compression": "^1.7.4",
@@ -93,7 +92,6 @@
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
     "@types/archiver": "^6.0.2",
-    "@types/bcrypt": "^5.0.2",
     "@types/compression": "^1.7.5",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
