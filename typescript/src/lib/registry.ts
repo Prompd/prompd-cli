@@ -673,8 +673,9 @@ export class RegistryClient extends EventEmitter {
       return packageInfo.version;
     }
 
-    if (semver.valid(versionSpec)) {
-      return versionSpec;
+    const cleaned = semver.valid(versionSpec);
+    if (cleaned) {
+      return cleaned;
     }
 
     // Resolve version range

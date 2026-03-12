@@ -40,11 +40,14 @@ export function createRunCommand(): Command {
     .option('--timeout <ms>', 'Command execution timeout in milliseconds - for .pdflow files', '30000')
     .action(async (file: string, options) => {
       try {
+        // Check if it's a package reference (e.g., @namespace/package@version/path/to/file.prmd)
+        const isPackageRef = file.startsWith('@');
+
         // Check file extension to determine execution path
         const ext = path.extname(file).toLowerCase();
 
-        // Forward .pdflow files to workflow execution
-        if (ext === '.pdflow') {
+        // Forward .pdflow files to workflow execution (local files only)
+        if (!isPackageRef && ext === '.pdflow') {
           console.log(chalk.blue('Detected workflow file, forwarding to workflow executor...'));
           console.log();
           return await executeWorkflowFile(file, options);
@@ -53,7 +56,7 @@ export function createRunCommand(): Command {
         const executor = new PrompdExecutor();
 
         // For .txt, .md, or no-extension files: wrap with frontmatter and run through the prmd pipeline
-        const isRawText = ext === '.txt' || ext === '.md' || ext === '';
+        const isRawText = !isPackageRef && (ext === '.txt' || ext === '.md' || ext === '');
         if (isRawText) {
           if (options.verbose) {
             console.log(chalk.gray(`Detected ${ext || 'no-extension'} file, wrapping as .prmd for execution...`));
