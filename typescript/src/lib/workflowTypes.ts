@@ -283,6 +283,10 @@ export interface PromptNodeData extends BaseNodeData {
   outputMapping?: Record<string, string>
   inputSchema?: JsonSchema
   outputSchema?: JsonSchema
+  /** Temperature override (0-2) — overrides frontmatter hint, overridden by provider node */
+  temperature?: number
+  /** Max tokens override — overrides frontmatter hint, overridden by provider node */
+  maxTokens?: number
   /** Guardrail configuration (for content filtering/validation) */
   guardrail?: {
     /** Whether the guardrail is enabled */

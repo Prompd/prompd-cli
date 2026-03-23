@@ -28,23 +28,23 @@ export class PrompdExecutor {
       }
     }
 
-    // Compile through the full 6-stage pipeline
-    // Handles: parsing, parameter validation, Nunjucks templates ({% for %}, filters),
-    // inheritance, context resolution, includes, section overrides, and output formatting
+    // Compile through the full 6-stage pipeline and capture metadata for execution hints
     const compiler = new PrompdCompiler();
 
     // Make params available as both {{ param_name }} and {{ workflow.param_name }}
-    // The workflow. prefix is a namespace convention used in .prmd templates within workflows
     const compilationParams = { ...params, workflow: { ...params } };
 
-    let content = await compiler.compile(filePath, {
-      outputFormat: 'markdown',
+    const compilationOptions = {
+      outputFormat: 'markdown' as const,
       parameters: compilationParams,
       verbose: options.verbose,
       registryUrl: options.registryUrl,
       workspaceRoot: options.workspaceRoot,
       fileSystem: options.fileSystem
-    });
+    };
+
+    const compilationContext = await compiler.compileWithContext(filePath, compilationOptions);
+    let content = (compilationContext.compiledResult as string) || '';
 
     // Apply metadata overrides if provided (CLI --meta-system/context/user flags)
     if (options.metaSystem || options.metaContext || options.metaUser) {
@@ -58,20 +58,33 @@ export class PrompdExecutor {
       );
     }
 
+    // Priority chain for execution parameters:
+    // 1. Hardcoded fallback
+    // 2. Frontmatter hints (provider, model, temperature, max_tokens)
+    // 3. options (CLI flags / node properties) — highest priority
+    const frontmatter = compilationContext.metadata;
+    const resolvedProvider = options.provider || frontmatter?.provider || config.defaultProvider || 'openai';
+    const resolvedModel = options.model || frontmatter?.model || config.defaultModel || 'gpt-4o';
+    const resolvedTemperature = options.temperature ?? frontmatter?.temperature ?? 0.7;
+    const resolvedMaxTokens = options.maxTokens ?? frontmatter?.max_tokens ?? 4096;
+
     // Get API key
-    const apiKey = options.apiKey || this.configManager.getApiKey(options.provider, config);
-    if (!apiKey && options.provider !== 'ollama') {
-      throw new Error(`API key required for provider ${options.provider}`);
+    const apiKey = options.apiKey || this.configManager.getApiKey(resolvedProvider, config);
+    if (!apiKey && resolvedProvider !== 'ollama') {
+      throw new Error(`API key required for provider ${resolvedProvider}`);
     }
 
     if (options.verbose) {
-      console.log(`Executing ${filePath} with ${options.provider}/${options.model}`);
+      console.log(`Executing ${filePath} with ${resolvedProvider}/${resolvedModel}`);
+      if (frontmatter?.temperature !== undefined || frontmatter?.max_tokens !== undefined) {
+        console.log(`Frontmatter hints: temperature=${frontmatter.temperature}, max_tokens=${frontmatter.max_tokens}`);
+      }
       console.log('Parameters:', params);
       console.log('');
     }
 
     // Execute compiled content with LLM
-    return await this.callLLM(options.provider, options.model, content, apiKey);
+    return await this.callLLM(resolvedProvider, resolvedModel, content, apiKey, resolvedTemperature, resolvedMaxTokens);
   }
 
   /**
@@ -144,7 +157,14 @@ export class PrompdExecutor {
     );
   }
 
-  private async callLLM(providerName: string, model: string, content: string, apiKey?: string): Promise<LLMResponse> {
+  private async callLLM(
+    providerName: string,
+    model: string,
+    content: string,
+    apiKey?: string,
+    temperature = 0.7,
+    maxTokens = 4096
+  ): Promise<LLMResponse> {
     const customConfig = await this.resolveCustomProvider(providerName);
     const provider = createProvider(providerName, customConfig);
 
@@ -152,8 +172,8 @@ export class PrompdExecutor {
       prompt: content,
       model,
       apiKey: apiKey || '',
-      maxTokens: 4096,
-      temperature: 0.7
+      maxTokens,
+      temperature
     });
 
     if (!result.success) {

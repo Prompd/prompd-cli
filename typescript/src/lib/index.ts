@@ -250,6 +250,23 @@ export {
   NoOpBackend
 } from './memoryBackend';
 
+// Test harness interface (for pluggable test frameworks)
+export {
+  registerTestHarness,
+  getTestHarness
+} from './testHarness';
+export type {
+  TestHarness,
+  TestHarnessResult,
+  TestHarnessSuiteResult,
+  TestHarnessTestResult,
+  TestHarnessAssertionResult,
+  TestHarnessSummary,
+  TestHarnessOptions,
+  TestHarnessProgressEvent,
+  TestHarnessProgressCallback
+} from './testHarness';
+
 // Version information (from package.json — single source of truth)
 import pkg from '../../package.json';
 export const VERSION = pkg.version;

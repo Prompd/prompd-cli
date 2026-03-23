@@ -428,7 +428,7 @@ interface ExecutorOptions {
   onTraceEntry?: (entry: TraceEntry) => void
   /** Called for streaming output from prompt nodes */
   onStream?: (nodeId: string, chunk: string) => void
-  executePrompt?: (source: string, params: Record<string, unknown>, provider?: string, model?: string) => Promise<string>
+  executePrompt?: (source: string, params: Record<string, unknown>, provider?: string, model?: string, temperature?: number, maxTokens?: number) => Promise<string>
   /** Called by agent nodes to execute LLM prompts with conversation history */
   onPromptExecute?: (request: PromptExecuteRequest) => Promise<PromptExecuteResult>
   /** Called when an agent node emits a checkpoint event (tool calls, iterations, etc.) */
@@ -1828,7 +1828,9 @@ async function executePromptNode(
       sourceToExecute,
       allParams,
       resolvedProvider,
-      resolvedModel
+      resolvedModel,
+      data.temperature,
+      data.maxTokens
     )
   } catch (error) {
     // Emit error checkpoint event

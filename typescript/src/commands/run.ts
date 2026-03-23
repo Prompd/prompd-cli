@@ -269,7 +269,7 @@ async function executeWorkflowFile(file: string, options: any): Promise<void> {
     headless: options.headless ?? true,
     trace: options.trace ?? false,
     onToolCall: toolCallHandler,
-    executePrompt: async (source: string, params: Record<string, unknown>, provider?: string, model?: string) => {
+    executePrompt: async (source: string, params: Record<string, unknown>, provider?: string, model?: string, temperature?: number, maxTokens?: number) => {
       // Handle both .prmd files and raw prompt text
       try {
         // Check if source is a file path (.prmd extension)
@@ -278,7 +278,9 @@ async function executeWorkflowFile(file: string, options: any): Promise<void> {
           const result = await prompdExecutor.execute(source, {
             provider: provider || defaultProvider,
             model: model || defaultModel,
-            params: params
+            params: params,
+            ...(temperature !== undefined && { temperature }),
+            ...(maxTokens !== undefined && { maxTokens })
           });
           return result.response || result.content || '';
         } else {

@@ -13,6 +13,7 @@ export type {
   StreamChunk,
   TokenUsage,
   ModelInfo,
+  ModelCapabilities,
   ProviderConfig,
   ProviderEntry,
   GenerationMode

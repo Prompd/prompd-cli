@@ -249,6 +249,11 @@ export interface PrompdMetadata {
   response?: string | string[];
   output?: string | string[];
   requires?: string[];
+  // Execution hints — used as defaults, overridden by CLI flags / node properties
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
   // Advanced features for composable architecture
   using?: string | UsingPackage[] | Record<string, string>;  // Package imports
   inherits?: string;  // Parent template reference
@@ -336,4 +341,7 @@ export interface ExecuteOptions {
   registryUrl?: string;
   workspaceRoot?: string;
   fileSystem?: import('../lib/compiler/file-system').IFileSystem;
+  // Execution parameter overrides — take priority over frontmatter hints
+  temperature?: number;
+  maxTokens?: number;
 }

@@ -9,6 +9,7 @@ import * as xlsx from 'xlsx';
 import mammoth from 'mammoth';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
+import { PrompdParser } from '../lib/parser';
 import { needsFrontmatterProtection, getContentType, isValidPackageType, VALID_PACKAGE_TYPES, PackageType } from '../types';
 
 interface PackageExclusions {
@@ -860,6 +861,66 @@ export async function createPackageFromPrompdJson(
       success: false,
       error: `Validation errors in .prmd files:\n${errorList}`
     };
+  }
+
+  // 6d. Validate that all relative file references in .prmd frontmatter are included in the package.
+  // This catches missing dependencies when an explicit files list is used in prompd.json.
+  if (!autoDiscovered) {
+    const parser = new PrompdParser();
+    const missingDependencies: Array<{ prmd: string; field: string; ref: string; resolvedRelative: string }> = [];
+    const fileReferenceFields = ['system', 'context', 'task', 'user', 'assistant', 'response', 'output'];
+    const normalizedFilesToPackage = new Set(filesToPackage.map(f => f.replace(/\\/g, '/')));
+
+    for (const filePath of filesToPackage) {
+      if (!filePath.endsWith('.prmd')) continue;
+
+      const fullPath = path.join(workspacePath, filePath);
+      try {
+        const content = await fs.readFile(fullPath, 'utf8');
+        const parsed = parser.parseContent(content);
+        if (!parsed.metadata) continue;
+
+        const prmdDir = path.dirname(filePath).replace(/\\/g, '/');
+
+        for (const field of fileReferenceFields) {
+          const fieldValue = (parsed.metadata as unknown as Record<string, unknown>)[field];
+          if (!fieldValue) continue;
+
+          const refs: string[] = Array.isArray(fieldValue)
+            ? (fieldValue as unknown[]).filter((v): v is string => typeof v === 'string')
+            : typeof fieldValue === 'string' ? [fieldValue] : [];
+
+          for (const ref of refs) {
+            if (!ref.startsWith('./') && !ref.startsWith('../')) continue;
+
+            // Resolve relative to the .prmd file's directory (within workspace)
+            const resolvedRelative = path.posix.normalize(
+              prmdDir === '.' ? ref : `${prmdDir}/${ref}`
+            ).replace(/\\/g, '/');
+
+            if (!normalizedFilesToPackage.has(resolvedRelative)) {
+              // Check if the file actually exists on disk
+              const fullReferencedPath = path.join(workspacePath, resolvedRelative);
+              if (await fs.pathExists(fullReferencedPath)) {
+                missingDependencies.push({ prmd: filePath, field, ref, resolvedRelative });
+              }
+            }
+          }
+        }
+      } catch {
+        // Parsing errors are already caught by step 6b — skip here
+      }
+    }
+
+    if (missingDependencies.length > 0) {
+      const depList = missingDependencies.map(d =>
+        `  ${d.prmd}: ${d.field}: "${d.ref}" (missing "${d.resolvedRelative}" from prompd.json files)`
+      ).join('\n');
+      return {
+        success: false,
+        error: `Missing file dependencies — add these to your prompd.json "files" list:\n${depList}`
+      };
+    }
   }
 
   // 6c. Validate all .pdflow workflow files for structural integrity and referenced files
