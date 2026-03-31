@@ -182,6 +182,7 @@ def validate_version_string(version: str) -> str:
 
 # --- Secrets Detection ---
 
+
 @dataclass
 class SecretMatch:
     """Represents a detected secret in content or a file."""
@@ -198,15 +199,11 @@ SECRET_PATTERNS: Dict[str, re.Pattern[str]] = {
     "OpenAI API Key": re.compile(r"sk-[a-zA-Z0-9]{20,}"),
     "Anthropic API Key": re.compile(r"sk-ant-[a-zA-Z0-9_-]{20,}"),
     "AWS Access Key": re.compile(r"AKIA[0-9A-Z]{16}"),
-    "AWS Secret Key": re.compile(
-        r"(?i)aws[_-]?secret[_-]?access[_-]?key[=:\s]+['\"]?[a-zA-Z0-9/+=]{40}['\"]?"
-    ),
+    "AWS Secret Key": re.compile(r"(?i)aws[_-]?secret[_-]?access[_-]?key[=:\s]+['\"]?[a-zA-Z0-9/+=]{40}['\"]?"),
     "GitHub Token": re.compile(r"gh[ps]_[a-zA-Z0-9]{36}"),
     "GitHub Fine-Grained": re.compile(r"github_pat_[a-zA-Z0-9_]{22,}"),
     "Prompd Registry Token": re.compile(r"prompd_[a-zA-Z0-9]{32,}"),
-    "Private Key": re.compile(
-        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
-    ),
+    "Private Key": re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
     "Generic API Key": re.compile(
         r"(?i)(?:api[_-]?key|apikey|api_secret|apisecret)[_-]?[=:]\s*['\"]?([a-zA-Z0-9_\-]{20,})['\"]?"
     ),
@@ -214,12 +211,8 @@ SECRET_PATTERNS: Dict[str, re.Pattern[str]] = {
         r"(?i)(?:secret|password|passwd|token)[_-]?[=:]\s*['\"]?([a-zA-Z0-9_\-!@#$%^&*]{16,})['\"]?"
     ),
     "Bearer Token": re.compile(r"[Bb]earer\s+[a-zA-Z0-9_\-.]{32,256}"),
-    "JWT Token": re.compile(
-        r"eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}"
-    ),
-    "URL-Embedded Credentials": re.compile(
-        r"https?://[^:\s]+:[^@\s]+@[a-zA-Z0-9.-]+"
-    ),
+    "JWT Token": re.compile(r"eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}"),
+    "URL-Embedded Credentials": re.compile(r"https?://[^:\s]+:[^@\s]+@[a-zA-Z0-9.-]+"),
     "Slack Token": re.compile(r"xox[bpors]-[a-zA-Z0-9-]{10,}"),
     "Google API Key": re.compile(r"AIza[0-9A-Za-z_-]{35}"),
     "Stripe Key": re.compile(r"(?:sk|pk)_(?:test|live)_[a-zA-Z0-9]{20,}"),
@@ -227,17 +220,55 @@ SECRET_PATTERNS: Dict[str, re.Pattern[str]] = {
 
 # File extensions considered as text files for secrets scanning
 _TEXT_EXTENSIONS = {
-    ".prmd", ".pdproj", ".yaml", ".yml", ".json", ".md", ".txt",
-    ".py", ".go", ".js", ".ts", ".tsx", ".jsx", ".sh", ".bat",
-    ".env", ".html", ".css", ".xml", ".toml", ".ini", ".conf",
-    ".c", ".cpp", ".h", ".hpp", ".java", ".cs", ".rb", ".php",
-    ".sql", ".r", ".lua", ".pl", ".swift", ".kt", ".rs",
+    ".prmd",
+    ".pdproj",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".md",
+    ".txt",
+    ".py",
+    ".go",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".sh",
+    ".bat",
+    ".env",
+    ".html",
+    ".css",
+    ".xml",
+    ".toml",
+    ".ini",
+    ".conf",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".java",
+    ".cs",
+    ".rb",
+    ".php",
+    ".sql",
+    ".r",
+    ".lua",
+    ".pl",
+    ".swift",
+    ".kt",
+    ".rs",
 }
 
 # Files that commonly contain secrets and should be excluded from packaging
 _SECRET_FILE_NAMES = {
-    ".env", ".env.local", ".env.production", ".env.development",
-    ".env.test", "credentials.json", "secrets.yaml", "secrets.yml",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    ".env.test",
+    "credentials.json",
+    "secrets.yaml",
+    "secrets.yml",
     "private.key",
 }
 
@@ -261,8 +292,15 @@ def _is_text_file(file_path: str) -> bool:
 
     base_name = os.path.basename(file_path).lower()
     no_ext_patterns = [
-        "readme", "license", "makefile", "dockerfile", "vagrantfile",
-        ".env", ".gitignore", ".dockerignore", ".npmignore",
+        "readme",
+        "license",
+        "makefile",
+        "dockerfile",
+        "vagrantfile",
+        ".env",
+        ".gitignore",
+        ".dockerignore",
+        ".npmignore",
     ]
     for pattern in no_ext_patterns:
         if base_name == pattern or base_name.startswith(pattern + "."):
