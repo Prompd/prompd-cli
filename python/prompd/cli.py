@@ -96,6 +96,7 @@ def _run_impl(
         actual_content = actual_file.read_text(encoding="utf-8")
         if not actual_content.startswith("---"):
             import re
+
             stem = actual_file.stem
             kebab_name = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-") or "prompt"
             frontmatter = f"---\nname: {kebab_name}\nversion: 1.0.0\n---\n\n"

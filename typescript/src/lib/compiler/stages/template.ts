@@ -462,6 +462,25 @@ export class TemplateProcessingStage implements CompilerStage {
       const parentFileContent = await fs.readFile(parentFile);
       const parentData = parser.parseContent(parentFileContent);
 
+      // Validate that all file references in the parent's metadata actually exist on disk.
+      // AssetExtractionStage only processes the child's metadata, so the parent's file
+      // references (system:, context:, etc.) must be validated here.
+      await this.validateParentFileReferences(context, parentData.metadata as unknown as Record<string, unknown>, fs, parentFile);
+
+      // If validation added errors, stop inheritance processing
+      if (context.hasErrors()) {
+        return content;
+      }
+
+      // Resolve relative {% include %} paths in parent content to absolute paths.
+      // This is necessary because the parent's includes are relative to the parent's
+      // directory, but after merging into the child, Nunjucks will resolve them
+      // relative to the child's directory (which may be different).
+      if (parentData.content) {
+        const parentDir = fs.dirname(parentFile);
+        parentData.content = this.resolveIncludePaths(parentData.content, parentDir);
+      }
+
       // Get overrides from child metadata
       const overrides = context.metadata?.override || {};
 
@@ -526,6 +545,25 @@ export class TemplateProcessingStage implements CompilerStage {
               context.metadata.parameters = [];
             }
             context.metadata.parameters.push(parentParam);
+
+            // Apply default for inherited param (semantic stage already ran)
+            if (!(parentParam.name in context.parameters) && parentParam.default !== undefined) {
+              let value = parentParam.default;
+              // Coerce string defaults to their declared type (mirrors SemanticAnalysisStage)
+              if (typeof value === 'string') {
+                const t = parentParam.type;
+                if (t === 'json' || t === 'object' || t === 'array') {
+                  try { value = JSON.parse(value); } catch { /* keep as string */ }
+                } else if (t === 'boolean') {
+                  if (value.toLowerCase() === 'true') value = true;
+                  else if (value.toLowerCase() === 'false') value = false;
+                } else if (t === 'integer' || t === 'number' || t === 'float') {
+                  const n = Number(value);
+                  if (!isNaN(n)) value = n;
+                }
+              }
+              context.parameters[parentParam.name] = value;
+            }
           }
         }
       }
@@ -834,6 +872,25 @@ export class TemplateProcessingStage implements CompilerStage {
   }
 
   /**
+   * Resolve relative {% include %} paths in content to absolute paths.
+   * This ensures that when parent content is merged into a child file,
+   * the includes still resolve correctly relative to the parent's directory.
+   */
+  private resolveIncludePaths(content: string, baseDir: string): string {
+    // Match {% include "path" %} and {% include 'path' %} with relative paths
+    // Captures: (prefix)(quote)(relativePath)(quote)(suffix) to reconstruct safely
+    return content.replace(
+      /(\{%[-\s]*include\s+)(["'])(\.[^"']+)\2(\s*[-]?%\})/g,
+      (_match, prefix, quote, relativePath, suffix) => {
+        const absolutePath = path.resolve(baseDir, relativePath);
+        // Use forward slashes for cross-platform Nunjucks compatibility
+        const normalizedPath = absolutePath.replace(/\\/g, '/');
+        return `${prefix}${quote}${normalizedPath}${quote}${suffix}`;
+      }
+    );
+  }
+
+  /**
    * Register custom filters on a Nunjucks environment.
    */
   private registerFiltersOnEnv(env: nunjucks.Environment): void {
@@ -1135,6 +1192,51 @@ export class TemplateProcessingStage implements CompilerStage {
    */
   private escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Validate that all file references in a parent .prmd's metadata actually exist.
+   * Called during inheritance processing because AssetExtractionStage only runs on
+   * the child file's metadata — the parent is only parsed, never fully compiled.
+   */
+  private async validateParentFileReferences(
+    context: CompilationContext,
+    metadata: Record<string, unknown> | null | undefined,
+    fs: CompilationContext['fileSystem'],
+    parentFile: string
+  ): Promise<void> {
+    if (!metadata) return;
+
+    const metadataAsRecord = metadata as Record<string, unknown>;
+    const parentDir = fs.dirname(parentFile);
+    const fileFields = ['system', 'task', 'user', 'assistant', 'response', 'output', 'context'];
+
+    for (const field of fileFields) {
+      const fieldValue = metadataAsRecord[field];
+      if (!fieldValue) continue;
+
+      const refs: string[] = Array.isArray(fieldValue)
+        ? (fieldValue as unknown[]).filter((v): v is string => typeof v === 'string')
+        : typeof fieldValue === 'string' ? [fieldValue] : [];
+
+      for (const ref of refs) {
+        if (!ref.startsWith('./') && !ref.startsWith('../')) continue;
+
+        const resolvedPath = fs.resolve(parentDir, ref);
+        const exists = await Promise.resolve(fs.exists(resolvedPath));
+
+        if (!exists) {
+          const location = context.findLocation(/inherits:/);
+          context.addDiagnostic({
+            message: `Inherited file "${path.basename(parentFile)}" references missing ${field} file: "${ref}" (resolved to: ${resolvedPath})`,
+            severity: 'error',
+            source: 'template',
+            code: 'INHERITED_METADATA_FILE_NOT_FOUND',
+            ...(location || {})
+          });
+        }
+      }
+    }
   }
 
   getName(): string {

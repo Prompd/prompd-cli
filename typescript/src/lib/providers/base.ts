@@ -13,6 +13,7 @@ import type {
   ExecutionResult,
   StreamChunk,
   ModelInfo,
+  ModelCapabilities,
   TokenUsage,
   ProviderEntry
 } from './types'
@@ -40,6 +41,24 @@ export abstract class BaseProvider implements IExecutionProvider {
    * Stream a response - must be implemented by subclasses
    */
   abstract stream(request: ExecutionRequest): AsyncGenerator<StreamChunk, void, unknown>
+
+  /**
+   * Get capabilities for a specific model.
+   * Matches by exact ID first, then by prefix (e.g., 'gpt-4.1-nano-2025-04-14' matches 'gpt-4.1-nano').
+   */
+  protected getModelCapabilities(modelId: string): ModelCapabilities {
+    if (!this.config.models) return {}
+
+    // Exact match first
+    const exact = this.config.models.find(m => m.id === modelId)
+    if (exact?.capabilities) return exact.capabilities
+
+    // Prefix match — model IDs often have date suffixes (e.g., 'gpt-4.1-nano-2025-04-14')
+    const prefixMatch = this.config.models.find(m => modelId.startsWith(m.id))
+    if (prefixMatch?.capabilities) return prefixMatch.capabilities
+
+    return {}
+  }
 
   /**
    * List available models from config
@@ -121,6 +140,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
     const startTime = Date.now()
+    const caps = this.getModelCapabilities(request.model)
 
     try {
       // Use the Responses API for image generation (OpenAI only, not other compatible providers)
@@ -135,10 +155,16 @@ export class OpenAICompatibleProvider extends BaseProvider {
         ? (request.systemPrompt ? `${request.systemPrompt}\n\nRespond with valid JSON.` : 'Respond with valid JSON.')
         : request.systemPrompt
 
-      if (systemPrompt) {
+      // Some reasoning models don't accept system messages (o1, o3, etc.)
+      if (systemPrompt && !caps.noSystemMessage) {
         messages.push({ role: 'system', content: systemPrompt })
+      } else if (systemPrompt && caps.noSystemMessage) {
+        // Prepend system content to user message as a workaround
+        messages.push({ role: 'user', content: `${systemPrompt}\n\n${request.prompt}` })
       }
-      messages.push({ role: 'user', content: request.prompt })
+      if (!caps.noSystemMessage || !systemPrompt) {
+        messages.push({ role: 'user', content: request.prompt })
+      }
 
       const body: Record<string, unknown> = {
         model: request.model,
@@ -147,9 +173,16 @@ export class OpenAICompatibleProvider extends BaseProvider {
       }
 
       if (request.maxTokens) {
-        body.max_tokens = request.maxTokens
+        // Use max_completion_tokens for models that require it (gpt-4.1+, o1, o3, etc.)
+        if (caps.useMaxCompletionTokens) {
+          body.max_completion_tokens = request.maxTokens
+        } else {
+          body.max_tokens = request.maxTokens
+        }
       }
-      if (request.temperature !== undefined) {
+
+      // Some reasoning models don't accept temperature
+      if (request.temperature !== undefined && !caps.noTemperature) {
         body.temperature = request.temperature
       }
 
@@ -206,6 +239,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
   }
 
   async *stream(request: ExecutionRequest): AsyncGenerator<StreamChunk, void, unknown> {
+    const caps = this.getModelCapabilities(request.model)
     const messages: Array<{ role: string; content: string }> = []
 
     // For JSON mode, ensure "json" appears in the system prompt (OpenAI requirement)
@@ -213,10 +247,14 @@ export class OpenAICompatibleProvider extends BaseProvider {
       ? (request.systemPrompt ? `${request.systemPrompt}\n\nRespond with valid JSON.` : 'Respond with valid JSON.')
       : request.systemPrompt
 
-    if (systemPrompt) {
+    if (systemPrompt && !caps.noSystemMessage) {
       messages.push({ role: 'system', content: systemPrompt })
+    } else if (systemPrompt && caps.noSystemMessage) {
+      messages.push({ role: 'user', content: `${systemPrompt}\n\n${request.prompt}` })
     }
-    messages.push({ role: 'user', content: request.prompt })
+    if (!caps.noSystemMessage || !systemPrompt) {
+      messages.push({ role: 'user', content: request.prompt })
+    }
 
     const body: Record<string, unknown> = {
       model: request.model,
@@ -225,9 +263,13 @@ export class OpenAICompatibleProvider extends BaseProvider {
     }
 
     if (request.maxTokens) {
-      body.max_tokens = request.maxTokens
+      if (caps.useMaxCompletionTokens) {
+        body.max_completion_tokens = request.maxTokens
+      } else {
+        body.max_tokens = request.maxTokens
+      }
     }
-    if (request.temperature !== undefined) {
+    if (request.temperature !== undefined && !caps.noTemperature) {
       body.temperature = request.temperature
     }
 

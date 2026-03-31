@@ -5,13 +5,11 @@
 
 import * as crypto from 'crypto';
 import * as jwt from 'jsonwebtoken';
-import * as bcrypt from 'bcrypt';
 import { EventEmitter } from 'events';
 
 export interface AuthConfig {
   jwtSecret: string;
   jwtExpiresIn: string;
-  bcryptRounds: number;
   oauth: {
     clientId: string;
     clientSecret: string;
@@ -320,20 +318,6 @@ export class AuthManager extends EventEmitter {
   }
 
   /**
-   * Hash password securely
-   */
-  async hashPassword(password: string): Promise<string> {
-    return await bcrypt.hash(password, this.config.bcryptRounds);
-  }
-
-  /**
-   * Verify password
-   */
-  async verifyPassword(password: string, hash: string): Promise<boolean> {
-    return await bcrypt.compare(password, hash);
-  }
-
-  /**
    * Destroy session
    */
   async destroySession(sessionId: string): Promise<void> {
@@ -458,7 +442,6 @@ export class AuthMiddleware {
 export const createDefaultAuthConfig = (): AuthConfig => ({
   jwtSecret: '',
   jwtExpiresIn: '24h',
-  bcryptRounds: 12,
   oauth: {
     clientId: '',
     clientSecret: '',

@@ -8,6 +8,7 @@
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import * as os from 'os';
+import semver from 'semver';
 import { RegistryClient } from '../registry';
 import { SecurityError } from '../errors';
 import { IFileSystem, MemoryFileSystem } from './file-system';
@@ -60,8 +61,10 @@ export async function resolvePackage(
     throw new SecurityError(`Invalid package reference format: ${packageRef}`);
   }
 
-  // Parse package reference
+  // Parse package reference (strips file path suffix automatically)
   const { name, version } = parsePackageReference(packageRef);
+  // Build clean package ref without file path for registry operations
+  const cleanRef = `${name}@${version}`;
 
   // Handle in-memory file system
   if (fileSystem instanceof MemoryFileSystem) {
@@ -82,7 +85,7 @@ export async function resolvePackage(
         return await registry.downloadPackageBuffer(pkgName, pkgVersion);
       };
 
-      await fileSystem.addPackageFromRegistry(packageRef, downloadFn);
+      await fileSystem.addPackageFromRegistry(cleanRef, downloadFn);
       return packagePath;
     } catch (error) {
       throw new Error(`Failed to load package into memory ${packageRef}: ${error instanceof Error ? error.message : String(error)}`);
@@ -141,7 +144,7 @@ export async function resolvePackage(
   try {
     // Create registry client with optional URL override
     const registry = new RegistryClient(resolvedRegistryUrl ? { registryUrl: resolvedRegistryUrl } : undefined);
-    await registry.install(packageRef, { skipCache: false, workspaceRoot });
+    await registry.install(cleanRef, { skipCache: false, workspaceRoot });
 
     // After installation, check type directories again (new install location)
     for (const typeDir of typeDirs) {
@@ -163,17 +166,23 @@ export async function resolvePackage(
 
 /**
  * Parse package reference into name and version.
+ * Strips any file path suffix before parsing.
  */
 export function parsePackageReference(packageRef: string): { name: string; version: string; scope?: string } {
+  // Strip file path suffix if present (e.g., @ns/pkg@1.0.0/path/to/file.prmd -> @ns/pkg@1.0.0)
+  const stripped = stripFilePath(packageRef);
+
   // Format: @namespace/package@version or @namespace/package (latest)
-  const match = packageRef.match(/^(@[\w.-]+\/[\w.-]+)@?([\w.-]+)?$/);
+  const match = stripped.match(/^(@[\w.-]+\/[\w.-]+)@?([\w.-]+)?$/);
 
   if (!match) {
     throw new Error(`Invalid package reference format: ${packageRef}`);
   }
 
   const name = match[1];
-  const version = match[2] || 'latest';
+  const rawVersion = match[2] || 'latest';
+  // Clean semver version (strips 'v' prefix: v0.0.1 -> 0.0.1)
+  const version = semver.valid(rawVersion) || rawVersion;
 
   // Extract scope
   const scopeMatch = name.match(/^(@[\w.-]+)\//);
@@ -183,24 +192,76 @@ export function parsePackageReference(packageRef: string): { name: string; versi
 }
 
 /**
+ * Parse a package reference that may include a file path within the package.
+ * Format: @namespace/package@version/path/to/file.prmd
+ *
+ * @returns Package name, version, scope, and optional filePath within the package
+ */
+export function parsePackageReferenceWithPath(packageRef: string): { name: string; version: string; scope?: string; filePath?: string } {
+  const { name, version, scope } = parsePackageReference(packageRef);
+
+  // Extract the file path portion after @namespace/package@version
+  const stripped = stripFilePath(packageRef);
+  const remainder = packageRef.slice(stripped.length);
+  const filePath = remainder.length > 1 ? remainder.slice(1) : undefined; // Remove leading /
+
+  return { name, version, scope, filePath };
+}
+
+/**
+ * Strip a file path suffix from a package reference.
+ * @example "@ns/pkg@1.0.0/prompts/file.prmd" -> "@ns/pkg@1.0.0"
+ * @example "@ns/pkg@1.0.0" -> "@ns/pkg@1.0.0"
+ * @example "@ns/pkg" -> "@ns/pkg"
+ */
+function stripFilePath(packageRef: string): string {
+  // Match @scope/name then optionally @version, stopping before any /path
+  const match = packageRef.match(/^(@[\w.-]+\/[\w.-]+(?:@[\w.-]+)?)/);
+  return match ? match[1] : packageRef;
+}
+
+/**
  * Validate package reference format.
+ * Accepts optional file path suffix: @namespace/package@version/path/to/file.prmd
  */
 export function isValidPackageReference(packageRef: string): boolean {
-  // Security: Ensure package ref follows npm-style scoped package format
-  // Format: @namespace/package@version
-  const pattern = /^@[\w.-]+\/[\w.-]+(@[\w.-]+)?$/;
-
-  if (!pattern.test(packageRef)) {
-    return false;
-  }
-
-  // Security: Check for path traversal attempts
-  if (packageRef.includes('..') || packageRef.includes('//')) {
-    return false;
-  }
-
   // Security: Check for null bytes
   if (packageRef.includes('\0')) {
+    return false;
+  }
+
+  // Strip file path suffix for base validation
+  const base = stripFilePath(packageRef);
+
+  // Security: Ensure base follows scoped package format
+  const pattern = /^@[\w.-]+\/[\w.-]+(@[\w.-]+)?$/;
+  if (!pattern.test(base)) {
+    return false;
+  }
+
+  // If there's a file path suffix, validate it
+  const remainder = packageRef.slice(base.length);
+  if (remainder.length > 0) {
+    // Must start with /
+    if (!remainder.startsWith('/')) {
+      return false;
+    }
+
+    const filePath = remainder.slice(1);
+
+    // Security: Check for path traversal attempts
+    if (filePath.includes('..') || filePath.includes('//')) {
+      return false;
+    }
+
+    // Security: Only allow safe characters in file paths
+    if (!/^[\w./\-]+$/.test(filePath)) {
+      return false;
+    }
+  }
+
+  // Security: Check for path traversal in the base reference
+  if (base.includes('..') || base.includes('//')) {
     return false;
   }
 

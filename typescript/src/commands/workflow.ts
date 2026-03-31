@@ -96,7 +96,7 @@ export function createWorkflowCommand(): Command {
           headless: options.headless ?? true,
           trace: options.trace ?? false,
           onToolCall: toolCallHandler,
-          executePrompt: async (source: string, params: Record<string, unknown>, provider?: string, model?: string) => {
+          executePrompt: async (source: string, params: Record<string, unknown>, provider?: string, model?: string, temperature?: number, maxTokens?: number) => {
             // Handle both .prmd files and raw prompt text
             let tempFilePath: string | null = null;
             try {
@@ -106,7 +106,9 @@ export function createWorkflowCommand(): Command {
                 const result = await prompdExecutor.execute(source, {
                   provider: provider || defaultProvider,
                   model: model || defaultModel,
-                  params: params
+                  params: params,
+                  ...(temperature !== undefined && { temperature }),
+                  ...(maxTokens !== undefined && { maxTokens })
                 });
                 return result.response || result.content || '';
               } else if (source.startsWith('raw:')) {
@@ -133,7 +135,9 @@ export function createWorkflowCommand(): Command {
                 const result = await prompdExecutor.execute(tempFilePath, {
                   provider: provider || defaultProvider,
                   model: model || defaultModel,
-                  params: params
+                  params: params,
+                  ...(temperature !== undefined && { temperature }),
+                  ...(maxTokens !== undefined && { maxTokens })
                 });
 
                 // Clean up temp file
@@ -152,7 +156,9 @@ export function createWorkflowCommand(): Command {
                 const result = await prompdExecutor.execute(tempFilePath, {
                   provider: provider || defaultProvider,
                   model: model || defaultModel,
-                  params: params
+                  params: params,
+                  ...(temperature !== undefined && { temperature }),
+                  ...(maxTokens !== undefined && { maxTokens })
                 });
 
                 // Clean up temp file

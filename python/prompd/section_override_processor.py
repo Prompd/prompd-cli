@@ -398,8 +398,7 @@ class SectionOverrideProcessor:
             resolved_path = file_path.resolve(strict=True)
         except (OSError, ValueError) as exc:
             raise ValidationError(
-                "Unable to resolve override file path. "
-                "Please verify the file exists and is accessible."
+                "Unable to resolve override file path. " "Please verify the file exists and is accessible."
             ) from exc
 
         # Security Control 2: Verify resolved path is within the allowed base directory

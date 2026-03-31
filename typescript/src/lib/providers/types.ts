@@ -71,6 +71,31 @@ export interface StreamChunk {
 }
 
 /**
+ * Model capability flags — declare what a model supports so the provider
+ * layer can build API requests correctly without per-model branching.
+ */
+export interface ModelCapabilities {
+  /** Model uses 'max_completion_tokens' instead of 'max_tokens' (OpenAI o1+, gpt-4.1+) */
+  useMaxCompletionTokens?: boolean
+  /** Model supports extended thinking / reasoning (Claude Sonnet/Opus, o1/o3) */
+  supportsThinking?: boolean
+  /** Model supports vision/image input */
+  supportsVision?: boolean
+  /** Model supports tool/function calling */
+  supportsTools?: boolean
+  /** Model supports image generation output */
+  supportsImageGeneration?: boolean
+  /** Model supports JSON mode / structured output */
+  supportsJsonMode?: boolean
+  /** Model supports streaming */
+  supportsStreaming?: boolean
+  /** Model does NOT accept a temperature parameter */
+  noTemperature?: boolean
+  /** Model does NOT accept a system message (some reasoning models) */
+  noSystemMessage?: boolean
+}
+
+/**
  * Model information
  */
 export interface ModelInfo {
@@ -78,6 +103,7 @@ export interface ModelInfo {
   name: string
   contextWindow?: number
   maxOutput?: number
+  capabilities?: ModelCapabilities
 }
 
 /**
@@ -152,13 +178,20 @@ export const KNOWN_PROVIDERS: Record<string, ProviderEntry> = {
     consoleUrl: 'https://platform.openai.com/api-keys',
     isOpenAICompatible: true,
     models: [
-      { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000, maxOutput: 16384 },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', contextWindow: 128000, maxOutput: 16384 },
-      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', contextWindow: 128000, maxOutput: 4096 },
-      { id: 'gpt-4', name: 'GPT-4', contextWindow: 8192, maxOutput: 4096 },
-      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', contextWindow: 16385, maxOutput: 4096 },
-      { id: 'o1-preview', name: 'o1 Preview', contextWindow: 128000, maxOutput: 32768 },
-      { id: 'o1-mini', name: 'o1 Mini', contextWindow: 128000, maxOutput: 65536 }
+      { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000, maxOutput: 16384, capabilities: { supportsVision: true, supportsTools: true, supportsJsonMode: true, supportsImageGeneration: true } },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', contextWindow: 128000, maxOutput: 16384, capabilities: { supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', contextWindow: 128000, maxOutput: 4096, capabilities: { supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gpt-4', name: 'GPT-4', contextWindow: 8192, maxOutput: 4096, capabilities: { supportsTools: true } },
+      { id: 'gpt-4.1', name: 'GPT-4.1', contextWindow: 1047576, maxOutput: 32768, capabilities: { useMaxCompletionTokens: true, supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', contextWindow: 1047576, maxOutput: 32768, capabilities: { useMaxCompletionTokens: true, supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano', contextWindow: 1047576, maxOutput: 32768, capabilities: { useMaxCompletionTokens: true, supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', contextWindow: 16385, maxOutput: 4096, capabilities: { supportsTools: true } },
+      { id: 'o1', name: 'o1', contextWindow: 200000, maxOutput: 100000, capabilities: { useMaxCompletionTokens: true, supportsThinking: true, noTemperature: true, noSystemMessage: true } },
+      { id: 'o1-mini', name: 'o1 Mini', contextWindow: 128000, maxOutput: 65536, capabilities: { useMaxCompletionTokens: true, supportsThinking: true, noTemperature: true, noSystemMessage: true } },
+      { id: 'o1-preview', name: 'o1 Preview', contextWindow: 128000, maxOutput: 32768, capabilities: { useMaxCompletionTokens: true, supportsThinking: true, noTemperature: true, noSystemMessage: true } },
+      { id: 'o3', name: 'o3', contextWindow: 200000, maxOutput: 100000, capabilities: { useMaxCompletionTokens: true, supportsThinking: true, noTemperature: true, noSystemMessage: true } },
+      { id: 'o3-mini', name: 'o3 Mini', contextWindow: 200000, maxOutput: 100000, capabilities: { useMaxCompletionTokens: true, supportsThinking: true, noTemperature: true, noSystemMessage: true } },
+      { id: 'o4-mini', name: 'o4 Mini', contextWindow: 200000, maxOutput: 100000, capabilities: { useMaxCompletionTokens: true, supportsThinking: true, noTemperature: true, noSystemMessage: true } }
     ]
   },
   anthropic: {
@@ -169,11 +202,13 @@ export const KNOWN_PROVIDERS: Record<string, ProviderEntry> = {
     consoleUrl: 'https://console.anthropic.com/settings/keys',
     isOpenAICompatible: false,
     models: [
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', contextWindow: 200000, maxOutput: 8192 },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', contextWindow: 200000, maxOutput: 8192 },
-      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', contextWindow: 200000, maxOutput: 4096 },
-      { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet', contextWindow: 200000, maxOutput: 4096 },
-      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', contextWindow: 200000, maxOutput: 4096 }
+      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', contextWindow: 200000, maxOutput: 16384, capabilities: { supportsThinking: true, supportsVision: true, supportsTools: true } },
+      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', contextWindow: 200000, maxOutput: 16384, capabilities: { supportsThinking: true, supportsVision: true, supportsTools: true } },
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', contextWindow: 200000, maxOutput: 8192, capabilities: { supportsThinking: true, supportsVision: true, supportsTools: true } },
+      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', contextWindow: 200000, maxOutput: 8192, capabilities: { supportsVision: true, supportsTools: true } },
+      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', contextWindow: 200000, maxOutput: 4096, capabilities: { supportsVision: true, supportsTools: true } },
+      { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet', contextWindow: 200000, maxOutput: 4096, capabilities: { supportsVision: true, supportsTools: true } },
+      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', contextWindow: 200000, maxOutput: 4096, capabilities: { supportsVision: true, supportsTools: true } }
     ]
   },
   google: {
@@ -184,10 +219,11 @@ export const KNOWN_PROVIDERS: Record<string, ProviderEntry> = {
     consoleUrl: 'https://aistudio.google.com/app/apikey',
     isOpenAICompatible: false,
     models: [
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', contextWindow: 2097152, maxOutput: 8192 },
-      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', contextWindow: 1048576, maxOutput: 8192 },
-      { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash', contextWindow: 1048576, maxOutput: 8192 },
-      { id: 'gemini-pro', name: 'Gemini Pro', contextWindow: 32760, maxOutput: 8192 }
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', contextWindow: 1048576, maxOutput: 65536, capabilities: { supportsThinking: true, supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1048576, maxOutput: 65536, capabilities: { supportsThinking: true, supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', contextWindow: 1048576, maxOutput: 8192, capabilities: { supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', contextWindow: 2097152, maxOutput: 8192, capabilities: { supportsVision: true, supportsTools: true, supportsJsonMode: true } },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', contextWindow: 1048576, maxOutput: 8192, capabilities: { supportsVision: true, supportsJsonMode: true } }
     ]
   },
   groq: {

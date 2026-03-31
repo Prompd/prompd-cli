@@ -92,17 +92,25 @@ export class CompilerPipeline {
     // Check if it's a package reference (starts with @)
     if (source.startsWith('@')) {
       // Import package resolver
-      const { resolvePackage } = await import('./package-resolver');
+      const { resolvePackage, parsePackageReferenceWithPath, resolvePackageFile } = await import('./package-resolver');
 
       try {
-        // Pass options to resolvePackage for proper package resolution
+        // Check if the reference includes a specific file path
+        const { filePath } = parsePackageReferenceWithPath(source);
+
+        // resolvePackage handles stripping the file path internally
         const packagePath = await resolvePackage(source, {
           fileSystem,
           registryUrl,
           workspaceRoot
         });
 
-        // Find the main .prmd file in the package
+        // If a specific file was requested, resolve it within the package
+        if (filePath) {
+          return resolvePackageFile(packagePath, filePath);
+        }
+
+        // No specific file — find the main .prmd file in the package
         const prmdFiles = await this.findPromdFiles(packagePath, fileSystem);
 
         if (prmdFiles.length === 0) {

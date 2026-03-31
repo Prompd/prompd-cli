@@ -5,8 +5,11 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import archiver from 'archiver';
 import { createHash } from 'crypto';
+import * as xlsx from 'xlsx';
+import mammoth from 'mammoth';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
+import { PrompdParser } from '../lib/parser';
 import { needsFrontmatterProtection, getContentType, isValidPackageType, VALID_PACKAGE_TYPES, PackageType } from '../types';
 
 interface PackageExclusions {
@@ -481,6 +484,7 @@ const PACKABLE_EXTENSIONS = [
   '.js', '.ts', '.mjs', '.cjs',    // JavaScript/TypeScript
   '.py', '.sh', '.bash',           // Scripts
   '.csv', '.xml',                  // Data files
+  '.xlsx', '.xls', '.docx', '.pdf', // Binary assets (pre-extracted to text during packaging)
 ];
 
 /** Directories to always exclude */
@@ -859,6 +863,66 @@ export async function createPackageFromPrompdJson(
     };
   }
 
+  // 6d. Validate that all relative file references in .prmd frontmatter are included in the package.
+  // This catches missing dependencies when an explicit files list is used in prompd.json.
+  if (!autoDiscovered) {
+    const parser = new PrompdParser();
+    const missingDependencies: Array<{ prmd: string; field: string; ref: string; resolvedRelative: string }> = [];
+    const fileReferenceFields = ['system', 'context', 'task', 'user', 'assistant', 'response', 'output'];
+    const normalizedFilesToPackage = new Set(filesToPackage.map(f => f.replace(/\\/g, '/')));
+
+    for (const filePath of filesToPackage) {
+      if (!filePath.endsWith('.prmd')) continue;
+
+      const fullPath = path.join(workspacePath, filePath);
+      try {
+        const content = await fs.readFile(fullPath, 'utf8');
+        const parsed = parser.parseContent(content);
+        if (!parsed.metadata) continue;
+
+        const prmdDir = path.dirname(filePath).replace(/\\/g, '/');
+
+        for (const field of fileReferenceFields) {
+          const fieldValue = (parsed.metadata as unknown as Record<string, unknown>)[field];
+          if (!fieldValue) continue;
+
+          const refs: string[] = Array.isArray(fieldValue)
+            ? (fieldValue as unknown[]).filter((v): v is string => typeof v === 'string')
+            : typeof fieldValue === 'string' ? [fieldValue] : [];
+
+          for (const ref of refs) {
+            if (!ref.startsWith('./') && !ref.startsWith('../')) continue;
+
+            // Resolve relative to the .prmd file's directory (within workspace)
+            const resolvedRelative = path.posix.normalize(
+              prmdDir === '.' ? ref : `${prmdDir}/${ref}`
+            ).replace(/\\/g, '/');
+
+            if (!normalizedFilesToPackage.has(resolvedRelative)) {
+              // Check if the file actually exists on disk
+              const fullReferencedPath = path.join(workspacePath, resolvedRelative);
+              if (await fs.pathExists(fullReferencedPath)) {
+                missingDependencies.push({ prmd: filePath, field, ref, resolvedRelative });
+              }
+            }
+          }
+        }
+      } catch {
+        // Parsing errors are already caught by step 6b — skip here
+      }
+    }
+
+    if (missingDependencies.length > 0) {
+      const depList = missingDependencies.map(d =>
+        `  ${d.prmd}: ${d.field}: "${d.ref}" (missing "${d.resolvedRelative}" from prompd.json files)`
+      ).join('\n');
+      return {
+        success: false,
+        error: `Missing file dependencies — add these to your prompd.json "files" list:\n${depList}`
+      };
+    }
+  }
+
   // 6c. Validate all .pdflow workflow files for structural integrity and referenced files
   const workflowValidationErrors: Array<{ file: string; errors: string[] }> = [];
 
@@ -1134,6 +1198,56 @@ content_type: ${contentType}
   return frontmatter + content;
 }
 
+/** Binary asset extensions that must be pre-extracted to text during packaging */
+const BINARY_ASSET_EXTENSIONS = new Set(['.xlsx', '.xls', '.docx', '.pdf']);
+
+/**
+ * Pre-extract a binary asset to text content for safe packaging.
+ * Returns { content, newExtension } or null if not a binary asset.
+ */
+async function extractBinaryAsset(fullPath: string): Promise<{ content: string; newExtension: string } | null> {
+  const ext = path.extname(fullPath).toLowerCase();
+  if (!BINARY_ASSET_EXTENSIONS.has(ext)) return null;
+
+  switch (ext) {
+    case '.xlsx':
+    case '.xls': {
+      const workbook = xlsx.readFile(fullPath);
+      const sheets: string[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const csv = xlsx.utils.sheet_to_csv(sheet);
+        if (csv.trim()) {
+          sheets.push(`### Sheet: ${sheetName}\n\n\`\`\`csv\n${csv}\n\`\`\``);
+        }
+      }
+      return { content: sheets.join('\n\n'), newExtension: '.csv.txt' };
+    }
+    case '.docx': {
+      const buffer = await fs.readFile(fullPath);
+      const result = await mammoth.extractRawText({ buffer });
+      const maxSize = 1024 * 1024;
+      const text = result.value.length > maxSize
+        ? result.value.substring(0, maxSize) + '\n\n[Content truncated...]'
+        : result.value;
+      return { content: text, newExtension: '.txt' };
+    }
+    case '.pdf': {
+      const buffer = await fs.readFile(fullPath);
+      const pdfModule = await import('pdf-parse');
+      const pdfParseFn = (pdfModule as Record<string, unknown>).default || pdfModule;
+      const data = await (pdfParseFn as (buf: Buffer, opts?: Record<string, unknown>) => Promise<{ text: string }>)(buffer, { max: 100 });
+      const maxSize = 1024 * 1024;
+      const text = data.text.length > maxSize
+        ? data.text.substring(0, maxSize) + '\n\n[Content truncated...]'
+        : data.text;
+      return { content: text, newExtension: '.txt' };
+    }
+    default:
+      return null;
+  }
+}
+
 /**
  * Create package from specific file list (not directory walk)
  * The files array is written to the archive's prompd.json (not the filesystem)
@@ -1147,6 +1261,41 @@ async function createPackageFromFiles(
   readmeFile?: string,
   ignorePatterns?: string[]
 ): Promise<void> {
+  // Pre-process files: extract binary assets to text, apply frontmatter protection
+  const normalizedFiles = files.map(f => f.replace(/\\/g, '/'));
+  const fileHashes: Record<string, string> = {};
+  const fileContents: Array<{ zipPath: string; content: string | Buffer }> = [];
+  const pathRenames: Record<string, string> = {};
+
+  for (const filePath of files) {
+    const fullPath = path.join(workspacePath, filePath);
+    let zipPath = filePath.replace(/\\/g, '/');
+
+    // Pre-extract binary assets to text for safe packaging
+    const extracted = await extractBinaryAsset(fullPath);
+    if (extracted) {
+      const baseName = path.basename(zipPath, path.extname(zipPath));
+      const dirName = path.dirname(zipPath);
+      const newZipPath = (dirName === '.' ? '' : dirName + '/') + baseName + extracted.newExtension;
+      pathRenames[zipPath] = newZipPath;
+      zipPath = newZipPath;
+      fileHashes[zipPath] = createHash('sha256').update(extracted.content).digest('hex');
+      fileContents.push({ zipPath, content: extracted.content });
+    } else if (needsFrontmatterProtection(filePath)) {
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      const filename = path.basename(filePath);
+      const protectedContent = addContentFrontmatter(content, filename);
+      fileHashes[zipPath] = createHash('sha256').update(protectedContent).digest('hex');
+      fileContents.push({ zipPath, content: protectedContent });
+    } else {
+      const content = fs.readFileSync(fullPath);
+      fileHashes[zipPath] = createHash('sha256').update(content).digest('hex');
+      fileContents.push({ zipPath, content });
+    }
+  }
+
+  const finalFiles = normalizedFiles.map(f => pathRenames[f] || f);
+
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(outputPath);
     const archive = archiver('zip', { zlib: { level: 9 } });
@@ -1156,40 +1305,13 @@ async function createPackageFromFiles(
 
     archive.pipe(output);
 
-    // Files array uses original paths (no transformation needed with frontmatter approach)
-    const normalizedFiles = files.map(f => f.replace(/\\/g, '/'));
-
-    // Collect file contents and compute integrity hashes
-    const fileHashes: Record<string, string> = {};
-    const fileContents: Array<{ zipPath: string; content: string | Buffer }> = [];
-
-    for (const filePath of files) {
-      const fullPath = path.join(workspacePath, filePath);
-      const zipPath = filePath.replace(/\\/g, '/');
-
-      // For code files, add frontmatter protection
-      if (needsFrontmatterProtection(filePath)) {
-        const content = fs.readFileSync(fullPath, 'utf-8');
-        const filename = path.basename(filePath);
-        const protectedContent = addContentFrontmatter(content, filename);
-        // Hash the protected content (with frontmatter) - matches what's in archive
-        fileHashes[zipPath] = createHash('sha256').update(protectedContent).digest('hex');
-        fileContents.push({ zipPath, content: protectedContent });
-      } else {
-        // For non-code files, read content for hashing
-        const content = fs.readFileSync(fullPath);
-        fileHashes[zipPath] = createHash('sha256').update(content).digest('hex');
-        fileContents.push({ zipPath, content });
-      }
-    }
-
     // Add prompd.json (inside the package) with files array and integrity hashes
     // This writes the files array to the archive only, not the filesystem
     const fullManifest = {
       ...manifest,
       main: mainFile,
       readme: readmeFile,
-      files: normalizedFiles,
+      files: finalFiles,
       integrity: {
         algorithm: 'sha256',
         files: fileHashes

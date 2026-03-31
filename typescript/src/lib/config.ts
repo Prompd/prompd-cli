@@ -324,9 +324,9 @@ export class ConfigManager {
 
   private ensureDefaultRegistries(config: Config): void {
     // Always ensure prompdhub is available (unless explicitly removed)
-    if (!config.registry.registries.prmdhub) {
-      config.registry.registries.prmdhub = {
-        url: 'https://registry.prmdhub.ai',
+    if (!config.registry.registries.prompdhub) {
+      config.registry.registries.prompdhub = {
+        url: 'https://registry.prompdhub.ai',
         token: undefined,
         username: undefined
       };
@@ -344,9 +344,9 @@ export class ConfigManager {
       const legacyToken = config.apiKeys.prmd;
       
       // Move to registry structure if prompdhub doesn't have a token
-      if (!config.registry.registries.prmdhub?.token) {
-        config.registry.registries.prmdhub = {
-          ...config.registry.registries.prmdhub,
+      if (!config.registry.registries.prompdhub?.token) {
+        config.registry.registries.prompdhub = {
+          ...config.registry.registries.prompdhub,
           token: legacyToken
         };
       }
