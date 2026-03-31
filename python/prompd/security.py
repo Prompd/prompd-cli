@@ -314,7 +314,7 @@ def scan_file_for_secrets(file_path: str) -> List[SecretMatch]:
     try:
         with open(file_path, encoding="utf-8", errors="replace") as f:
             content = f.read()
-    except (OSError, IOError):
+    except OSError:
         return []
 
     matches = detect_secrets_in_content(content)
