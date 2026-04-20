@@ -14,11 +14,11 @@
 
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import * as xlsx from 'xlsx';
 import mammoth from 'mammoth';
 import { CompilerStage, CompilationContext } from '../types';
 import { SecurityError } from '../../errors';
 import { getLanguageForExtension } from '../language-map';
+import { excelToMarkdownSheets } from '../../excel';
 
 // Dynamic imports for libraries with platform-specific builds
 let pdfParse: any = null;
@@ -337,21 +337,7 @@ export class AssetExtractionStage implements CompilerStage {
    */
   private async extractExcel(filePath: string): Promise<string> {
     try {
-      const workbook = xlsx.readFile(filePath);
-      const sheets: string[] = [];
-
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-
-        // Convert sheet to CSV format
-        const csv = xlsx.utils.sheet_to_csv(sheet);
-
-        if (csv.trim()) {
-          sheets.push(`### Sheet: ${sheetName}\n\n\`\`\`csv\n${csv}\n\`\`\``);
-        }
-      }
-
-      return sheets.join('\n\n');
+      return await excelToMarkdownSheets(filePath);
     } catch (error) {
       throw new Error(`Excel extraction failed: ${error instanceof Error ? error.message : String(error)}`);
     }
