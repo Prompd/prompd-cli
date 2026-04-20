@@ -150,7 +150,7 @@ Content`;
  (tag: test-v1.2.1)|def456|2024-01-20 12:00:00 +0000|Bug fixes
  (tag: test-v1.3.0)|ghi789|2024-01-25 12:00:00 +0000|New features`;
 
-      mockExecSync.mockReturnValue(mockGitOutput as unknown as Buffer);
+      mockExecSync.mockReturnValue(mockGitOutput as unknown as ReturnType<typeof execSync>);
 
       const history = await versionManager.getVersionHistory('test.prmd', 10);
 
@@ -177,7 +177,7 @@ Content`;
 - description: Old description
 + description: New description`;
 
-      mockExecSync.mockReturnValue(mockDiffOutput as unknown as Buffer);
+      mockExecSync.mockReturnValue(mockDiffOutput as unknown as ReturnType<typeof execSync>);
 
       const diff = await versionManager.diffVersions('test.prmd', '1.0.0', '1.1.0');
 
