@@ -185,16 +185,16 @@ Second: [file:./file2.txt]`;
   });
 
   describe('extractExcel()', () => {
-    it('should handle Excel-like content gracefully', async () => {
+    it('should throw for invalid Excel files', async () => {
       const tempDir = await createTempFiles({
         'data.xlsx': 'Not a valid Excel file'
       });
 
       const filePath = join(tempDir, 'data.xlsx');
-      // xlsx library is lenient and parses many formats as single-sheet CSVs
-      const content = await (stage as any).extractExcel(filePath);
-      expect(typeof content).toBe('string');
-      expect(content.length).toBeGreaterThan(0);
+
+      await expect(
+        (stage as any).extractExcel(filePath)
+      ).rejects.toThrow(/excel/i);
 
       await cleanupTempDir(tempDir);
     });

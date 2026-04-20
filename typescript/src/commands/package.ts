@@ -5,8 +5,8 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import archiver from 'archiver';
 import { createHash } from 'crypto';
-import * as xlsx from 'xlsx';
 import mammoth from 'mammoth';
+import { excelToMarkdownSheets } from '../lib/excel';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
 import { PrompdParser } from '../lib/parser';
@@ -1212,16 +1212,8 @@ async function extractBinaryAsset(fullPath: string): Promise<{ content: string; 
   switch (ext) {
     case '.xlsx':
     case '.xls': {
-      const workbook = xlsx.readFile(fullPath);
-      const sheets: string[] = [];
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        const csv = xlsx.utils.sheet_to_csv(sheet);
-        if (csv.trim()) {
-          sheets.push(`### Sheet: ${sheetName}\n\n\`\`\`csv\n${csv}\n\`\`\``);
-        }
-      }
-      return { content: sheets.join('\n\n'), newExtension: '.csv.txt' };
+      const content = await excelToMarkdownSheets(fullPath);
+      return { content, newExtension: '.csv.txt' };
     }
     case '.docx': {
       const buffer = await fs.readFile(fullPath);
