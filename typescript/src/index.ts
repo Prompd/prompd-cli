@@ -26,6 +26,7 @@ import { createUninstallCommand } from './commands/uninstall';
 import { createNamespaceCommand } from './commands/namespace';
 import { createDepsCommand } from './commands/deps';
 import { createWorkflowCommand } from './commands/workflow';
+import { createAICommand } from './commands/ai';
 
 const program = new Command();
 
@@ -52,6 +53,7 @@ program.addCommand(createVersionCommand());
 program.addCommand(createGitCommand());
 program.addCommand(createMCPCommand());
 program.addCommand(createWorkflowCommand());
+program.addCommand(createAICommand());
 
 // Registry operations (top-level for convenience)
 program.addCommand(createLoginCommand());
