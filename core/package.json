@@ -15,8 +15,10 @@
   },
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -31,7 +33,17 @@
     "browser"
   ],
   "author": "Prompd LLC",
-  "license": "Elastic-2.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Prompd/prompd-cli.git",
+    "directory": "core"
+  },
+  "homepage": "https://github.com/Prompd/prompd-cli/tree/main/core#readme",
+  "bugs": "https://github.com/Prompd/prompd-cli/issues",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=16.0.0"
   },
