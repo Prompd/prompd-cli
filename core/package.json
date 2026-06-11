@@ -1,0 +1,49 @@
+{
+  "name": "@prompd/core",
+  "version": "0.5.0-beta.10",
+  "description": "Environment-agnostic core for Prompd: .prmd parser, compilation pipeline (Nunjucks templating), formatters, and an injectable file-system/package-resolver. Runs in Node, the browser, and the backend. No Node-only imports.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "prompd",
+    "prompt",
+    "compiler",
+    "nunjucks",
+    "browser"
+  ],
+  "author": "Prompd LLC",
+  "license": "Elastic-2.0",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "nunjucks": "^3.2.4",
+    "semver": "^7.5.4",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/nunjucks": "^3.2.6",
+    "@types/semver": "^7.5.6",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.3"
+  }
+}
