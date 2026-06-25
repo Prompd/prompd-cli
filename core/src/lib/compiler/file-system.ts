@@ -6,6 +6,7 @@
  * .pdpkg helpers live in @prompd/cli (they need Node APIs). Path operations here
  * are inlined as POSIX so this module has zero Node imports.
  */
+import JSZip from 'jszip';
 
 /**
  * File system interface that can be implemented for different storage backends.
@@ -25,6 +26,37 @@ export interface IFileSystem {
   dirname(filePath: string): string;
   /** Join path segments. */
   join(...pathSegments: string[]): string;
+}
+
+/** Extensions whose bytes can't live in the string-backed FS — skipped on package
+ * ingest. Compilation only needs the text sources; binary assets are resolved
+ * server-side (the browser warns) for now. */
+const BINARY_ASSET_EXT = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'tiff',
+  'pdf', 'xlsx', 'xls', 'docx', 'doc', 'pptx', 'ppt',
+  'zip', 'pdpkg', 'gz', 'tar', 'wasm', 'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'mp3', 'mp4', 'wav', 'ogg', 'webm', 'mov', 'avi',
+]);
+function isBinaryAsset(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 && BINARY_ASSET_EXT.has(name.slice(dot + 1).toLowerCase());
+}
+
+/**
+ * Extract a `.pdpkg` (ZIP) buffer to a flat map of entry-relative path -> UTF-8
+ * content. The SINGLE ZIP-extraction primitive shared by package ingestion
+ * (MemoryFileSystem.addPackage) and skill install — so hosts never hand-roll their
+ * own jszip pass. Directories and binary assets are skipped (the consumers store
+ * text only).
+ */
+export async function extractPdpkg(buffer: Uint8Array): Promise<Map<string, string>> {
+  const zip = await JSZip.loadAsync(buffer);
+  const out = new Map<string, string>();
+  for (const entry of Object.values(zip.files)) {
+    if (entry.dir || isBinaryAsset(entry.name)) continue;
+    out.set(entry.name, await entry.async('string'));
+  }
+  return out;
 }
 
 /* ---- inlined POSIX path helpers (no Node 'path' dependency) ---- */
@@ -78,6 +110,8 @@ function toRelKey(filePath: string): string {
  * Files are provided as a map of path -> content.
  */
 export class MemoryFileSystem implements IFileSystem {
+  /** Cap on an ingested package buffer (defends against a hostile/huge .pdpkg). */
+  private static readonly MAX_PACKAGE_SIZE = 50 * 1024 * 1024;
   private files: Map<string, string>;
 
   constructor(files: Record<string, string> = {}) {
@@ -155,6 +189,36 @@ export class MemoryFileSystem implements IFileSystem {
   /** Get the virtual file system path for a package. */
   getPackagePath(packageName: string, version: string): string {
     return `/packages/${packageName}@${version}`;
+  }
+
+  /**
+   * Extract a `.pdpkg` (ZIP) buffer into memory under getPackagePath(name, ver).
+   *
+   * Uses JSZip — isomorphic (browser + Node) — so this is the SINGLE package-ingest
+   * path for every host (replacing the CLI's Node-only adm-zip subclass and the
+   * skill installer's ad-hoc unzip). Text files only: binary assets aren't
+   * representable in the string-backed FS, so they're skipped (a `using:` package's
+   * .prmd/.md/.json/.yaml is what matters for compilation). Validates entry paths
+   * can't escape the package directory.
+   */
+  async addPackage(packageName: string, version: string, packageBuffer: Uint8Array): Promise<void> {
+    if (packageBuffer.length > MemoryFileSystem.MAX_PACKAGE_SIZE) {
+      throw new Error(`Package too large: ${packageBuffer.length} bytes (max ${MemoryFileSystem.MAX_PACKAGE_SIZE})`);
+    }
+    const files = await extractPdpkg(packageBuffer);
+
+    const packagePath = this.getPackagePath(packageName, version);
+    const packagePrefix = this.normalizePath(packagePath.endsWith('/') ? packagePath : packagePath + '/');
+    const packageRoot = this.normalizePath(packagePath);
+
+    for (const [rel, content] of files) {
+      const filePath = this.join(packagePath, rel);
+      const normalized = this.normalizePath(filePath);
+      if (!normalized.startsWith(packagePrefix) && normalized !== packageRoot) {
+        throw new Error(`Security violation: extracted path escapes package directory: ${rel}`);
+      }
+      this.addFile(filePath, content);
+    }
   }
 
   /** Get all files under an optional base path. */
@@ -244,6 +308,17 @@ export class HybridFileSystem implements IFileSystem {
   /** Add multiple in-memory files at once. */
   addFiles(files: Record<string, string>): void {
     this.mem.addFiles(files);
+  }
+
+  /** Virtual path where a package's files live (delegates to the memory layer). */
+  getPackagePath(packageName: string, version: string): string {
+    return this.mem.getPackagePath(packageName, version);
+  }
+
+  /** Ingest a `.pdpkg` (ZIP) buffer into the in-memory layer, so package files are
+   * served synchronously alongside the workspace sources. */
+  addPackage(packageName: string, version: string, packageBuffer: Uint8Array): Promise<void> {
+    return this.mem.addPackage(packageName, version, packageBuffer);
   }
 
   exists(filePath: string): boolean | Promise<boolean> {

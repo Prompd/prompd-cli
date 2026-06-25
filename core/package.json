@@ -1,6 +1,6 @@
 {
   "name": "@prompd/core",
-  "version": "0.5.0-beta.10",
+  "version": "0.5.0-beta.11",
   "description": "Environment-agnostic core for Prompd: .prmd parser, compilation pipeline (Nunjucks templating), formatters, and an injectable file-system/package-resolver. Runs in Node, the browser, and the backend. No Node-only imports.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -48,6 +48,7 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "nunjucks": "^3.2.4",
     "semver": "^7.5.4",
     "yaml": "^2.8.3"
@@ -57,5 +58,8 @@
     "@types/semver": "^7.5.6",
     "tsup": "^8.0.0",
     "typescript": "^5.3.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   }
 }

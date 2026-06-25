@@ -9,6 +9,7 @@
 
 import semver from 'semver';
 import { SecurityError } from '../errors';
+import type { IPackageResolver, ResolvePackageOptions } from './types';
 
 /** POSIX path normalize (collapse ./ and ../, no fs). */
 function posixNormalize(p: string): string {
@@ -126,4 +127,51 @@ export function resolvePackageFile(packagePath: string, filePath: string): strin
   }
 
   return resolvedPath;
+}
+
+/** Fetch the raw `.pdpkg` (ZIP) bytes for a package@version. The host injects it —
+ * the browser with `fetch`, the Node CLI with its registry client — so the resolver
+ * itself stays environment-agnostic. */
+export type PackageDownloader = (name: string, version: string) => Promise<Uint8Array>;
+
+/** The in-memory FS capabilities the resolver needs to ingest a package — both
+ * MemoryFileSystem and HybridFileSystem provide these. Duck-typed (not an
+ * instanceof) so any host FS that can hold packages works. */
+interface PackageCapableFileSystem {
+  getPackagePath(name: string, version: string): string;
+  isDirectory(path: string): boolean | Promise<boolean>;
+  addPackage(name: string, version: string, buffer: Uint8Array): Promise<void>;
+}
+function isPackageCapable(fs: unknown): fs is PackageCapableFileSystem {
+  const f = fs as Partial<PackageCapableFileSystem> | undefined;
+  return !!f && typeof f.getPackagePath === 'function' && typeof f.addPackage === 'function' && typeof f.isDirectory === 'function';
+}
+
+/**
+ * The environment-agnostic package resolver: loads `using:`/`inherits:` packages
+ * into an in-memory FS via an injected registry download. This is the ONE resolver
+ * for every host that compiles in memory (the browser, and Node when not using the
+ * disk cache) — so the download/unzip/cache logic isn't duplicated per host.
+ *
+ * `resolvePackage` returns the in-memory directory path; the compiler then reads
+ * the referenced file from `options.fileSystem` via resolvePackageFile.
+ */
+export class MemoryPackageResolver implements IPackageResolver {
+  constructor(private readonly download: PackageDownloader) {}
+
+  async resolvePackage(packageRef: string, options: ResolvePackageOptions): Promise<string> {
+    const fs = options.fileSystem;
+    if (!isPackageCapable(fs)) {
+      throw new Error('MemoryPackageResolver requires a package-capable in-memory file system (MemoryFileSystem or HybridFileSystem)');
+    }
+    if (!isValidPackageReference(packageRef)) {
+      throw new SecurityError(`Invalid package reference format: ${packageRef}`);
+    }
+    const { name, version } = parsePackageReference(packageRef);
+    const packagePath = fs.getPackagePath(name, version);
+    if (await fs.isDirectory(packagePath)) return packagePath; // already loaded this session
+    const buffer = await this.download(name, version);
+    await fs.addPackage(name, version, buffer);
+    return packagePath;
+  }
 }
