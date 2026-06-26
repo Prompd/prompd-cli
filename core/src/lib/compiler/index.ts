@@ -97,6 +97,7 @@ export * from './types';
 export * from './pipeline';
 export * from './file-system';
 export * from './package-ref';
+export * from './install';
 export * from './language-map';
 export * from './path-utils';
 export { LexicalAnalysisStage } from './stages/lexical';

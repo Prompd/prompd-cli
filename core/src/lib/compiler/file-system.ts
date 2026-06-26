@@ -42,19 +42,52 @@ function isBinaryAsset(name: string): boolean {
   return dot >= 0 && BINARY_ASSET_EXT.has(name.slice(dot + 1).toLowerCase());
 }
 
+/** ZIP extraction limits (CLI parity — decompression-bomb protection). */
+const MAX_FILE_SIZE_IN_ZIP = 10 * 1024 * 1024;       // 10MB per file
+const MAX_TOTAL_EXTRACTED_SIZE = 500 * 1024 * 1024;  // 500MB total
+
+/** S_IFLNK in the unix mode bits — a symlink entry, which we reject. */
+function isSymlinkEntry(perms: number | string | null | undefined): boolean {
+  return typeof perms === 'number' && (perms & 0xF000) === 0xA000;
+}
+
+/** One reusable UTF-8 decoder for extraction (avoids a per-entry allocation). */
+const pdpkgDecoder = new TextDecoder();
+
 /**
  * Extract a `.pdpkg` (ZIP) buffer to a flat map of entry-relative path -> UTF-8
  * content. The SINGLE ZIP-extraction primitive shared by package ingestion
- * (MemoryFileSystem.addPackage) and skill install — so hosts never hand-roll their
- * own jszip pass. Directories and binary assets are skipped (the consumers store
- * text only).
+ * (MemoryFileSystem.addPackage), the installer, and skill install — so hosts never
+ * hand-roll their own jszip pass. Directories and binary assets are skipped (the
+ * consumers store text only). Enforces the same archive-security checks as the CLI:
+ * rejects null bytes, path traversal, symlinks, and oversized / decompression-bomb
+ * archives.
  */
 export async function extractPdpkg(buffer: Uint8Array): Promise<Map<string, string>> {
   const zip = await JSZip.loadAsync(buffer);
   const out = new Map<string, string>();
+  let total = 0;
   for (const entry of Object.values(zip.files)) {
+    // Security checks apply to every entry, regardless of whether we store it.
+    if (entry.name.includes('\0')) {
+      throw new Error(`Security violation: null byte in entry name: ${entry.name}`);
+    }
+    if (entry.name.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(entry.name)) {
+      throw new Error(`Security violation: path traversal in entry: ${entry.name}`);
+    }
+    if (isSymlinkEntry(entry.unixPermissions)) {
+      throw new Error(`Security violation: symlink entry in archive: ${entry.name}`);
+    }
     if (entry.dir || isBinaryAsset(entry.name)) continue;
-    out.set(entry.name, await entry.async('string'));
+    const bytes = await entry.async('uint8array');
+    if (bytes.length > MAX_FILE_SIZE_IN_ZIP) {
+      throw new Error(`File too large in package: ${entry.name} (${bytes.length} bytes, max ${MAX_FILE_SIZE_IN_ZIP})`);
+    }
+    total += bytes.length;
+    if (total > MAX_TOTAL_EXTRACTED_SIZE) {
+      throw new Error(`Package total decompressed size exceeds limit (${MAX_TOTAL_EXTRACTED_SIZE} bytes). Possible decompression bomb.`);
+    }
+    out.set(entry.name, pdpkgDecoder.decode(bytes));
   }
   return out;
 }
