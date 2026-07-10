@@ -778,16 +778,25 @@ function validateNodeData(
   }
 
   switch (node.type) {
-    case 'prompt':
-      if (!('source' in node.data)) {
+    case 'prompt': {
+      // A prompt node's source can be a file/package ref (`source`) OR inline
+      // text (`rawPrompt`/`content`) — the same rule as workflowValidator's
+      // validatePromptNode. Requiring the `source` KEY alone rejected valid
+      // inline-only nodes (canvas-authored prompts with no .prmd attached).
+      // The key-present-but-empty form stays valid for back-compat (strategy
+      // planners emit source:'' alongside rawPrompt).
+      const d = node.data as { rawPrompt?: unknown; content?: unknown }
+      const inline = (v: unknown): boolean => typeof v === 'string' && v.trim() !== ''
+      if (!('source' in node.data) && !inline(d.rawPrompt) && !inline(d.content)) {
         errors.push({
           nodeId: node.id,
           field: 'source',
-          message: 'Prompt node missing source',
+          message: 'Prompt node has no source: attach a .prmd file (source) or enter inline prompt text (rawPrompt)',
           code: 'MISSING_PROMPT_SOURCE',
         })
       }
       break
+    }
 
     case 'condition':
       if (!('conditions' in node.data) || !Array.isArray(node.data.conditions)) {
