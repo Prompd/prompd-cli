@@ -30,7 +30,7 @@ export { validateWorkflow, validateWorkflowQuick } from './lib/workflowValidator
 export type { ValidationResult } from './lib/workflowValidator';
 // Parallel branches — the one scheduler every workflow engine uses.
 export {
-  runBranches, mergeBranchResults, DEFAULT_MAX_CONCURRENCY,
+  runBranches, mergeBranchResults, traceForkBranches, forkJoinId, DEFAULT_MAX_CONCURRENCY,
 } from './lib/parallel';
 export type {
   BranchWaitFor, BranchMergeStrategy, BranchStatus, BranchSpec, BranchResult,

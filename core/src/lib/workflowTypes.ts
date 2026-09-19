@@ -360,7 +360,17 @@ export interface ParallelNodeData extends BaseNodeData {
   /** Custom labels for fork branches (indexed by branch number) */
   forkLabels?: string[]
   branches: ParallelBranch[]
-  waitFor: 'all' | 'any' | 'race'
+  /**
+   * all: every branch settles (fails only if all fail). race: first to settle wins.
+   * any: first success wins. quorum: quorumCount successes win. Losers are cancelled.
+   */
+  waitFor: 'all' | 'any' | 'race' | 'quorum'
+  /** Successes required when waitFor is 'quorum' (default 1). */
+  quorumCount?: number
+  /** Branches running at once (default 4). */
+  maxConcurrency?: number
+  /** Per-branch timeout in ms; unset or 0 = none. A timeout counts as a failure. */
+  branchTimeoutMs?: number
   mergeStrategy: 'object' | 'array' | 'first'
   /** Whether the container is collapsed (hides child nodes) */
   collapsed?: boolean

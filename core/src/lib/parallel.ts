@@ -6,6 +6,7 @@
  * order. It knows nothing about nodes: the caller supplies how one branch runs.
  * traceForkBranches/forkJoinId derive fork-mode branches from a workflow's edges.
  */
+import type { WorkflowFile, ParallelNodeData } from './workflowTypes'
 
 export type BranchWaitFor = 'all' | 'any' | 'race' | 'quorum'
 export type BranchMergeStrategy = 'object' | 'array' | 'first'
@@ -186,4 +187,63 @@ export function mergeBranchResults<T>(outcome: RunBranchesOutcome<T>, strategy: 
     return first ? { result: first.output } : { error: 'All branches failed' }
   }
   return sel.map((r) => (r.status === 'ok' ? r.output : null))
+}
+
+/** Edge handles that carry events, not execution flow. */
+const EVENT_HANDLES = ['onError', 'onCheckpoint', 'onProgress', 'toolResult']
+
+const forkIndex = (handle: string | undefined): number => {
+  const k = parseInt((handle ?? '').replace('fork-', ''), 10)
+  return Number.isFinite(k) ? k : 0
+}
+
+/**
+ * Fork-mode branches of a parallel node, derived from edges: each `fork-<i>`
+ * out-edge starts branch i, which follows execution edges forward until a
+ * `merge` node or an edge into an `input-<i>` join handle. Labels come from
+ * data.forkLabels (default "Branch N"); duplicates are suffixed so every key is unique.
+ */
+export function traceForkBranches(file: WorkflowFile, parallelId: string): BranchSpec[] {
+  const node = file.nodes.find((n) => n.id === parallelId)
+  if (!node || node.type !== 'parallel') return []
+  const data = node.data as ParallelNodeData
+  const mergeIds = new Set(file.nodes.filter((n) => n.type === 'merge').map((n) => n.id))
+  const forkEdges = file.edges
+    .filter((e) => e.source === parallelId && e.sourceHandle?.startsWith('fork-'))
+    .sort((a, b) => forkIndex(a.sourceHandle) - forkIndex(b.sourceHandle))
+  const labelUses = new Map<string, number>()
+
+  return forkEdges.map((fe) => {
+    const idx = forkIndex(fe.sourceHandle)
+    const nodeIds: string[] = []
+    if (!fe.targetHandle?.startsWith('input-')) {
+      const visited = new Set<string>()
+      const queue = [fe.target]
+      while (queue.length > 0) {
+        const id = queue.shift() as string
+        if (visited.has(id) || mergeIds.has(id)) continue
+        visited.add(id)
+        nodeIds.push(id)
+        for (const e of file.edges) {
+          if (e.source !== id) continue
+          if (e.sourceHandle === 'loop-end' || e.sourceHandle === 'parallel-end') continue
+          if (e.targetHandle?.startsWith('fork-')) continue
+          if (e.sourceHandle && EVENT_HANDLES.includes(e.sourceHandle)) continue
+          if (e.targetHandle?.startsWith('input-')) continue
+          if (!visited.has(e.target) && !mergeIds.has(e.target)) queue.push(e.target)
+        }
+      }
+    }
+    const base = data.forkLabels?.[idx]?.trim() || `Branch ${idx + 1}`
+    const uses = labelUses.get(base) ?? 0
+    labelUses.set(base, uses + 1)
+    const label = uses === 0 ? base : `${base} (${uses + 1})`
+    return { key: label, label, nodeIds }
+  })
+}
+
+/** The node a fork-mode parallel's branches rejoin at (target of an `input-*` edge). */
+export function forkJoinId(file: WorkflowFile, parallelId: string): string | undefined {
+  const members = new Set<string>([parallelId, ...traceForkBranches(file, parallelId).flatMap((b) => b.nodeIds)])
+  return file.edges.find((e) => members.has(e.source) && e.targetHandle?.startsWith('input-'))?.target
 }

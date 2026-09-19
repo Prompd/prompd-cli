@@ -146,8 +146,10 @@ function validateNode(node: WorkflowNode, workflow: WorkflowFile): WorkflowValid
 
   // Validate container nodes have proper children
   if (['loop', 'parallel', 'tool-call-router', 'chat-agent'].includes(node.type)) {
+    // A fork-mode parallel is edge-based, not a container: its branches hang off fork-<i> edges.
+    const isForkParallel = node.type === 'parallel' && (node.data as { mode?: string }).mode === 'fork'
     const children = workflow.nodes.filter(n => n.parentId === node.id)
-    if (children.length === 0 && node.type !== 'chat-agent') {
+    if (children.length === 0 && node.type !== 'chat-agent' && !isForkParallel) {
       const containerTypeHelp: Record<string, string> = {
         'loop': 'Drag nodes inside this loop container to define the loop body.',
         'parallel': 'Drag nodes inside this parallel container to run them concurrently.',
