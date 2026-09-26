@@ -166,6 +166,114 @@ describe('evaluateExpression — receiver-type errors are evaluation errors, not
   });
 });
 
+describe('evaluateExpression — round 2: objects supplied directly from scope are never coerced', () => {
+  // Unlike round 1's probes (which built the carrier object INSIDE the
+  // expression, so the smuggled function was already filtered to undefined
+  // by the time it reached the carrier), these carriers come straight FROM
+  // SCOPE with a real function already baked into an own property. A plain
+  // object read out of scope is handed back whole (see dataValue's doc
+  // comment) — the property fix is that no coercion site is ever allowed to
+  // touch it, so its internal toString/valueOf/Symbol.toPrimitive can never
+  // run no matter how it got there.
+  function spy(): { fn: () => string; called: () => boolean } {
+    let called = false;
+    const fn = (): string => { called = true; return 'pwned'; };
+    return { fn, called: () => called };
+  }
+
+  function makeScope(fn: () => string): Record<string, unknown> {
+    return {
+      t: { toString: fn },
+      v: { valueOf: fn },
+      p: { [Symbol.toPrimitive]: fn },
+      s: 'abc',
+      o: {},
+      a: [{ toString: fn }],
+      x: { y: { toString: fn } },
+    };
+  }
+
+  const probes = [
+    "t + ''",
+    "p + ''",
+    "v == 'x'",
+    'v < 1',
+    '-v',
+    '+v',
+    '[t].join()',
+    'a.join()',
+    'a.join(t)',
+    'o[t]',
+    's.includes(t)',
+    's.indexOf(t)',
+    's.slice(v)',
+    "x.y + ''",
+    "({ a: t }).a + ''",
+  ];
+
+  it.each(probes)('%s never invokes the scope-supplied function', (expr) => {
+    const s = spy();
+    try {
+      evaluateExpression(expr, makeScope(s.fn));
+    } catch (e) {
+      // Throwing (wrapped as ExpressionError) is an acceptable outcome —
+      // only an actual call to the spy would be a security failure.
+      expect(e).toBeInstanceOf(ExpressionError);
+    }
+    expect(s.called()).toBe(false);
+  });
+
+  it('the same probes against a null-prototype carrier never invoke the function', () => {
+    const s = spy();
+    const nullProtoScope: Record<string, unknown> = {
+      t: Object.assign(Object.create(null), { toString: s.fn }),
+      v: Object.assign(Object.create(null), { valueOf: s.fn }),
+    };
+    for (const expr of ["t + ''", "v == 'x'", 'v < 1', '-v', '+v']) {
+      try {
+        evaluateExpression(expr, nullProtoScope);
+      } catch (e) {
+        expect(e).toBeInstanceOf(ExpressionError);
+      }
+    }
+    expect(s.called()).toBe(false);
+  });
+
+  it('a class instance at the scope root reads as undefined', () => {
+    const C = class { toString(): string { return 'class'; } };
+    expect(evaluateExpression('c', { c: new C() })).toBeUndefined();
+  });
+
+  it('joining an array containing an undefined-read class instance never invokes it', () => {
+    const C = class { toString(): string { return 'class'; } };
+    expect(evaluateExpression('[c].join()', { c: new C() })).toBe('');
+  });
+
+  it('== / != compare object operands by identity, never by ToPrimitive', () => {
+    const s = spy();
+    const obj = { toString: s.fn };
+    expect(evaluateExpression('obj == obj', { obj })).toBe(true);
+    expect(evaluateExpression('obj != obj', { obj })).toBe(false);
+    expect(evaluateExpression("obj == 'x'", { obj })).toBe(false);
+    expect(evaluateExpression("obj != 'x'", { obj })).toBe(true);
+    expect(s.called()).toBe(false);
+  });
+
+  it('array join over primitive elements still works', () => {
+    expect(evaluateExpression("items.join('-')", { items: [1, 'a'] })).toBe('1-a');
+  });
+
+  it('string slice still works', () => {
+    expect(evaluateExpression('s.slice(1)', { s: 'abc' })).toBe('bc');
+  });
+
+  it('array includes compares an object search value by identity (SameValueZero), never coerced', () => {
+    const target = { a: 1 };
+    expect(evaluateExpression('items.includes(target)', { items: [target], target })).toBe(true);
+    expect(evaluateExpression('items.includes(target)', { items: [{ a: 1 }], target })).toBe(false);
+  });
+});
+
 describe('evaluateExpression — the catch boundary never leaks a non-ExpressionError', () => {
   it('wraps a thrown null-prototype value from a scope read as an evaluation error', () => {
     // hasOwnProperty/getOwnPropertyDescriptor on a scope Proxy both dispatch to

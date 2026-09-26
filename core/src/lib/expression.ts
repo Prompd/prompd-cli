@@ -147,8 +147,8 @@ export type ExprNode =
   | { k: 'obj'; props: Array<{ key: string; value: ExprNode }> }
   | { k: 'member'; obj: ExprNode; prop: string | ExprNode; optional: boolean; p: number; paren?: boolean }
   | { k: 'call'; recv: ExprNode; name: string; args: ExprNode[]; optional: boolean; p: number; paren?: boolean }
-  | { k: 'unary'; op: '!' | '-' | '+'; arg: ExprNode }
-  | { k: 'bin'; op: string; l: ExprNode; r: ExprNode }
+  | { k: 'unary'; op: '!' | '-' | '+'; arg: ExprNode; p: number }
+  | { k: 'bin'; op: string; l: ExprNode; r: ExprNode; p: number }
   | { k: 'cond'; test: ExprNode; yes: ExprNode; no: ExprNode };
 
 class Parser {
@@ -205,7 +205,7 @@ class Parser {
       const t = this.peek();
       if (t.t !== 'op' || !ops.includes(t.v)) return l;
       this.i++;
-      l = { k: 'bin', op: t.v, l, r: nextLevel() };
+      l = { k: 'bin', op: t.v, l, r: nextLevel(), p: t.p };
     }
   }
   private nullish(): ExprNode { return this.binaryLevel(['??'], () => this.or()); }
@@ -221,7 +221,7 @@ class Parser {
     if (t.t === 'op' && (t.v === '!' || t.v === '-' || t.v === '+')) {
       this.i++;
       this.enter(t.p);
-      try { return { k: 'unary', op: t.v, arg: this.unary() }; } finally { this.leave(); }
+      try { return { k: 'unary', op: t.v, arg: this.unary(), p: t.p }; } finally { this.leave(); }
     }
     if (t.t === 'op' && (t.v === '++' || t.v === '--' || t.v === '~')) throw this.unexpected(t);
     return this.postfix();
@@ -395,10 +395,37 @@ function isPlainArray(o: object): o is unknown[] {
   return Array.isArray(o) && Object.getPrototypeOf(o) === Array.prototype;
 }
 
+/** The shape of every value our sandbox is willing to hand back from a read
+ * (scope-root identifier or object/array member): a primitive (including
+ * `null`), a plain object (`Object.prototype` or null prototype), or a real
+ * array (`Array.prototype` exactly). Anything else — a class instance, a
+ * boxed primitive, an Array subclass, `Map`, `Date`, a `Proxy`, or a function
+ * — becomes `undefined`.
+ *
+ * This does NOT sanitize what's inside a plain object or array it lets
+ * through: a plain object handed back here can still carry a real function
+ * on one of its own properties (set by the host, not synthesized by this
+ * evaluator), and the value itself is returned whole, not walked. That's
+ * fine, because reading it is not where the risk is — the risk is a native
+ * operator implicitly coercing it (calling its `toString`/`valueOf`/
+ * `Symbol.toPrimitive`). Every such coercion site uses `prim()` below, which
+ * refuses ANY object or function outright, so that internal machinery is
+ * never reached, regardless of how deep or well-hidden it is.
+ *
+ * Hosts must pass plain data. A `Proxy` placed in scope, at any depth, may
+ * still have its `getPrototypeOf`/`getOwnPropertyDescriptor`/`has` traps
+ * invoked by this classification and by property reads — those traps run
+ * before we can tell the value is not a plain object or array. */
+function dataValue(v: unknown): unknown {
+  if (typeof v === 'function') return undefined;
+  if (v === null || typeof v !== 'object') return v;
+  return isPlainArray(v) || isPlainObject(v) ? v : undefined;
+}
+
 /** Reads own data from plain objects (`Object.prototype` or null prototype)
- * and real arrays only. Class instances, boxed primitives, Array subclasses,
- * Map, Date, Proxy, etc. read as undefined — their own properties may run
- * getters, species constructors, or other code as a side effect of access. */
+ * and real arrays only, then applies the same `dataValue` classification to
+ * the result — so a nested class instance, Map, Date, Proxy, etc. read as
+ * undefined exactly like one at the scope root, no matter how deep it is. */
 function readProp(obj: unknown, key: string, p: number): unknown {
   if (BLOCKED_KEYS.has(key)) throw disallowed(`access to ${key}`, p);
   if (typeof obj === 'string') {
@@ -406,14 +433,9 @@ function readProp(obj: unknown, key: string, p: number): unknown {
     return isCanonicalIndex(key) && Number(key) < obj.length ? obj.charAt(Number(key)) : undefined;
   }
   if (obj === null || typeof obj !== 'object') return undefined;
-  if (isPlainArray(obj)) return key === 'length' ? obj.length : ownData(obj, key);
-  if (isPlainObject(obj)) return ownData(obj, key);
+  if (isPlainArray(obj)) return key === 'length' ? obj.length : dataValue(ownData(obj, key));
+  if (isPlainObject(obj)) return dataValue(ownData(obj, key));
   return undefined;
-}
-
-function propKey(v: unknown, p: number): string {
-  if (typeof v === 'symbol') throw disallowed('a symbol key', p);
-  return typeof v === 'string' ? v : String(v);
 }
 
 function describeType(v: unknown): string {
@@ -424,14 +446,71 @@ function describeType(v: unknown): string {
   return t === 'object' ? 'an object' : `a ${t}`;
 }
 
+type Prim = string | number | boolean | null | undefined | bigint;
+
+/** The one gate every coercion site goes through: an object, a function, or
+ * a symbol is refused outright — never handed to a native operator that
+ * might call `toString`/`valueOf`/`Symbol.toPrimitive` on it. This is what
+ * actually closes function-smuggling, structurally: it doesn't matter WHERE
+ * a live function is hiding (a scope-root value, a nested property, an
+ * object literal built inside the expression) if no coercion site is ever
+ * allowed to touch anything but an already-primitive value. */
+function prim(v: unknown, p: number, what: string): Prim {
+  if (v === null) return v;
+  const t = typeof v;
+  if (t === 'object' || t === 'function' || t === 'symbol') {
+    throw new ExpressionError(`${what} needs a plain value, not ${describeType(v)}`, 'evaluation error', p);
+  }
+  return v as Prim;
+}
+
+function propKey(v: unknown, p: number): string {
+  const pv = prim(v, p, 'a computed property key');
+  return typeof pv === 'string' ? pv : String(pv);
+}
+
+/** `==`/`!=` never runs ToPrimitive: an object (or function) operand is
+ * compared by identity instead of being coerced. Only genuinely primitive
+ * operands ever get JavaScript's loose-equality coercions (`1 == '1'`). */
+function looseEq(l: unknown, r: unknown): boolean {
+  const lRef = l !== null && (typeof l === 'object' || typeof l === 'function');
+  const rRef = r !== null && (typeof r === 'object' || typeof r === 'function');
+  if (lRef || rRef) return l === r;
+  // eslint-disable-next-line eqeqeq
+  return l == r;
+}
+
 function callMethod(recv: unknown, name: string, args: unknown[], p: number): unknown {
   if (typeof recv === 'string' && STRING_METHODS.has(name)) {
     const fn: unknown = Reflect.get(String.prototype, name);
-    if (typeof fn === 'function') return Reflect.apply(fn, recv, args);
+    if (typeof fn === 'function') {
+      // Every String method here (includes/startsWith/endsWith/indexOf/slice/…)
+      // coerces its argument(s) via ToString/ToNumber if given an object —
+      // exactly the coercion prim() exists to block.
+      const primArgs = args.map((a) => prim(a, p, `an argument to ${name}`));
+      return Reflect.apply(fn, recv, primArgs);
+    }
   }
   if (Array.isArray(recv) && Object.getPrototypeOf(recv) === Array.prototype && ARRAY_METHODS.has(name)) {
-    const fn: unknown = Reflect.get(Array.prototype, name);
-    if (typeof fn === 'function') return Reflect.apply(fn, recv, args);
+    if (name === 'join') {
+      // join() coerces the separator AND every element via ToString.
+      const sep = args.length > 0 ? prim(args[0], p, 'the join separator') : undefined;
+      const items = recv.map((el) => prim(el, p, 'an array element passed to join'));
+      return sep === undefined ? items.join() : items.join(String(sep));
+    }
+    if (name === 'slice') {
+      const primArgs = args.map((a) => prim(a, p, 'a slice argument'));
+      return recv.slice(...(primArgs as Array<number | undefined>));
+    }
+    if (name === 'indexOf' || name === 'includes') {
+      // The search value is compared by SameValueZero, never coerced — an
+      // object search value is fine (and useful: identity search). Only a
+      // fromIndex needs to be a plain value.
+      const fromIndex = args.length > 1 ? prim(args[1], p, 'a fromIndex argument') : undefined;
+      const fn: unknown = Reflect.get(Array.prototype, name);
+      const callArgs = fromIndex === undefined ? [args[0]] : [args[0], fromIndex];
+      if (typeof fn === 'function') return Reflect.apply(fn, recv, callArgs);
+    }
   }
   const msg = `call to ${name} on ${describeType(recv)}`;
   // An allowlisted method name on the wrong receiver type is a data problem
@@ -443,7 +522,7 @@ function callMethod(recv: unknown, name: string, args: unknown[], p: number): un
   throw disallowed(msg, p);
 }
 
-function toNum(v: unknown): number {
+function toNum(v: Prim): number {
   return typeof v === 'number' ? v : Number(v);
 }
 
@@ -466,7 +545,7 @@ class Evaluator {
   private ev(n: ExprNode): unknown {
     switch (n.k) {
       case 'lit': return n.v;
-      case 'id': return ownData(this.scope, n.name);
+      case 'id': return dataValue(ownData(this.scope, n.name));
       case 'arr': return n.items.map((x) => this.val(x));
       case 'obj': {
         const o: Record<string, unknown> = {};
@@ -489,7 +568,8 @@ class Evaluator {
       case 'unary': {
         const v = this.val(n.arg);
         if (n.op === '!') return !v;
-        return n.op === '-' ? -toNum(v) : toNum(v);
+        const pv = prim(v, n.p, `unary '${n.op}'`);
+        return n.op === '-' ? -toNum(pv) : toNum(pv);
       }
       case 'cond': return this.val(n.test) ? this.val(n.yes) : this.val(n.no);
       case 'bin': return this.bin(n);
@@ -503,21 +583,25 @@ class Evaluator {
     const l = this.val(n.l);
     const r = this.val(n.r);
     switch (n.op) {
-      case '+': return typeof l === 'string' || typeof r === 'string' ? String(l) + String(r) : toNum(l) + toNum(r);
-      case '-': return toNum(l) - toNum(r);
-      case '*': return toNum(l) * toNum(r);
-      case '/': return toNum(l) / toNum(r);
-      case '%': return toNum(l) % toNum(r);
-      // eslint-disable-next-line eqeqeq
-      case '==': return l == r;
-      // eslint-disable-next-line eqeqeq
-      case '!=': return l != r;
+      case '+': {
+        // Every arithmetic/relational site validates through prim() first —
+        // never String(l)/String(r) or a native +/</>/etc. on a raw object.
+        const lp = prim(l, n.p, "'+'");
+        const rp = prim(r, n.p, "'+'");
+        return typeof lp === 'string' || typeof rp === 'string' ? String(lp) + String(rp) : toNum(lp) + toNum(rp);
+      }
+      case '-': return toNum(prim(l, n.p, "'-'")) - toNum(prim(r, n.p, "'-'"));
+      case '*': return toNum(prim(l, n.p, "'*'")) * toNum(prim(r, n.p, "'*'"));
+      case '/': return toNum(prim(l, n.p, "'/'")) / toNum(prim(r, n.p, "'/'"));
+      case '%': return toNum(prim(l, n.p, "'%'")) % toNum(prim(r, n.p, "'%'"));
+      case '==': return looseEq(l, r);
+      case '!=': return !looseEq(l, r);
       case '===': return l === r;
       case '!==': return l !== r;
-      case '<': return (l as number) < (r as number);
-      case '<=': return (l as number) <= (r as number);
-      case '>': return (l as number) > (r as number);
-      case '>=': return (l as number) >= (r as number);
+      case '<': return (prim(l, n.p, "'<'") as number) < (prim(r, n.p, "'<'") as number);
+      case '<=': return (prim(l, n.p, "'<='") as number) <= (prim(r, n.p, "'<='") as number);
+      case '>': return (prim(l, n.p, "'>'") as number) > (prim(r, n.p, "'>'") as number);
+      case '>=': return (prim(l, n.p, "'>='") as number) >= (prim(r, n.p, "'>='") as number);
       default: throw syntax(`unknown operator '${n.op}'`, 0);
     }
   }
