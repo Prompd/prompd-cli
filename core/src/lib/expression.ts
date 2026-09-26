@@ -368,20 +368,46 @@ export function validateExpression(expr: string): ExpressionError | null {
 
 const SHORT: unique symbol = Symbol('optional-chain-short-circuit');
 
+/** Own data property only: never inherited, never an accessor, and never a
+ * function value — a function read out of scope data would let a caller
+ * invoke it (directly, or indirectly via implicit coercions like `+`, `==`,
+ * `String()`, array `join`), which is code execution through data. */
 function ownData(obj: object, key: string): unknown {
   if (!Object.prototype.hasOwnProperty.call(obj, key)) return undefined;
   const d = Object.getOwnPropertyDescriptor(obj, key);
-  return d && 'value' in d ? d.value : undefined;
+  if (!d || !('value' in d)) return undefined;
+  return typeof d.value === 'function' ? undefined : d.value;
 }
 
+/** True canonical index check: '01', '1.0', '+1', etc. are never treated as
+ * indices, matching how real arrays name their own integer-index keys. */
+function isCanonicalIndex(key: string): boolean {
+  const n = Number(key);
+  return Number.isInteger(n) && n >= 0 && String(n) === key;
+}
+
+function isPlainObject(o: object): boolean {
+  const proto = Object.getPrototypeOf(o);
+  return proto === Object.prototype || proto === null;
+}
+
+function isPlainArray(o: object): o is unknown[] {
+  return Array.isArray(o) && Object.getPrototypeOf(o) === Array.prototype;
+}
+
+/** Reads own data from plain objects (`Object.prototype` or null prototype)
+ * and real arrays only. Class instances, boxed primitives, Array subclasses,
+ * Map, Date, Proxy, etc. read as undefined — their own properties may run
+ * getters, species constructors, or other code as a side effect of access. */
 function readProp(obj: unknown, key: string, p: number): unknown {
   if (BLOCKED_KEYS.has(key)) throw disallowed(`access to ${key}`, p);
   if (typeof obj === 'string') {
     if (key === 'length') return obj.length;
-    return /^\d+$/.test(key) && Number(key) < obj.length ? obj.charAt(Number(key)) : undefined;
+    return isCanonicalIndex(key) && Number(key) < obj.length ? obj.charAt(Number(key)) : undefined;
   }
-  if (Array.isArray(obj)) return key === 'length' ? obj.length : ownData(obj, key);
-  if (obj !== null && typeof obj === 'object') return ownData(obj, key);
+  if (obj === null || typeof obj !== 'object') return undefined;
+  if (isPlainArray(obj)) return key === 'length' ? obj.length : ownData(obj, key);
+  if (isPlainObject(obj)) return ownData(obj, key);
   return undefined;
 }
 
@@ -403,11 +429,18 @@ function callMethod(recv: unknown, name: string, args: unknown[], p: number): un
     const fn: unknown = Reflect.get(String.prototype, name);
     if (typeof fn === 'function') return Reflect.apply(fn, recv, args);
   }
-  if (Array.isArray(recv) && ARRAY_METHODS.has(name)) {
+  if (Array.isArray(recv) && Object.getPrototypeOf(recv) === Array.prototype && ARRAY_METHODS.has(name)) {
     const fn: unknown = Reflect.get(Array.prototype, name);
     if (typeof fn === 'function') return Reflect.apply(fn, recv, args);
   }
-  throw disallowed(`call to ${name} on ${describeType(recv)}`, p);
+  const msg = `call to ${name} on ${describeType(recv)}`;
+  // An allowlisted method name on the wrong receiver type is a data problem
+  // (the expression is fine; the runtime value isn't shaped for it), not a
+  // language-level violation — unlike a name that was never allowlisted.
+  if (STRING_METHODS.has(name) || ARRAY_METHODS.has(name)) {
+    throw new ExpressionError(`${msg} is not allowed in a workflow expression`, 'evaluation error', p);
+  }
+  throw disallowed(msg, p);
 }
 
 function toNum(v: unknown): number {
@@ -498,11 +531,17 @@ export function evaluateExpression(expr: string, scope: Record<string, unknown>)
   try {
     return new Evaluator(scope).run(ast);
   } catch (e) {
-    if (isExpressionError(e)) throw e;
-    throw new ExpressionError(
-      `the expression could not be evaluated: ${e instanceof Error ? e.message : String(e)}`,
-      'evaluation error',
-      0,
-    );
+    // Only an ExpressionError we threw ourselves passes through; anything
+    // else is wrapped, so a host object (even one named 'ExpressionError',
+    // or one whose own String()/message access itself throws) can never
+    // leak past this boundary unwrapped.
+    if (e instanceof ExpressionError) throw e;
+    let detail = 'unknown error';
+    try {
+      detail = e instanceof Error ? e.message : String(e);
+    } catch {
+      // detail keeps its fallback value.
+    }
+    throw new ExpressionError(`the expression could not be evaluated: ${detail}`, 'evaluation error', 0);
   }
 }

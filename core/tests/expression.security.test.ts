@@ -48,9 +48,165 @@ describe('evaluateExpression — additional security checks', () => {
     expect((callsErr as ExpressionError).construct).toBe('nesting deeper than 64 levels');
   });
 
-  it('evaluates a 1,000-deep member chain within the length limit without a stack overflow', () => {
+  it('evaluates a 900-deep member chain within the length limit without a stack overflow', () => {
     const expr = 'a' + '.b'.repeat(900);
     expect(expr.length).toBeLessThanOrEqual(2000);
     expect(evaluateExpression(expr, { a: {} })).toBeUndefined();
+  });
+});
+
+describe('evaluateExpression — function values never read out of scope data', () => {
+  function spy(): { fn: () => string; called: () => boolean } {
+    let called = false;
+    const fn = (): string => { called = true; return 'pwned'; };
+    return { fn, called: () => called };
+  }
+
+  it('a bare function-valued identifier reads as undefined', () => {
+    const s = spy();
+    expect(evaluateExpression('f', { f: s.fn })).toBeUndefined();
+    expect(s.called()).toBe(false);
+  });
+
+  it('a nested function-valued property reads as undefined', () => {
+    const s = spy();
+    expect(evaluateExpression('o.f', { o: { f: s.fn } })).toBeUndefined();
+    expect(s.called()).toBe(false);
+  });
+
+  // Every probe below tries to smuggle the (unread, therefore undefined)
+  // function value into a position where an implicit coercion or built-in
+  // method might invoke it. Some now throw (wrapped as ExpressionError,
+  // asserted elsewhere) because the resulting real object has no usable
+  // toString/valueOf; what matters here is that the spy is NEVER called.
+  const probes: Array<[string, Record<string, unknown>]> = [
+    ["({ toString: f }) + ''", {}],
+    ["({ valueOf: f }) == 'x'", {}],
+    ['({ valueOf: f }) < 1', {}],
+    ['-({ valueOf: f })', {}],
+    ["[({ toString: f })].join()", {}],
+    ["o[({ toString: f })]", { o: { a: 1 } }],
+    ["s.slice(({ valueOf: f }))", { s: 'hello' }],
+    ['s.includes(({ toString: f }))', { s: 'hello' }],
+  ];
+
+  it.each(probes)('%s never invokes the smuggled function', (expr, extraScope) => {
+    const s = spy();
+    try {
+      evaluateExpression(expr, { f: s.fn, ...extraScope });
+    } catch {
+      // Throwing (wrapped as ExpressionError) is an acceptable outcome here —
+      // only an actual call to the spy would be a security failure.
+    }
+    expect(s.called()).toBe(false);
+  });
+});
+
+describe('evaluateExpression — reads restricted to plain objects and real arrays', () => {
+  it('a class instance reads its own field as undefined', () => {
+    const Point = class { x: number; constructor() { this.x = 1; } };
+    expect(evaluateExpression('o.x', { o: new Point() })).toBeUndefined();
+  });
+
+  it('an Array-subclass receiver is refused for an allowlisted array method', () => {
+    class MyArray extends Array {}
+    const s = MyArray.from([1, 2, 3]);
+    expect(() => evaluateExpression('s.slice(0)', { s })).toThrow(/call to slice/);
+  });
+
+  it('a null-prototype plain object still reads its own data', () => {
+    const o: Record<string, unknown> = Object.assign(Object.create(null), { a: 1 });
+    expect(evaluateExpression('o.a', { o })).toBe(1);
+  });
+
+  it('a boxed primitive reads as undefined rather than exposing its wrapper internals', () => {
+    // eslint-disable-next-line no-new-wrappers
+    const boxed: unknown = new String('hi');
+    expect(evaluateExpression('o.length', { o: boxed })).toBeUndefined();
+  });
+});
+
+describe('evaluateExpression — string indices are canonical only', () => {
+  it("rejects a non-canonical numeric-looking key like '01'", () => {
+    expect(evaluateExpression("s['01']", { s: 'ab' })).toBeUndefined();
+    expect(evaluateExpression("s['0']", { s: 'ab' })).toBe('a');
+    expect(evaluateExpression("s['1']", { s: 'ab' })).toBe('b');
+  });
+});
+
+describe('evaluateExpression — receiver-type errors are evaluation errors, not language violations', () => {
+  it('an allowlisted method name on the wrong receiver type is an evaluation error', () => {
+    try {
+      evaluateExpression('items.toLowerCase()', { items: ['a', 'b'] });
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+    try {
+      evaluateExpression('n.includes(1)', { n: 3 });
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+  });
+
+  it('a method name that was never allowlisted is rejected at parse time, before any receiver-type question arises', () => {
+    // The parser rejects a non-allowlisted method name outright (it can't yet
+    // know the receiver type); only an allowlisted name reaching callMethod
+    // on the wrong receiver is the 'evaluation error' case above.
+    try {
+      evaluateExpression('n.toFixed(2)', { n: 3 });
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('call to toFixed');
+    }
+  });
+});
+
+describe('evaluateExpression — the catch boundary never leaks a non-ExpressionError', () => {
+  it('wraps a thrown null-prototype value from a scope read as an evaluation error', () => {
+    // hasOwnProperty/getOwnPropertyDescriptor on a scope Proxy both dispatch to
+    // its 'getOwnPropertyDescriptor' trap, so a plain identifier read against
+    // this scope drives the throw through evaluateExpression's real catch
+    // boundary — no scope getter or accessor path is involved.
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw Object.create(null);
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+  });
+
+  it('wraps a host Error deceptively named ExpressionError', () => {
+    const impostor = new Error('not really an ExpressionError');
+    impostor.name = 'ExpressionError';
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw impostor;
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+      expect((e as ExpressionError).message).toContain('not really an ExpressionError');
+    }
   });
 });
