@@ -373,7 +373,6 @@ const SHORT: unique symbol = Symbol('optional-chain-short-circuit');
  * invoke it (directly, or indirectly via implicit coercions like `+`, `==`,
  * `String()`, array `join`), which is code execution through data. */
 function ownData(obj: object, key: string): unknown {
-  if (!Object.prototype.hasOwnProperty.call(obj, key)) return undefined;
   const d = Object.getOwnPropertyDescriptor(obj, key);
   if (!d || !('value' in d)) return undefined;
   return typeof d.value === 'function' ? undefined : d.value;
@@ -415,14 +414,17 @@ function isPlainArray(o: object): o is unknown[] {
  * Hosts must pass plain data. The actual residual: a `Proxy` placed in
  * scope, at any depth, may still have its `getPrototypeOf` trap invoked by
  * this classification, and its `getOwnPropertyDescriptor` trap invoked by
- * every own-data read (`ownData`, `ownIndex`, `ownIndexLength`) — those two
- * traps run before we can tell the value isn't a plain object or array, or
- * before we can read one own property or the array length. Nothing else on
- * a Proxy is ever reached: no `get`, `has`, `set`, or method trap, because
- * this evaluator never performs a property `get` or a method lookup on a
- * live receiver — only `Object.getOwnPropertyDescriptor`/
- * `Object.getPrototypeOf`, and only on the container, never on the elements
- * or properties those return. */
+ * every own-data read (`ownData`, `ownIndexDescriptor`, `ownIndexLength`) —
+ * those two traps run before we can tell the value isn't a plain object or
+ * array, or before we can read one own property or the array length. No
+ * other trap is ever reached (`get`, `has`, `set`, `ownKeys`, `apply`, ...):
+ * no value that can originate from scope is ever the target of an ordinary
+ * property read (`x.y`, `x[k]`, `x.length`, destructuring, spread, `in`,
+ * iteration) or a method lookup; array `length` included, which is read
+ * through `ownIndexLength`. Whatever a trap reports back is only returned
+ * after `dataValue` has classified it, so a trap can run its own (host) code
+ * but can never hand a function or a non-plain object to the expression or
+ * to the caller. */
 function dataValue(v: unknown): unknown {
   if (typeof v === 'function') return undefined;
   if (v === null || typeof v !== 'object') return v;
@@ -435,13 +437,22 @@ function dataValue(v: unknown): unknown {
  * undefined exactly like one at the scope root, no matter how deep it is. */
 function readProp(obj: unknown, key: string, p: number): unknown {
   if (BLOCKED_KEYS.has(key)) throw disallowed(`access to ${key}`, p);
+  return dataValue(readOwnMember(obj, key));
+}
+
+/** readProp's raw lookup; its result is never returned without `dataValue`.
+ * `obj.length`/`obj.charAt` below run only on a primitive string. An array's
+ * `length` is read as an own data descriptor (`ownIndexLength`), never with
+ * `obj.length`: `isPlainArray` accepts a Proxy over a real array, and a
+ * `.length` read on that would run its `get` trap. */
+function readOwnMember(obj: unknown, key: string): unknown {
   if (typeof obj === 'string') {
     if (key === 'length') return obj.length;
     return isCanonicalIndex(key) && Number(key) < obj.length ? obj.charAt(Number(key)) : undefined;
   }
   if (obj === null || typeof obj !== 'object') return undefined;
-  if (isPlainArray(obj)) return key === 'length' ? obj.length : dataValue(ownData(obj, key));
-  if (isPlainObject(obj)) return dataValue(ownData(obj, key));
+  if (isPlainArray(obj)) return key === 'length' ? ownIndexLength(obj) : ownData(obj, key);
+  if (isPlainObject(obj)) return ownData(obj, key);
   return undefined;
 }
 
@@ -476,21 +487,50 @@ function propKey(v: unknown, p: number): string {
   return typeof pv === 'string' ? pv : String(pv);
 }
 
-/** Own `length`, read as data only: never the receiver's own overridden
- * `length` accessor value type, never a subclass's computed length. Not a
- * number own-data-property (missing, an accessor, `NaN`, etc.) reads as 0. */
+/** Own `length`, read as a data descriptor only; never `a.length`, which on
+ * a Proxy over an array would run its `get` trap. Anything but a non-negative
+ * safe integer (missing, an accessor, a function, `NaN`, negative, fractional;
+ * only a Proxy's `getOwnPropertyDescriptor` trap can report those on a real
+ * array) reads as 0. */
 function ownIndexLength(a: unknown[]): number {
   const d = Object.getOwnPropertyDescriptor(a, 'length');
-  return d && 'value' in d && typeof d.value === 'number' ? d.value : 0;
+  if (!d || !('value' in d)) return 0;
+  const v: unknown = d.value;
+  return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : 0;
 }
 
-/** Own numeric-index data property only — never an inherited or accessor
- * property. A hole (no own property at that index) and an index getter both
- * read as `undefined`, and critically, a getter is never invoked to find
- * that out: `'value' in d` is false for both, so neither case ever touches
- * `d.get`. */
+/** The most indices any array method below will visit. JSON-shaped data is
+ * dense, so a longer array is almost certainly a host-built sparse one
+ * (`a.length = 1e9`) that would otherwise pin the thread in a scan. */
+export const MAX_ARRAY_SCAN = 1_000_000;
+
+/** `ownIndexLength`, refusing (as an evaluation error) an array longer than
+ * `MAX_ARRAY_SCAN` before any method starts walking it. */
+function scanLength(a: unknown[], name: string, p: number): number {
+  const len = ownIndexLength(a);
+  if (len > MAX_ARRAY_SCAN) {
+    throw new ExpressionError(
+      `${name} on an array longer than ${MAX_ARRAY_SCAN} elements is not allowed in a workflow expression`,
+      'evaluation error',
+      p,
+    );
+  }
+  return len;
+}
+
+/** The own property descriptor at an index; `undefined` for a hole. Never an
+ * inherited property, and never a getter invocation (a descriptor read does
+ * not call `get`). */
+function ownIndexDescriptor(a: unknown[], i: number): PropertyDescriptor | undefined {
+  return Object.getOwnPropertyDescriptor(a, String(i));
+}
+
+/** Own numeric-index data value only. A hole (no own property at that index)
+ * and an index getter both read as `undefined`, and a getter is never invoked
+ * to find that out: `'value' in d` is false for both, so neither case ever
+ * touches `d.get`. */
 function ownIndex(a: unknown[], i: number): unknown {
-  const d = Object.getOwnPropertyDescriptor(a, String(i));
+  const d = ownIndexDescriptor(a, i);
   return d && 'value' in d ? d.value : undefined;
 }
 
@@ -502,7 +542,9 @@ function toIntegerOrInfinity(v: Prim): number {
   const n = Number(v);
   if (Number.isNaN(n) || n === 0) return 0;
   if (!Number.isFinite(n)) return n;
-  return Math.trunc(n);
+  const t = Math.trunc(n);
+  // Math.trunc(-0.5) is -0; the spec's ToIntegerOrInfinity yields +0.
+  return t === 0 ? 0 : t;
 }
 
 function sameValueZero(x: unknown, y: unknown): boolean {
@@ -523,7 +565,7 @@ function sameValueZero(x: unknown, y: unknown): boolean {
 function arraySlice(a: unknown[], args: unknown[], p: number): unknown[] {
   const startArg = args.length > 0 ? prim(args[0], p, 'a slice argument') : undefined;
   const endArg = args.length > 1 ? prim(args[1], p, 'a slice argument') : undefined;
-  const len = ownIndexLength(a);
+  const len = scanLength(a, 'slice', p);
   const relStart = startArg === undefined ? 0 : toIntegerOrInfinity(startArg);
   const k = relStart < 0 ? Math.max(len + relStart, 0) : Math.min(relStart, len);
   const relEnd = endArg === undefined ? len : toIntegerOrInfinity(endArg);
@@ -537,7 +579,7 @@ function arraySlice(a: unknown[], args: unknown[], p: number): unknown[] {
 function arrayJoin(a: unknown[], args: unknown[], p: number): string {
   const sepArg = args.length > 0 ? prim(args[0], p, 'the join separator') : undefined;
   const sep = sepArg === undefined ? ',' : String(sepArg);
-  const len = ownIndexLength(a);
+  const len = scanLength(a, 'join', p);
   const parts: string[] = [];
   for (let i = 0; i < len; i++) {
     const e = ownIndex(a, i);
@@ -553,10 +595,11 @@ function arrayJoin(a: unknown[], args: unknown[], p: number): string {
 function arrayIncludes(a: unknown[], args: unknown[], p: number): boolean {
   const search = args[0];
   const fromArg = args.length > 1 ? prim(args[1], p, 'a fromIndex argument') : undefined;
-  const len = ownIndexLength(a);
+  const len = scanLength(a, 'includes', p);
   const rel = fromArg === undefined ? 0 : toIntegerOrInfinity(fromArg);
   const from = rel < 0 ? Math.max(len + rel, 0) : rel;
   for (let i = from; i < len; i++) {
+    // A hole reads as undefined here, as in native includes.
     if (sameValueZero(ownIndex(a, i), search)) return true;
   }
   return false;
@@ -565,11 +608,15 @@ function arrayIncludes(a: unknown[], args: unknown[], p: number): boolean {
 function arrayIndexOf(a: unknown[], args: unknown[], p: number): number {
   const search = args[0];
   const fromArg = args.length > 1 ? prim(args[1], p, 'a fromIndex argument') : undefined;
-  const len = ownIndexLength(a);
+  const len = scanLength(a, 'indexOf', p);
   const rel = fromArg === undefined ? 0 : toIntegerOrInfinity(fromArg);
   const from = rel < 0 ? Math.max(len + rel, 0) : rel;
   for (let i = from; i < len; i++) {
-    if (ownIndex(a, i) === search) return i;
+    // Native indexOf skips holes (HasProperty), so indexOf(undefined) never
+    // matches one; an index getter is present, reads as undefined, never runs.
+    const d = ownIndexDescriptor(a, i);
+    if (d === undefined) continue;
+    if (('value' in d ? d.value : undefined) === search) return i;
   }
   return -1;
 }
@@ -701,6 +748,16 @@ class Evaluator {
   }
 }
 
+/** A thrown value's text, read as data: a primitive is stringified (no user
+ * code can run for one); an object contributes only an own string `message`
+ * data property. Never `e.message` or `String(e)` on an object: a value a
+ * host trap throws could carry a `message` getter or its own `toString`. */
+function thrownDetail(e: unknown): string {
+  if (e === null || (typeof e !== 'object' && typeof e !== 'function')) return String(e);
+  const d = Object.getOwnPropertyDescriptor(e, 'message');
+  return d && 'value' in d && typeof d.value === 'string' ? d.value : 'unknown error';
+}
+
 /** Evaluate an author-written workflow expression against a data scope.
  * Strips one surrounding {{ … }}. Throws ExpressionError when the text is not
  * in the language. Never executes the text as code. */
@@ -711,12 +768,12 @@ export function evaluateExpression(expr: string, scope: Record<string, unknown>)
   } catch (e) {
     // Only an ExpressionError we threw ourselves passes through; anything
     // else is wrapped, so a host object (even one named 'ExpressionError',
-    // or one whose own String()/message access itself throws) can never
-    // leak past this boundary unwrapped.
+    // or one whose own descriptor read itself throws) can never leak past
+    // this boundary unwrapped.
     if (e instanceof ExpressionError) throw e;
     let detail = 'unknown error';
     try {
-      detail = e instanceof Error ? e.message : String(e);
+      detail = thrownDetail(e);
     } catch {
       // detail keeps its fallback value.
     }

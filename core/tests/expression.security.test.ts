@@ -1,4 +1,5 @@
-import { evaluateExpression, validateExpression, ExpressionError } from '../src/lib/expression';
+import { evaluateExpression, validateExpression, ExpressionError, MAX_ARRAY_SCAN } from '../src/lib/expression';
+import * as core from '../src/index';
 
 describe('evaluateExpression — additional security checks', () => {
   it('rejects an array-valued computed key that stringifies to a blocked name', () => {
@@ -445,6 +446,149 @@ describe('evaluateExpression — the catch boundary never leaks a non-Expression
       expect(e).toBeInstanceOf(ExpressionError);
       expect((e as ExpressionError).construct).toBe('evaluation error');
       expect((e as ExpressionError).message).toContain('not really an ExpressionError');
+    }
+  });
+});
+
+describe('evaluateExpression — round 4: no [[Get]] on scope data, array scan bounds', () => {
+  function trappedArray(): { proxied: unknown[]; fn: () => string; flag: () => boolean } {
+    let getTrapCalled = false;
+    const fn = (): string => 'PWNED';
+    const proxied = new Proxy(['x', 'y'], {
+      get(): unknown {
+        getTrapCalled = true;
+        return fn;
+      },
+    });
+    return { proxied, fn, flag: () => getTrapCalled };
+  }
+
+  const lengthProbes = [
+    'a.length',
+    "a['length']",
+    'a?.length',
+    'b.a.length',
+    'a.length ?? 1',
+    'a.length || 1',
+    'true ? a.length : 1',
+  ];
+
+  it.each(lengthProbes)("reads a Proxy-over-array's length without its 'get' trap: %s", (expr) => {
+    const { proxied, flag } = trappedArray();
+    const result = evaluateExpression(expr, { a: proxied, b: { a: proxied } });
+    expect(typeof result).not.toBe('function');
+    expect(result).toBe(2);
+    expect(flag()).toBe(false);
+  });
+
+  it("reads length through a nested Proxy path without running either 'get' trap", () => {
+    const { proxied, flag } = trappedArray();
+    let outerGetCalled = false;
+    const outer = new Proxy({ a: proxied }, {
+      get(): unknown {
+        outerGetCalled = true;
+        return () => 'PWNED';
+      },
+    });
+    const result = evaluateExpression('b.a.length', { b: outer });
+    expect(typeof result).not.toBe('function');
+    expect(result).toBe(2);
+    expect(flag()).toBe(false);
+    expect(outerGetCalled).toBe(false);
+  });
+
+  it('indexOf skips holes (native parity); includes treats a hole as undefined (native parity)', () => {
+    const holey: unknown[] = [1];
+    holey[2] = 3;
+    expect(evaluateExpression('a.indexOf(missing)', { a: holey })).toBe(holey.indexOf(undefined));
+    expect(evaluateExpression('a.indexOf(missing)', { a: holey })).toBe(-1);
+    expect(evaluateExpression('a.includes(missing)', { a: holey })).toBe(holey.includes(undefined));
+    expect(evaluateExpression('a.includes(missing)', { a: holey })).toBe(true);
+    const explicit = [1, undefined, 3];
+    expect(evaluateExpression('a.indexOf(missing)', { a: explicit })).toBe(1);
+  });
+
+  it('indexOf with a fromIndex in (-1, 0) returns +0, not -0', () => {
+    const r = evaluateExpression('a.indexOf(1, -0.5)', { a: [1, 2] });
+    expect(Object.is(r, 0)).toBe(true);
+    expect(Object.is(r, [1, 2].indexOf(1, -0.5))).toBe(true);
+  });
+
+  it.each(["a.join('-')", 'a.slice(0)', "a.includes('nope')", "a.indexOf('nope')"])(
+    'refuses a 2,000,000-length sparse array quickly: %s',
+    (expr) => {
+      const a: unknown[] = ['x'];
+      a.length = 2_000_000;
+      const started = Date.now();
+      try {
+        evaluateExpression(expr, { a });
+        throw new Error('expected a throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ExpressionError);
+        expect((e as ExpressionError).construct).toBe('evaluation error');
+      }
+      expect(Date.now() - started).toBeLessThan(100);
+    },
+  );
+});
+
+describe('MAX_ARRAY_SCAN', () => {
+  it('is 1,000,000 and exported from @prompd/core', () => {
+    expect(MAX_ARRAY_SCAN).toBe(1_000_000);
+    expect(core.MAX_ARRAY_SCAN).toBe(MAX_ARRAY_SCAN);
+  });
+
+  it('an array of exactly MAX_ARRAY_SCAN length is still scanned', () => {
+    const a: unknown[] = [];
+    a.length = MAX_ARRAY_SCAN;
+    a[MAX_ARRAY_SCAN - 1] = 'last';
+    expect(evaluateExpression("a.indexOf('last')", { a })).toBe(MAX_ARRAY_SCAN - 1);
+  });
+});
+
+describe('evaluateExpression — round 4: the catch boundary reads a thrown value as data only', () => {
+  it("never runs a thrown object's toString or message getter", () => {
+    let touched = false;
+    const thrown = {
+      toString(): string {
+        touched = true;
+        return 'PWNED';
+      },
+    };
+    Object.defineProperty(thrown, 'message', {
+      get(): string {
+        touched = true;
+        return 'PWNED';
+      },
+    });
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw thrown;
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+      expect((e as ExpressionError).message).not.toContain('PWNED');
+    }
+    expect(touched).toBe(false);
+  });
+
+  it("still reports an engine error's own message", () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    try {
+      evaluateExpression('o.x', { o: proxy });
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).message).toMatch(/revoked/);
     }
   });
 });
