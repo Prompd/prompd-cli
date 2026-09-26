@@ -274,6 +274,136 @@ describe('evaluateExpression — round 2: objects supplied directly from scope a
   });
 });
 
+describe('evaluateExpression — round 3: array methods never call anything on the receiver', () => {
+  // Round 2's fix used `recv.map(...)`, `recv.slice(...)`, and
+  // `Reflect.apply(Array.prototype.<name>, recv, …)`. All three still call
+  // something looked up ON the receiver: an own-data `map`/`slice`/`join`/
+  // `indexOf`/`includes` property (shadowing the prototype method) runs
+  // instead of the real one, native `slice`'s `ArraySpeciesCreate` step
+  // reads `recv.constructor`/`constructor[Symbol.species]`, and a plain
+  // index getter or a Proxy `get` trap fires during element access. This
+  // block re-drives all of that against the round-3 hand-rolled
+  // implementation (`arrayJoin`/`arraySlice`/`arrayIncludes`/`arrayIndexOf`,
+  // which only ever call `Object.getOwnPropertyDescriptor`/
+  // `Object.getPrototypeOf` on the container).
+
+  it('own map/slice/join/indexOf/includes properties on a scope array are never called; results stay correct', () => {
+    const a: unknown[] = ['x', 'y'];
+    const calls: string[] = [];
+    const spy = (label: string) => (): string => { calls.push(label); return 'PWNED'; };
+    Object.assign(a, {
+      map: spy('map'),
+      slice: spy('slice'),
+      join: spy('join'),
+      indexOf: spy('indexOf'),
+      includes: spy('includes'),
+    });
+    expect(evaluateExpression('a.join()', { a })).toBe('x,y');
+    expect(evaluateExpression('a.slice(0)', { a })).toEqual(['x', 'y']);
+    expect(evaluateExpression("a.indexOf('y')", { a })).toBe(1);
+    expect(evaluateExpression("a.includes('y')", { a })).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  it('a species-constructor lookup on the receiver is never invoked by slice', () => {
+    const a: unknown[] = ['x'];
+    let speciesRead = false;
+    Object.defineProperty(a, 'constructor', {
+      get(): unknown { speciesRead = true; return Array; },
+      enumerable: true,
+      configurable: true,
+    });
+    expect(evaluateExpression('a.slice(0)', { a })).toEqual(['x']);
+    expect(speciesRead).toBe(false);
+  });
+
+  it('an index getter on a plain array is never invoked by join/slice/includes/indexOf', () => {
+    const a: unknown[] = ['x', 'y', 'z'];
+    let getterCalled = false;
+    Object.defineProperty(a, 1, {
+      get(): string { getterCalled = true; return 'LEAKED'; },
+      enumerable: true,
+      configurable: true,
+    });
+    expect(evaluateExpression('a.join()', { a })).toBe('x,,z');
+    expect(evaluateExpression('a.slice(0)', { a })).toEqual(['x', undefined, 'z']);
+    expect(evaluateExpression("a.includes('LEAKED')", { a })).toBe(false);
+    expect(evaluateExpression("a.indexOf('LEAKED')", { a })).toBe(-1);
+    expect(getterCalled).toBe(false);
+  });
+
+  it('a function element reads as undefined via dataValue — slice never returns a function', () => {
+    const fn = (): string => 'PWNED';
+    const a: unknown[] = ['x', fn as unknown as string];
+    const result = evaluateExpression('a.slice(0)', { a }) as unknown[];
+    expect(typeof result[1]).not.toBe('function');
+    expect(result[1]).toBeUndefined();
+  });
+
+  it("a Proxy over a real array never has its 'get' trap invoked by any array method", () => {
+    const target = ['x', 'y'];
+    let getTrapCalled = false;
+    const proxied = new Proxy(target, {
+      get(t, prop, receiver): unknown {
+        getTrapCalled = true;
+        return Reflect.get(t, prop, receiver);
+      },
+    });
+    for (const expr of ['a.join()', 'a.slice(0)', "a.includes('x')", "a.indexOf('x')"]) {
+      try {
+        evaluateExpression(expr, { a: proxied });
+      } catch (e) {
+        expect(e).toBeInstanceOf(ExpressionError);
+      }
+    }
+    expect(getTrapCalled).toBe(false);
+  });
+
+  it('slice matches native behavior for negative/out-of-range arguments', () => {
+    const items = [1, 2, 3, 4, 5];
+    const cases: Array<[string, unknown]> = [
+      ['items.slice(-2)', items.slice(-2)],
+      ['items.slice(1, 100)', items.slice(1, 100)],
+      ['items.slice(-100, -1)', items.slice(-100, -1)],
+      ['items.slice(0, -10)', items.slice(0, -10)],
+    ];
+    for (const [expr, expected] of cases) {
+      expect(evaluateExpression(expr, { items })).toEqual(expected);
+    }
+  });
+
+  it('slice treats a NaN argument like native (as 0)', () => {
+    const items = [1, 2, 3];
+    // NaN has no literal in this grammar; 0/0 evaluates to NaN through the
+    // sandboxed arithmetic, which is itself prim-gated and safe.
+    expect(evaluateExpression('items.slice(0 / 0)', { items })).toEqual(items.slice(NaN));
+  });
+
+  it('join matches native behavior for default/custom separator and null/undefined elements', () => {
+    const items = [1, null, undefined, 'a'];
+    expect(evaluateExpression('items.join()', { items })).toBe(items.join());
+    expect(evaluateExpression("items.join('-')", { items })).toBe(items.join('-'));
+  });
+
+  it('includes(NaN) finds NaN via SameValueZero, matching native', () => {
+    const items = [1, NaN, 3];
+    expect(evaluateExpression('items.includes(0 / 0)', { items })).toBe(items.includes(NaN));
+    expect(evaluateExpression('items.includes(0 / 0)', { items })).toBe(true);
+  });
+
+  it('indexOf(NaN) is always -1, matching native (strict equality never matches NaN)', () => {
+    const items = [1, NaN, 3];
+    expect(evaluateExpression('items.indexOf(0 / 0)', { items })).toBe(items.indexOf(NaN));
+    expect(evaluateExpression('items.indexOf(0 / 0)', { items })).toBe(-1);
+  });
+
+  it('a negative fromIndex normalizes like native for includes/indexOf', () => {
+    const items = ['a', 'b', 'c', 'b'];
+    expect(evaluateExpression("items.indexOf('b', -2)", { items })).toBe(items.indexOf('b', -2));
+    expect(evaluateExpression("items.includes('a', -1)", { items })).toBe(items.includes('a', -1));
+  });
+});
+
 describe('evaluateExpression — the catch boundary never leaks a non-ExpressionError', () => {
   it('wraps a thrown null-prototype value from a scope read as an evaluation error', () => {
     // hasOwnProperty/getOwnPropertyDescriptor on a scope Proxy both dispatch to

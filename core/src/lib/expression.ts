@@ -412,10 +412,17 @@ function isPlainArray(o: object): o is unknown[] {
  * refuses ANY object or function outright, so that internal machinery is
  * never reached, regardless of how deep or well-hidden it is.
  *
- * Hosts must pass plain data. A `Proxy` placed in scope, at any depth, may
- * still have its `getPrototypeOf`/`getOwnPropertyDescriptor`/`has` traps
- * invoked by this classification and by property reads — those traps run
- * before we can tell the value is not a plain object or array. */
+ * Hosts must pass plain data. The actual residual: a `Proxy` placed in
+ * scope, at any depth, may still have its `getPrototypeOf` trap invoked by
+ * this classification, and its `getOwnPropertyDescriptor` trap invoked by
+ * every own-data read (`ownData`, `ownIndex`, `ownIndexLength`) — those two
+ * traps run before we can tell the value isn't a plain object or array, or
+ * before we can read one own property or the array length. Nothing else on
+ * a Proxy is ever reached: no `get`, `has`, `set`, or method trap, because
+ * this evaluator never performs a property `get` or a method lookup on a
+ * live receiver — only `Object.getOwnPropertyDescriptor`/
+ * `Object.getPrototypeOf`, and only on the container, never on the elements
+ * or properties those return. */
 function dataValue(v: unknown): unknown {
   if (typeof v === 'function') return undefined;
   if (v === null || typeof v !== 'object') return v;
@@ -469,6 +476,104 @@ function propKey(v: unknown, p: number): string {
   return typeof pv === 'string' ? pv : String(pv);
 }
 
+/** Own `length`, read as data only: never the receiver's own overridden
+ * `length` accessor value type, never a subclass's computed length. Not a
+ * number own-data-property (missing, an accessor, `NaN`, etc.) reads as 0. */
+function ownIndexLength(a: unknown[]): number {
+  const d = Object.getOwnPropertyDescriptor(a, 'length');
+  return d && 'value' in d && typeof d.value === 'number' ? d.value : 0;
+}
+
+/** Own numeric-index data property only — never an inherited or accessor
+ * property. A hole (no own property at that index) and an index getter both
+ * read as `undefined`, and critically, a getter is never invoked to find
+ * that out: `'value' in d` is false for both, so neither case ever touches
+ * `d.get`. */
+function ownIndex(a: unknown[], i: number): unknown {
+  const d = Object.getOwnPropertyDescriptor(a, String(i));
+  return d && 'value' in d ? d.value : undefined;
+}
+
+/** ToIntegerOrInfinity on an already-prim-gated value: NaN/±0 -> 0, infinite
+ * stays infinite, otherwise truncated toward zero — exactly the built-in
+ * array methods' own argument normalization, reimplemented so we never call
+ * anything the built-ins would call on our behalf. */
+function toIntegerOrInfinity(v: Prim): number {
+  const n = Number(v);
+  if (Number.isNaN(n) || n === 0) return 0;
+  if (!Number.isFinite(n)) return n;
+  return Math.trunc(n);
+}
+
+function sameValueZero(x: unknown, y: unknown): boolean {
+  return x === y || (typeof x === 'number' && typeof y === 'number' && Number.isNaN(x) && Number.isNaN(y));
+}
+
+/** Every array method below is hand-rolled over `ownIndexLength`/`ownIndex`
+ * instead of calling anything on the receiver (`recv.slice`, `recv.join`,
+ * `Array.prototype.slice.call(recv, …)`, …). That distinction matters: the
+ * receiver is real, host-supplied scope data, and could carry its own
+ * `join`/`slice`/`map`/`includes`/`indexOf` own-data properties (shadowing
+ * the prototype method with a live function), or, for slice specifically,
+ * calling the real `Array.prototype.slice` would let its `ArraySpeciesCreate`
+ * step read `recv.constructor` and `constructor[Symbol.species]` — both are
+ * live property reads on host data. Reading `length` and each index only via
+ * `Object.getOwnPropertyDescriptor` sidesteps both risks entirely: no method
+ * lookup on the receiver, no species construction, ever. */
+function arraySlice(a: unknown[], args: unknown[], p: number): unknown[] {
+  const startArg = args.length > 0 ? prim(args[0], p, 'a slice argument') : undefined;
+  const endArg = args.length > 1 ? prim(args[1], p, 'a slice argument') : undefined;
+  const len = ownIndexLength(a);
+  const relStart = startArg === undefined ? 0 : toIntegerOrInfinity(startArg);
+  const k = relStart < 0 ? Math.max(len + relStart, 0) : Math.min(relStart, len);
+  const relEnd = endArg === undefined ? len : toIntegerOrInfinity(endArg);
+  const final = relEnd < 0 ? Math.max(len + relEnd, 0) : Math.min(relEnd, len);
+  const count = Math.max(final - k, 0);
+  const out: unknown[] = [];
+  for (let j = 0; j < count; j++) out.push(dataValue(ownIndex(a, k + j)));
+  return out;
+}
+
+function arrayJoin(a: unknown[], args: unknown[], p: number): string {
+  const sepArg = args.length > 0 ? prim(args[0], p, 'the join separator') : undefined;
+  const sep = sepArg === undefined ? ',' : String(sepArg);
+  const len = ownIndexLength(a);
+  const parts: string[] = [];
+  for (let i = 0; i < len; i++) {
+    const e = ownIndex(a, i);
+    if (e === undefined || e === null) {
+      parts.push('');
+      continue;
+    }
+    parts.push(String(prim(e, p, 'an array element passed to join')));
+  }
+  return parts.join(sep);
+}
+
+function arrayIncludes(a: unknown[], args: unknown[], p: number): boolean {
+  const search = args[0];
+  const fromArg = args.length > 1 ? prim(args[1], p, 'a fromIndex argument') : undefined;
+  const len = ownIndexLength(a);
+  const rel = fromArg === undefined ? 0 : toIntegerOrInfinity(fromArg);
+  const from = rel < 0 ? Math.max(len + rel, 0) : rel;
+  for (let i = from; i < len; i++) {
+    if (sameValueZero(ownIndex(a, i), search)) return true;
+  }
+  return false;
+}
+
+function arrayIndexOf(a: unknown[], args: unknown[], p: number): number {
+  const search = args[0];
+  const fromArg = args.length > 1 ? prim(args[1], p, 'a fromIndex argument') : undefined;
+  const len = ownIndexLength(a);
+  const rel = fromArg === undefined ? 0 : toIntegerOrInfinity(fromArg);
+  const from = rel < 0 ? Math.max(len + rel, 0) : rel;
+  for (let i = from; i < len; i++) {
+    if (ownIndex(a, i) === search) return i;
+  }
+  return -1;
+}
+
 /** `==`/`!=` never runs ToPrimitive: an object (or function) operand is
  * compared by identity instead of being coerced. Only genuinely primitive
  * operands ever get JavaScript's loose-equality coercions (`1 == '1'`). */
@@ -492,25 +597,14 @@ function callMethod(recv: unknown, name: string, args: unknown[], p: number): un
     }
   }
   if (Array.isArray(recv) && Object.getPrototypeOf(recv) === Array.prototype && ARRAY_METHODS.has(name)) {
-    if (name === 'join') {
-      // join() coerces the separator AND every element via ToString.
-      const sep = args.length > 0 ? prim(args[0], p, 'the join separator') : undefined;
-      const items = recv.map((el) => prim(el, p, 'an array element passed to join'));
-      return sep === undefined ? items.join() : items.join(String(sep));
-    }
-    if (name === 'slice') {
-      const primArgs = args.map((a) => prim(a, p, 'a slice argument'));
-      return recv.slice(...(primArgs as Array<number | undefined>));
-    }
-    if (name === 'indexOf' || name === 'includes') {
-      // The search value is compared by SameValueZero, never coerced — an
-      // object search value is fine (and useful: identity search). Only a
-      // fromIndex needs to be a plain value.
-      const fromIndex = args.length > 1 ? prim(args[1], p, 'a fromIndex argument') : undefined;
-      const fn: unknown = Reflect.get(Array.prototype, name);
-      const callArgs = fromIndex === undefined ? [args[0]] : [args[0], fromIndex];
-      if (typeof fn === 'function') return Reflect.apply(fn, recv, callArgs);
-    }
+    // Hand-rolled, not `recv.<name>(...)` or `Reflect.apply(Array.prototype.<name>, recv, …)`:
+    // see arraySlice's doc comment for why calling anything looked up on the
+    // receiver (an own-data method override, or slice's own species lookup)
+    // is exactly the coercion/execution risk this evaluator exists to close.
+    if (name === 'join') return arrayJoin(recv, args, p);
+    if (name === 'slice') return arraySlice(recv, args, p);
+    if (name === 'includes') return arrayIncludes(recv, args, p);
+    if (name === 'indexOf') return arrayIndexOf(recv, args, p);
   }
   const msg = `call to ${name} on ${describeType(recv)}`;
   // An allowlisted method name on the wrong receiver type is a data problem
