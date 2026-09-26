@@ -365,3 +365,144 @@ export function validateExpression(expr: string): ExpressionError | null {
     throw e;
   }
 }
+
+const SHORT: unique symbol = Symbol('optional-chain-short-circuit');
+
+function ownData(obj: object, key: string): unknown {
+  if (!Object.prototype.hasOwnProperty.call(obj, key)) return undefined;
+  const d = Object.getOwnPropertyDescriptor(obj, key);
+  return d && 'value' in d ? d.value : undefined;
+}
+
+function readProp(obj: unknown, key: string, p: number): unknown {
+  if (BLOCKED_KEYS.has(key)) throw disallowed(`access to ${key}`, p);
+  if (typeof obj === 'string') {
+    if (key === 'length') return obj.length;
+    return /^\d+$/.test(key) && Number(key) < obj.length ? obj.charAt(Number(key)) : undefined;
+  }
+  if (Array.isArray(obj)) return key === 'length' ? obj.length : ownData(obj, key);
+  if (obj !== null && typeof obj === 'object') return ownData(obj, key);
+  return undefined;
+}
+
+function propKey(v: unknown, p: number): string {
+  if (typeof v === 'symbol') throw disallowed('a symbol key', p);
+  return typeof v === 'string' ? v : String(v);
+}
+
+function describeType(v: unknown): string {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (Array.isArray(v)) return 'an array';
+  const t = typeof v;
+  return t === 'object' ? 'an object' : `a ${t}`;
+}
+
+function callMethod(recv: unknown, name: string, args: unknown[], p: number): unknown {
+  if (typeof recv === 'string' && STRING_METHODS.has(name)) {
+    const fn: unknown = Reflect.get(String.prototype, name);
+    if (typeof fn === 'function') return Reflect.apply(fn, recv, args);
+  }
+  if (Array.isArray(recv) && ARRAY_METHODS.has(name)) {
+    const fn: unknown = Reflect.get(Array.prototype, name);
+    if (typeof fn === 'function') return Reflect.apply(fn, recv, args);
+  }
+  throw disallowed(`call to ${name} on ${describeType(recv)}`, p);
+}
+
+function toNum(v: unknown): number {
+  return typeof v === 'number' ? v : Number(v);
+}
+
+class Evaluator {
+  constructor(private readonly scope: Record<string, unknown>) {}
+
+  run(n: ExprNode): unknown { return this.val(n); }
+
+  private val(n: ExprNode): unknown {
+    const v = this.ev(n);
+    return v === SHORT ? undefined : v;
+  }
+
+  /** The object side of a member or call. Continues an optional chain (SHORT
+   * propagates) unless the object was parenthesized, which ends the chain. */
+  private chain(n: ExprNode): unknown {
+    return (n.k === 'member' || n.k === 'call') && !n.paren ? this.ev(n) : this.val(n);
+  }
+
+  private ev(n: ExprNode): unknown {
+    switch (n.k) {
+      case 'lit': return n.v;
+      case 'id': return ownData(this.scope, n.name);
+      case 'arr': return n.items.map((x) => this.val(x));
+      case 'obj': {
+        const o: Record<string, unknown> = {};
+        for (const pr of n.props) o[pr.key] = this.val(pr.value);
+        return o;
+      }
+      case 'member': {
+        const o = this.chain(n.obj);
+        if (o === SHORT) return SHORT;
+        if (n.optional && (o === null || o === undefined)) return SHORT;
+        const key = typeof n.prop === 'string' ? n.prop : propKey(this.val(n.prop), n.p);
+        return readProp(o, key, n.p);
+      }
+      case 'call': {
+        const r = this.chain(n.recv);
+        if (r === SHORT) return SHORT;
+        if (n.optional && (r === null || r === undefined)) return SHORT;
+        return callMethod(r, n.name, n.args.map((a) => this.val(a)), n.p);
+      }
+      case 'unary': {
+        const v = this.val(n.arg);
+        if (n.op === '!') return !v;
+        return n.op === '-' ? -toNum(v) : toNum(v);
+      }
+      case 'cond': return this.val(n.test) ? this.val(n.yes) : this.val(n.no);
+      case 'bin': return this.bin(n);
+    }
+  }
+
+  private bin(n: Extract<ExprNode, { k: 'bin' }>): unknown {
+    if (n.op === '&&') { const l = this.val(n.l); return l ? this.val(n.r) : l; }
+    if (n.op === '||') { const l = this.val(n.l); return l ? l : this.val(n.r); }
+    if (n.op === '??') { const l = this.val(n.l); return l === null || l === undefined ? this.val(n.r) : l; }
+    const l = this.val(n.l);
+    const r = this.val(n.r);
+    switch (n.op) {
+      case '+': return typeof l === 'string' || typeof r === 'string' ? String(l) + String(r) : toNum(l) + toNum(r);
+      case '-': return toNum(l) - toNum(r);
+      case '*': return toNum(l) * toNum(r);
+      case '/': return toNum(l) / toNum(r);
+      case '%': return toNum(l) % toNum(r);
+      // eslint-disable-next-line eqeqeq
+      case '==': return l == r;
+      // eslint-disable-next-line eqeqeq
+      case '!=': return l != r;
+      case '===': return l === r;
+      case '!==': return l !== r;
+      case '<': return (l as number) < (r as number);
+      case '<=': return (l as number) <= (r as number);
+      case '>': return (l as number) > (r as number);
+      case '>=': return (l as number) >= (r as number);
+      default: throw syntax(`unknown operator '${n.op}'`, 0);
+    }
+  }
+}
+
+/** Evaluate an author-written workflow expression against a data scope.
+ * Strips one surrounding {{ … }}. Throws ExpressionError when the text is not
+ * in the language. Never executes the text as code. */
+export function evaluateExpression(expr: string, scope: Record<string, unknown>): unknown {
+  const ast = parseExpression(expr);
+  try {
+    return new Evaluator(scope).run(ast);
+  } catch (e) {
+    if (isExpressionError(e)) throw e;
+    throw new ExpressionError(
+      `the expression could not be evaluated: ${e instanceof Error ? e.message : String(e)}`,
+      'evaluation error',
+      0,
+    );
+  }
+}
