@@ -10,8 +10,8 @@
  * computes '~'; the caller passes the install `root` (the open workspace for a local
  * install, the home dir for a global one). Layout matches the CLI:
  *
- *     <root>/.prompd/<typeDir>/<@scope/name>/<version>/...   (packages/skills/workflows)
- *     <root>/.prompd/templates/<slug>-<version>.pdpkg        (node-templates: raw archive)
+ *     <root>/<installDir>/<typeDir>/<@scope/name>/<version>/...   (packages/skills/workflows; default installDir '.prompd')
+ *     <root>/<installDir>/templates/<slug>-<version>.pdpkg        (node-templates: raw archive)
  */
 import { extractPdpkg } from './file-system';
 import { parsePackageReference, type PackageDownloader } from './package-ref';
@@ -63,6 +63,8 @@ export interface InstallPackageOptions {
   tools?: string[];
   /** Host hook performing the per-tool deploy. Required when `tools` is set. */
   deployTool?: ToolDeployHook;
+  /** Dot-dir the install tree lives under: <root>/<installDir>/<typeDir>/... Default '.prompd' (the CLI layout). A host with its own state dir (e.g. '.corenel') passes it here. */
+  installDir?: string;
 }
 
 export interface InstalledPackage {
@@ -84,15 +86,28 @@ function slugify(name: string): string {
   return name.toLowerCase().replace(/[@/]+/g, '-').replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+/** The CLI layout's install dir. Hosts with their own state dir override it. */
+const DEFAULT_INSTALL_DIR = '.prompd';
+
+/** One dot-directory segment, nothing that can climb or nest. Checked before any
+ *  read or write, because this string is joined straight into every install path. */
+function checkInstallDir(dir: string | undefined): string {
+  const d = dir ?? DEFAULT_INSTALL_DIR;
+  if (!/^\.[A-Za-z0-9][A-Za-z0-9._-]*$/.test(d)) {
+    throw new Error(`Invalid installDir "${d}": expected a single dot-directory name like ".prompd".`);
+  }
+  return d;
+}
+
 /** A package's directory (parent of its per-version installs):
- *  <root>/.prompd/<typeDir>/<@scope/name>/. */
-function resolvePackageDir(root: string, type: PackageType, name: string): string {
-  return joinPosix(root, '.prompd', getInstallDirForType(type), name);
+ *  <root>/<installDir>/<typeDir>/<@scope/name>/. */
+function resolvePackageDir(root: string, installDir: string, type: PackageType, name: string): string {
+  return joinPosix(root, installDir, getInstallDirForType(type), name);
 }
 
 /** A specific version's install dir: <packageDir>/<version>/. */
-function resolveInstallDir(root: string, type: PackageType, name: string, version: string): string {
-  return joinPosix(resolvePackageDir(root, type, name), version);
+function resolveInstallDir(root: string, installDir: string, type: PackageType, name: string, version: string): string {
+  return joinPosix(resolvePackageDir(root, installDir, type, name), version);
 }
 
 /* ---- workspace prompd.json dependency tracking (ported from @prompd/cli's
@@ -145,6 +160,7 @@ export async function installPackage(opts: InstallPackageOptions): Promise<Insta
 
 async function installInternal(opts: InstallPackageOptions, visited: Set<string>): Promise<InstalledPackage> {
   const { ref, root, store, download, global, tools, deployTool } = opts;
+  const installDir = checkInstallDir(opts.installDir);
   const parsed = parsePackageReference(ref);
 
   const bytes = await download(parsed.name, parsed.version);
@@ -182,11 +198,11 @@ async function installInternal(opts: InstallPackageOptions, visited: Set<string>
     if (!store.writeBytes) {
       throw new Error('Installing a node-template requires a PackageStore with writeBytes (binary). This host does not support it.');
     }
-    const dir = joinPosix(root, '.prompd', getInstallDirForType('node-template'));
+    const dir = joinPosix(root, installDir, getInstallDirForType('node-template'));
     installedPath = joinPosix(dir, `${slugify(name)}-${version}.pdpkg`);
     await store.writeBytes(installedPath, bytes);
   } else {
-    installedPath = resolveInstallDir(root, type, name, version);
+    installedPath = resolveInstallDir(root, installDir, type, name, version);
     const base = normalizePosix(installedPath);
     await store.removeDir?.(installedPath); // clean reinstall of this version
     for (const [rel, content] of files) {
@@ -223,6 +239,8 @@ export interface UninstallPackageOptions {
   store: PackageStore;
   /** Global uninstall — skips the workspace prompd.json dependency removal. */
   global?: boolean;
+  /** Dot-dir the install tree lives under: <root>/<installDir>/<typeDir>/... Default '.prompd' (the CLI layout). A host with its own state dir (e.g. '.corenel') passes it here. */
+  installDir?: string;
 }
 
 export interface UninstalledPackage {
@@ -233,12 +251,13 @@ export interface UninstalledPackage {
 }
 
 /**
- * Uninstall by name, matching the CLI: scan EVERY type dir under <root>/.prompd/ and
+ * Uninstall by name, matching the CLI: scan EVERY type dir under <root>/<installDir>/ and
  * remove the package's dir (all versions); for node-templates, find the .pdpkg whose
  * manifest name matches and remove it. Drops the prompd.json dependency. Idempotent.
  */
 export async function uninstallPackage(opts: UninstallPackageOptions): Promise<UninstalledPackage> {
   const { root, store, global } = opts;
+  const installDir = checkInstallDir(opts.installDir);
   if (!store.removeDir) throw new Error('Uninstall requires a PackageStore with removeDir.');
   const parsed = parsePackageReference(opts.ref);
   const name = parsed.name;
@@ -249,7 +268,7 @@ export async function uninstallPackage(opts: UninstallPackageOptions): Promise<U
       // Stored as <slug>-<version>.pdpkg at the templates root. Match by reading each
       // archive's manifest name EXACTLY (CLI parity) — a slug prefix would collide,
       // e.g. '@scope/foo' (prefix 'scope-foo-') would also match '@scope/foo-bar'.
-      const dir = joinPosix(root, '.prompd', getInstallDirForType('node-template'));
+      const dir = joinPosix(root, installDir, getInstallDirForType('node-template'));
       if (!store.readdir || !store.removeFile || !store.readBytes) continue;
       try {
         for (const entry of await store.readdir(dir)) {
@@ -262,7 +281,7 @@ export async function uninstallPackage(opts: UninstallPackageOptions): Promise<U
         }
       } catch { /* templates dir absent */ }
     } else {
-      const dir = resolvePackageDir(root, type, name);
+      const dir = resolvePackageDir(root, installDir, type, name);
       await store.removeDir(dir);
       removed.push(dir);
     }

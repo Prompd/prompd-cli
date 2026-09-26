@@ -211,3 +211,50 @@ describe('prompd.json dependency tracking', () => {
     expect(manifest.dependencies['@other/dep']).toBe('2.0.0');
   });
 });
+
+describe('installDir', () => {
+  it('installs under the caller-chosen dir, never .prompd', async () => {
+    const buf = await makePkg({
+      'manifest.json': JSON.stringify({ name: '@acme/widget', version: '1.2.3', type: 'package' }),
+      'a.md': 'x',
+    });
+    const { store, files } = memStore();
+    const res = await installPackage({ ref: '@acme/widget', root: 'ws', installDir: '.corenel', store, download: async () => buf });
+    expect(res.installedPath).toBe('ws/.corenel/packages/@acme/widget/1.2.3');
+    expect([...files.keys()].filter((k) => k.includes('/.prompd/'))).toEqual([]);
+  });
+
+  it('puts a node-template archive under installDir too', async () => {
+    const buf = await makePkg({ 'manifest.json': JSON.stringify({ name: '@acme/tpl', version: '0.1.0', type: 'node-template' }) });
+    const { store, bytes } = memStore();
+    const res = await installPackage({ ref: '@acme/tpl', root: 'ws', installDir: '.corenel', store, download: async () => buf });
+    expect(res.installedPath).toBe('ws/.corenel/templates/acme-tpl-0.1.0.pdpkg');
+    expect(bytes.has('ws/.corenel/templates/acme-tpl-0.1.0.pdpkg')).toBe(true);
+  });
+
+  it('defaults to .prompd so the CLI layout is unchanged', async () => {
+    const buf = await makePkg({ 'manifest.json': JSON.stringify({ name: '@acme/widget', version: '1.2.3', type: 'package' }) });
+    const { store } = memStore();
+    const res = await installPackage({ ref: '@acme/widget', root: 'ws', store, download: async () => buf });
+    expect(res.installedPath).toBe('ws/.prompd/packages/@acme/widget/1.2.3');
+  });
+
+  it('uninstalls only from installDir', async () => {
+    const buf = await makePkg({ 'manifest.json': JSON.stringify({ name: '@acme/widget', version: '1.2.3', type: 'package' }), 'a.md': 'x' });
+    const { store, files } = memStore();
+    await installPackage({ ref: '@acme/widget', root: 'ws', store, download: async () => buf });
+    await installPackage({ ref: '@acme/widget', root: 'ws', installDir: '.corenel', store, download: async () => buf });
+    await uninstallPackage({ ref: '@acme/widget', root: 'ws', installDir: '.corenel', store, global: true });
+    expect(files.has('ws/.prompd/packages/@acme/widget/1.2.3/a.md')).toBe(true);
+    expect(files.has('ws/.corenel/packages/@acme/widget/1.2.3/a.md')).toBe(false);
+  });
+
+  it.each(['../x', 'a/b', 'prompd', '.', ''])('rejects installDir %j before writing anything', async (bad) => {
+    const { store, files, bytes } = memStore();
+    const download = jest.fn(async () => new Uint8Array());
+    await expect(installPackage({ ref: '@acme/widget', root: 'ws', installDir: bad, store, download })).rejects.toThrow(/Invalid installDir/);
+    await expect(uninstallPackage({ ref: '@acme/widget', root: 'ws', installDir: bad, store })).rejects.toThrow(/Invalid installDir/);
+    expect(download).not.toHaveBeenCalled();
+    expect(files.size + bytes.size).toBe(0);
+  });
+});
