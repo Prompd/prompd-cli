@@ -2,7 +2,7 @@
  * Tests for Lexical Analysis Stage
  */
 
-import { LexicalAnalysisStage } from '../../../src/lib/compiler/stages/lexical';
+import { LexicalAnalysisStage } from '@prompd/core';
 import { createMockContext } from '../test-helpers';
 import { SIMPLE_PRMD } from '../fixtures/test-files';
 

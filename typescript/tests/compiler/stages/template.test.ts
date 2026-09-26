@@ -2,7 +2,7 @@
  * Tests for Template Processing Stage
  */
 
-import { TemplateProcessingStage } from '../../../src/lib/compiler/stages/template';
+import { TemplateProcessingStage } from '@prompd/core';
 import { createMockContext, createTempFiles, cleanupTempDir } from '../test-helpers';
 import { TEMPLATE_PRMD, PARENT_PRMD } from '../fixtures/test-files';
 import { PrompdMetadata } from '../../../src/types';

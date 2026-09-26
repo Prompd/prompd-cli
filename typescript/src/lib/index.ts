@@ -129,7 +129,12 @@ export {
   IFileSystem,
   MemoryFileSystem,
   NodeFileSystem,
-  getDefaultFileSystem
+  getDefaultFileSystem,
+  // Source-file helpers (.prmd / .md parity)
+  isPrompdFile,
+  PROMPD_EXTENSIONS,
+  // Injectable package resolver (Node adapter)
+  NodePackageResolver
 } from './compiler';
 
 // Git utilities (for IDE integration)

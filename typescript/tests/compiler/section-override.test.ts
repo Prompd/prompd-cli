@@ -2,9 +2,12 @@
  * Tests for Section Override Processor
  */
 
-import { SectionOverrideProcessor } from '../../src/lib/compiler/section-override';
+import { SectionOverrideProcessor } from '@prompd/core';
+import { NodeFileSystem } from '../../src/lib/compiler/file-system';
 import { createTempFiles, cleanupTempDir } from './test-helpers';
 import * as path from 'path';
+
+const nodeFs = new NodeFileSystem();
 
 describe('SectionOverrideProcessor', () => {
   let processor: SectionOverrideProcessor;
@@ -139,7 +142,8 @@ User content`);
         childSections,
         overrides,
         tempDir,
-        false
+        false,
+        nodeFs
       );
 
       expect(result).toContain('Custom system content');
@@ -250,7 +254,7 @@ System content`);
         'override.md': 'Override content here'
       });
 
-      const content = await processor.loadOverrideContent('./override.md', tempDir);
+      const content = await processor.loadOverrideContent('./override.md', tempDir, nodeFs);
 
       expect(content).toBe('Override content here');
 
@@ -259,13 +263,13 @@ System content`);
 
     it('should throw error for non-existent file', async () => {
       await expect(
-        processor.loadOverrideContent('./nonexistent.md', '/tmp')
+        processor.loadOverrideContent('./nonexistent.md', '/tmp', nodeFs)
       ).rejects.toThrow(/escapes base directory|not found/i);
     });
 
     it('should detect path traversal attempts', async () => {
       await expect(
-        processor.loadOverrideContent('../../../etc/passwd', '/tmp')
+        processor.loadOverrideContent('../../../etc/passwd', '/tmp', nodeFs)
       ).rejects.toThrow(/escapes base directory|traversal/i);
     });
 
@@ -275,7 +279,7 @@ System content`);
       });
 
       await expect(
-        processor.loadOverrideContent('./large.md', tempDir)
+        processor.loadOverrideContent('./large.md', tempDir, nodeFs)
       ).rejects.toThrow(/too large/i);
 
       await cleanupTempDir(tempDir);

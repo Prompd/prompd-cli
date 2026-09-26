@@ -2,7 +2,7 @@
  * Tests for Semantic Analysis Stage
  */
 
-import { SemanticAnalysisStage } from '../../../src/lib/compiler/stages/semantic';
+import { SemanticAnalysisStage } from '@prompd/core';
 import { createMockContext } from '../test-helpers';
 import { PrompdMetadata } from '../../../src/types';
 
@@ -220,6 +220,71 @@ describe('SemanticAnalysisStage', () => {
       await stage.process(context);
 
       expect(context.errors).toHaveLength(0);
+    });
+  });
+
+  describe('date / datetime parameters', () => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const fmtDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    const runWithParam = async (param: any, provided: Record<string, unknown> = {}) => {
+      const context = createMockContext('/test.prmd', { parameters: { ...provided } });
+      context.metadata = {
+        id: 'test',
+        name: 'Test Prompt',
+        version: '1.0.0',
+        parameters: [param]
+      } as PrompdMetadata;
+      await stage.process(context);
+      return context;
+    };
+
+    it('resolves a "now" default to today (YYYY-MM-DD)', async () => {
+      const context = await runWithParam({ name: 'start', type: 'date', default: 'now' });
+      expect(context.parameters.start).toBe(fmtDate(new Date()));
+      expect(context.warnings).toHaveLength(0);
+    });
+
+    it('resolves a "today" default to today', async () => {
+      const context = await runWithParam({ name: 'start', type: 'date', default: 'today' });
+      expect(context.parameters.start).toBe(fmtDate(new Date()));
+    });
+
+    it('resolves a "now-7d" relative default to 7 days ago', async () => {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      const context = await runWithParam({ name: 'end', type: 'date', default: 'now-7d' });
+      expect(context.parameters.end).toBe(fmtDate(d));
+    });
+
+    it('resolves a "now+1w" relative default to one week ahead', async () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 7);
+      const context = await runWithParam({ name: 'next', type: 'date', default: 'now+1w' });
+      expect(context.parameters.next).toBe(fmtDate(d));
+    });
+
+    it('passes through an ISO date literal default unchanged', async () => {
+      const context = await runWithParam({ name: 'fixed', type: 'date', default: '2026-01-15' });
+      expect(context.parameters.fixed).toBe('2026-01-15');
+      expect(context.warnings).toHaveLength(0);
+    });
+
+    it('resolves a datetime default to YYYY-MM-DDTHH:mm:ss', async () => {
+      const context = await runWithParam({ name: 'ts', type: 'datetime', default: 'now' });
+      expect(String(context.parameters.ts)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+      expect(context.warnings).toHaveLength(0);
+    });
+
+    it('resolves a relative value provided at execution time', async () => {
+      const context = await runWithParam({ name: 'start', type: 'date' }, { start: 'now' });
+      expect(context.parameters.start).toBe(fmtDate(new Date()));
+    });
+
+    it('warns when a date value cannot be parsed', async () => {
+      const context = await runWithParam({ name: 'start', type: 'date' }, { start: 'not-a-date' });
+      expect(context.warnings.length).toBeGreaterThan(0);
+      expect(context.warnings[0]).toContain('incorrect type');
     });
   });
 

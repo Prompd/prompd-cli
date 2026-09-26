@@ -2,9 +2,7 @@
  * Tests for Output Formatters (Markdown, OpenAI, Anthropic)
  */
 
-import { MarkdownFormatter } from '../../../src/lib/compiler/formatters/markdown';
-import { OpenAIFormatter } from '../../../src/lib/compiler/formatters/openai';
-import { AnthropicFormatter } from '../../../src/lib/compiler/formatters/anthropic';
+import { MarkdownFormatter, OpenAIFormatter, AnthropicFormatter } from '@prompd/core';
 import { CompilationContext } from '../../../src/lib/compiler/types';
 import { createMockContext } from '../test-helpers';
 

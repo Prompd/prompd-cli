@@ -1,109 +1,125 @@
 /**
- * Prompd Compiler - Main Entry Point
+ * Prompd Compiler - Node CLI entry point.
  *
- * The 6-stage compilation pipeline for transforming .prmd files into various output formats.
- * This is the npm CLI's complete port of the Python CLI's compiler with full feature parity.
+ * The compilation engine (pipeline, stages, formatters, templating) lives in
+ * @prompd/core. This module assembles the FULL Node pipeline (core stages plus
+ * the Node-only AssetExtractionStage) and injects Node defaults (NodeFileSystem
+ * + NodePackageResolver) so existing callers behave exactly as before. It also
+ * re-exports @prompd/core so every existing `./compiler` import keeps working.
  */
 
-import * as path from 'path';
 import * as fs from 'fs-extra';
-import { CompilerPipeline } from './pipeline';
-import { CompilationOptions, CompilationContext, DEFAULT_SECURITY_CONFIG, SecurityConfig } from './types';
-import { LexicalAnalysisStage } from './stages/lexical';
-import { DependencyResolutionStage } from './stages/dependency';
-import { SemanticAnalysisStage } from './stages/semantic';
+import * as path from 'path';
+import {
+  PrompdCompiler as CorePrompdCompiler,
+  CompilerStage,
+  CompilationOptions,
+  CompilationContext,
+  SecurityConfig,
+  PrompdError,
+  LexicalAnalysisStage,
+  DependencyResolutionStage,
+  SemanticAnalysisStage,
+  TemplateProcessingStage,
+  CodeGenerationStage
+} from '@prompd/core';
 import { AssetExtractionStage } from './stages/assets';
-import { TemplateProcessingStage } from './stages/template';
-import { CodeGenerationStage } from './stages/codegen';
-import { PrompdError, CompilationError } from '../errors';
+import { NodePackageResolver } from './node-package-resolver';
+import { NodeFileSystem } from './file-system';
+
+const nodePackageResolver = new NodePackageResolver();
 
 /**
- * High-level compiler interface.
- *
- * Provides a simple API for compiling .prmd files to various output formats.
+ * The full Node pipeline: core stages plus binary asset extraction.
  */
-export class PrompdCompiler {
-  private pipeline: CompilerPipeline;
-  private securityConfig: SecurityConfig;
+function createFullStages(): CompilerStage[] {
+  return [
+    new LexicalAnalysisStage(),
+    new DependencyResolutionStage(),
+    new SemanticAnalysisStage(),
+    new AssetExtractionStage(),
+    new TemplateProcessingStage(),
+    new CodeGenerationStage()
+  ];
+}
 
+/**
+ * Node CLI compiler. Same public API as before (constructor takes an optional
+ * SecurityConfig); adds binary asset extraction and writes outputFile to disk.
+ */
+export class PrompdCompiler extends CorePrompdCompiler {
   constructor(securityConfig?: SecurityConfig) {
-    this.securityConfig = securityConfig || DEFAULT_SECURITY_CONFIG;
-
-    // Create pipeline with default stages
-    const stages = [
-      new LexicalAnalysisStage(),
-      new DependencyResolutionStage(),
-      new SemanticAnalysisStage(),
-      new AssetExtractionStage(),
-      new TemplateProcessingStage(),
-      new CodeGenerationStage()
-    ];
-
-    this.pipeline = new CompilerPipeline(stages, this.securityConfig);
+    super({ stages: createFullStages(), securityConfig });
   }
 
-  /**
-   * Compile a .prmd file to the specified format.
-   *
-   * @param source - Path to .prmd file or package reference
-   * @param options - Compilation options
-   * @returns Compiled content as string
-   */
+  private withNodeDefaults(options: CompilationOptions): CompilationOptions {
+    return {
+      ...options,
+      fileSystem: options.fileSystem || new NodeFileSystem(),
+      packageResolver: options.packageResolver || nodePackageResolver
+    };
+  }
+
   async compile(source: string, options: CompilationOptions = {}): Promise<string> {
-    // Execute pipeline
-    const context = await this.pipeline.execute(source, options);
+    await this.validateDiskSource(source, options);
+    const opts = this.withNodeDefaults(options);
+    const result = await super.compile(source, opts);
 
-    // Check for errors
-    if (context.hasErrors()) {
-      const errorMessages = context.errors.join('\n  - ');
-      throw new CompilationError(`Compilation failed:\n  - ${errorMessages}`);
-    }
-
-    // Display warnings
-    if (context.warnings.length > 0 && options.verbose) {
-      for (const warning of context.warnings) {
-        console.log(`Warning: ${warning}`);
+    // Preserve CLI behavior: write to outputFile when requested.
+    if (opts.outputFile) {
+      const outputPath = path.resolve(opts.outputFile);
+      await fs.writeFile(outputPath, result, 'utf-8');
+      if (opts.verbose) {
+        console.log(`Compiled output written to: ${outputPath}`);
       }
     }
 
-    // Write to output file if specified
-    if (options.outputFile && context.compiledResult) {
-      const outputPath = path.resolve(options.outputFile);
-      const content = typeof context.compiledResult === 'string'
-        ? context.compiledResult
-        : context.compiledResult.toString('utf-8');
-      await fs.writeFile(outputPath, content, 'utf-8');
-
-      if (options.verbose) {
-        console.log(`✓ Compiled output written to: ${outputPath}`);
-      }
-    }
-
-    const result = context.compiledResult || '';
-    return typeof result === 'string' ? result : result.toString('utf-8');
+    return result;
   }
 
-  /**
-   * Compile with detailed context (for advanced usage).
-   *
-   * @param source - Path to .prmd file or package reference
-   * @param options - Compilation options
-   * @returns Complete compilation context with metadata
-   */
   async compileWithContext(source: string, options: CompilationOptions = {}): Promise<CompilationContext> {
-    return await this.pipeline.execute(source, options);
+    await this.validateDiskSource(source, options);
+    return super.compileWithContext(source, this.withNodeDefaults(options));
   }
 
   /**
-   * Get the underlying pipeline (for advanced customization).
+   * Node-side source validation for real disk compiles (no custom file system,
+   * not a package reference): existence, allowed extension, size, regular-file,
+   * and path-traversal checks. Mirrors the original pipeline preflight.
    */
-  getPipeline(): CompilerPipeline {
-    return this.pipeline;
+  private async validateDiskSource(source: string, options: CompilationOptions): Promise<void> {
+    if (options.fileSystem || source.startsWith('@')) {
+      return; // custom FS (e.g. MemoryFileSystem) or package ref - not a disk path
+    }
+
+    if (!(await fs.pathExists(source))) {
+      throw new PrompdError(`Source file not found: ${source}`);
+    }
+
+    const ext = path.extname(source).toLowerCase();
+    if (!this.securityConfig.allowedExtensions.includes(ext)) {
+      throw new PrompdError(`File extension not allowed: ${ext}`);
+    }
+
+    const stats = await fs.stat(source);
+    if (stats.size > this.securityConfig.maxFileSize) {
+      throw new PrompdError(`File too large: ${stats.size} bytes (max: ${this.securityConfig.maxFileSize})`);
+    }
+    if (!stats.isFile()) {
+      throw new PrompdError(`Source must be a regular file: ${source}`);
+    }
+
+    const resolvedPath = path.resolve(source);
+    if (resolvedPath !== source && !source.startsWith('.')) {
+      if (path.normalize(source).includes('..')) {
+        throw new PrompdError(`Path traversal detected: ${source}`);
+      }
+    }
   }
 }
 
 /**
- * Convenience function for quick compilation.
+ * Convenience function for quick compilation (Node, full pipeline).
  */
 export async function compile(
   source: string,
@@ -112,25 +128,23 @@ export async function compile(
   outputFile?: string
 ): Promise<string> {
   const compiler = new PrompdCompiler();
-  return await compiler.compile(source, {
-    outputFormat,
-    parameters,
-    outputFile
-  });
+  return compiler.compile(source, { outputFormat, parameters, outputFile });
 }
 
-// Export all types and classes
-export * from './types';
-export * from './pipeline';
-export * from './file-system';
-export { LexicalAnalysisStage } from './stages/lexical';
-export { DependencyResolutionStage } from './stages/dependency';
-export { SemanticAnalysisStage } from './stages/semantic';
+// Re-export the core engine (PrompdCompiler + compile are overridden above).
+export * from '@prompd/core';
+
+// Node-only additions / overrides.
+export { NodeFileSystem, MemoryFileSystem, getDefaultFileSystem } from './file-system';
 export { AssetExtractionStage } from './stages/assets';
-export { TemplateProcessingStage } from './stages/template';
-export { CodeGenerationStage } from './stages/codegen';
-export { SectionOverrideProcessor } from './section-override';
-export { MarkdownFormatter } from './formatters/markdown';
-export { OpenAIFormatter } from './formatters/openai';
-export { AnthropicFormatter } from './formatters/anthropic';
-export { findProjectRoot, resolvePackage, resolvePackageFile, isPackageInstalled, parsePackageReference, parsePackageReferenceWithPath, getLocalBaseDir, getGlobalBaseDir } from './package-resolver';
+export { NodePackageResolver } from './node-package-resolver';
+export {
+  findProjectRoot,
+  resolvePackage,
+  resolvePackageFile,
+  isPackageInstalled,
+  parsePackageReference,
+  parsePackageReferenceWithPath,
+  getLocalBaseDir,
+  getGlobalBaseDir
+} from './package-resolver';

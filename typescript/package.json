@@ -63,6 +63,7 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
+    "@prompd/core": "file:../core",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/nunjucks": "^3.2.6",
     "adm-zip": "^0.5.16",
