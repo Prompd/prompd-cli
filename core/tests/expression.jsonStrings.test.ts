@@ -1,4 +1,4 @@
-import { evaluateExpression, ExpressionError } from '../src/lib/expression';
+import { evaluateExpression, ExpressionError, MAX_JSON_NAV_LENGTH } from '../src/lib/expression';
 
 describe('evaluateExpression: parseJsonStrings option', () => {
   it('is off by default: a named member access on a JSON string reads undefined', () => {
@@ -76,5 +76,38 @@ describe('evaluateExpression: parseJsonStrings option', () => {
     const scope = { data: '[10,20,30]' };
     expect(evaluateExpression('{{ data.length }}', scope, { parseJsonStrings: true })).toBe('[10,20,30]'.length);
     expect(evaluateExpression('{{ data[0] }}', scope, { parseJsonStrings: true })).toBe('[');
+  });
+
+  it('a canonical index at or beyond the string length never falls through to JSON parsing', () => {
+    // '{"10":"Z"}' is 10 characters long, so key "10" is a canonical index
+    // at the string's length (out of range for charAt) - it must read
+    // undefined, not parse the string as JSON and return the "10" value.
+    const scope = { data: '{"10":"Z"}' };
+    expect(scope.data.length).toBe(10);
+    expect(evaluateExpression('{{ data[10] }}', scope, { parseJsonStrings: true })).toBeUndefined();
+  });
+
+  it('navigates JSON fenced or unfenced through a 200k-char whitespace-padded string well under 100ms', () => {
+    const padding = ' '.repeat(200_000);
+    const scope = { data: '```' + padding };
+    const start = Date.now();
+    expect(evaluateExpression('{{ data.anything }}', scope, { parseJsonStrings: true })).toBeUndefined();
+    expect(Date.now() - start).toBeLessThan(100);
+  });
+
+  it('a string longer than MAX_JSON_NAV_LENGTH reads undefined instead of being parsed', () => {
+    const big = '{"key":"' + 'x'.repeat(MAX_JSON_NAV_LENGTH) + '"}';
+    expect(big.length).toBeGreaterThan(MAX_JSON_NAV_LENGTH);
+    const scope = { data: big };
+    expect(evaluateExpression('{{ data.key }}', scope, { parseJsonStrings: true })).toBeUndefined();
+  });
+
+  it('fenced and unfenced JSON still navigate correctly after the fence-scan rewrite', () => {
+    const unfenced = { data: '{"a":1}' };
+    const fenced = { data: '```json\n{"a":1}\n```' };
+    const bareFenced = { data: '```\n{"a":1}\n```' };
+    expect(evaluateExpression('{{ data.a }}', unfenced, { parseJsonStrings: true })).toBe(1);
+    expect(evaluateExpression('{{ data.a }}', fenced, { parseJsonStrings: true })).toBe(1);
+    expect(evaluateExpression('{{ data.a }}', bareFenced, { parseJsonStrings: true })).toBe(1);
   });
 });

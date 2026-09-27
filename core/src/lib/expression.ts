@@ -487,14 +487,38 @@ export interface ExpressionEvalOptions {
   parseJsonStrings?: boolean;
 }
 
-/** Parses a string as JSON for `parseJsonStrings` navigation, stripping one
- * optional ``` / ```json fence first (an LLM's typical wrapping of a JSON
- * reply). Returns `undefined` on invalid JSON or an empty string - never
- * throws, so a member access over unparsable text just reads as absent data,
- * exactly like any other missing property. */
+/** The longest string `parseJsonStrings` navigation will attempt to parse as
+ * JSON. Without this, a multi-megabyte string with an opening ``` fence and
+ * no closing one is still linear to scan (see `stripCodeFence`), but
+ * `JSON.parse` itself on an arbitrarily large host-supplied string is
+ * unbounded work we'd rather refuse than pay for on every navigation. A
+ * string longer than this reads as undefined, exactly like invalid JSON. */
+export const MAX_JSON_NAV_LENGTH = 1_000_000;
+
+/** Strips one optional ``` / ```json fence from `s` (an LLM's typical
+ * wrapping of a JSON reply), in time linear in `s.length`: it locates the
+ * opening ``` and the next closing ``` with `indexOf` (never a backtracking
+ * regex), and returns `s` unchanged when no fence pair is found - so a
+ * string that opens with ``` but never closes it (e.g. ``` followed by a
+ * long run of whitespace) costs one failed `indexOf` scan, not a
+ * quadratic regex match. */
+function stripCodeFence(s: string): string {
+  const open = s.indexOf('```');
+  if (open === -1) return s;
+  const close = s.indexOf('```', open + 3);
+  if (close === -1) return s;
+  const inner = s.slice(open + 3, close);
+  return inner.startsWith('json') ? inner.slice(4) : inner;
+}
+
+/** Parses a string as JSON for `parseJsonStrings` navigation. Returns
+ * `undefined` on invalid JSON, an empty string, or a string longer than
+ * `MAX_JSON_NAV_LENGTH` - never throws, so a member access over unparsable
+ * or oversized text just reads as absent data, exactly like any other
+ * missing property. */
 function parseJsonFromString(s: string): unknown {
-  const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const text = (fenceMatch ? fenceMatch[1] : s).trim();
+  if (s.length > MAX_JSON_NAV_LENGTH) return undefined;
+  const text = stripCodeFence(s).trim();
   if (!text) return undefined;
   try {
     return JSON.parse(text);
@@ -521,7 +545,13 @@ function parseJsonFromString(s: string): unknown {
 function readOwnMember(obj: unknown, key: string, options?: ExpressionEvalOptions): unknown {
   if (typeof obj === 'string') {
     if (key === 'length') return obj.length;
-    if (isCanonicalIndex(key) && Number(key) < obj.length) return obj.charAt(Number(key));
+    if (isCanonicalIndex(key)) {
+      // A canonical index always reads the string itself (in range) or
+      // undefined (out of range) - it never falls through to JSON parsing,
+      // even when the key happens to also be a valid JSON object key (e.g.
+      // `'{"10":"Z"}'[10]` reads undefined, not the parsed value at "10").
+      return Number(key) < obj.length ? obj.charAt(Number(key)) : undefined;
+    }
     if (options?.parseJsonStrings) {
       const parsed = parseJsonFromString(obj);
       if (parsed !== null && typeof parsed === 'object' && (isPlainArray(parsed) || isPlainObject(parsed))) {
