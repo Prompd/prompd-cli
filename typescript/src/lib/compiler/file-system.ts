@@ -18,6 +18,14 @@ import {
 
 export type { IFileSystem } from '@prompd/core';
 
+// CLI-only package ingestion limits. Module-level (not class statics) because
+// core's MemoryFileSystem also declares private static MAX_PACKAGE_SIZE etc.,
+// and TS2417 rejects a subclass redeclaring a base class's private static
+// member under the same name.
+const CLI_MAX_PACKAGE_SIZE = 50 * 1024 * 1024; // 50MB
+const CLI_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
+const CLI_MAX_FILE_COUNT = 1000;
+
 /**
  * Default file system implementation using Node.js fs.
  */
@@ -56,10 +64,6 @@ export class NodeFileSystem implements IFileSystem {
  * Extends the pure core MemoryFileSystem with Node-only package operations.
  */
 export class MemoryFileSystem extends CoreMemoryFileSystem {
-  private static readonly MAX_PACKAGE_SIZE = 50 * 1024 * 1024; // 50MB
-  private static readonly MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
-  private static readonly MAX_FILE_COUNT = 1000;
-
   private validatePackageName(name: string): void {
     const pattern = /^@[a-z0-9.-]+\/[a-z0-9.-]+$/;
     if (!pattern.test(name)) {
@@ -86,11 +90,11 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
       fileCount++;
       totalSize += entry.header.size;
 
-      if (fileCount > MemoryFileSystem.MAX_FILE_COUNT) {
-        throw new Error(`Package contains too many files (max: ${MemoryFileSystem.MAX_FILE_COUNT})`);
+      if (fileCount > CLI_MAX_FILE_COUNT) {
+        throw new Error(`Package contains too many files (max: ${CLI_MAX_FILE_COUNT})`);
       }
-      if (totalSize > MemoryFileSystem.MAX_PACKAGE_SIZE) {
-        throw new Error(`Package too large (max: ${MemoryFileSystem.MAX_PACKAGE_SIZE} bytes)`);
+      if (totalSize > CLI_MAX_PACKAGE_SIZE) {
+        throw new Error(`Package too large (max: ${CLI_MAX_PACKAGE_SIZE} bytes)`);
       }
       this.validateZipEntry(entry);
     }
@@ -104,9 +108,9 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
     if (path.isAbsolute(entryPath)) {
       throw new Error(`Security violation: Absolute path (${entryPath})`);
     }
-    if (entry.header.size > MemoryFileSystem.MAX_FILE_SIZE) {
+    if (entry.header.size > CLI_MAX_FILE_SIZE) {
       throw new Error(
-        `File too large: ${entryPath} (${entry.header.size} bytes, max: ${MemoryFileSystem.MAX_FILE_SIZE})`
+        `File too large: ${entryPath} (${entry.header.size} bytes, max: ${CLI_MAX_FILE_SIZE})`
       );
     }
     if (entryPath.includes('\0')) {
@@ -121,9 +125,9 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
     this.validatePackageName(packageName);
     this.validateVersion(version);
 
-    if (packageBuffer.length > MemoryFileSystem.MAX_PACKAGE_SIZE) {
+    if (packageBuffer.length > CLI_MAX_PACKAGE_SIZE) {
       throw new Error(
-        `Package too large: ${packageBuffer.length} bytes (max: ${MemoryFileSystem.MAX_PACKAGE_SIZE})`
+        `Package too large: ${packageBuffer.length} bytes (max: ${CLI_MAX_PACKAGE_SIZE})`
       );
     }
 
