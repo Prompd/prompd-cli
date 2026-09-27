@@ -592,3 +592,76 @@ describe('evaluateExpression — round 4: the catch boundary reads a thrown valu
     }
   });
 });
+
+describe('evaluateExpression — round 5: the catch boundary cannot be fooled by instanceof', () => {
+  it('a getOwnPropertyDescriptor trap that throws a REVOKED Proxy is wrapped, not rethrown raw', () => {
+    const { proxy: revokedProxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw revokedProxy;
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+  });
+
+  it('a trap that throws an object whose prototype IS ExpressionError.prototype is wrapped into a genuine ExpressionError', () => {
+    const lookAlike: Record<string, unknown> = Object.create(ExpressionError.prototype);
+    lookAlike.message = 'not really branded';
+    lookAlike.name = 'ExpressionError';
+    lookAlike.construct = 'forged construct';
+    lookAlike.position = 0;
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw lookAlike;
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect(e).not.toBe(lookAlike);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+  });
+
+  it('a trap that throws a Proxy whose getPrototypeOf itself throws a host object is wrapped', () => {
+    const trapThrows = { toString: () => 'PWNED' };
+    const evilProxy = new Proxy(
+      {},
+      {
+        getPrototypeOf(): object | null {
+          throw trapThrows;
+        },
+      },
+    );
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw evilProxy;
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+  });
+});

@@ -2,6 +2,13 @@
  * without ever executing the text as code. Shared by every workflow engine.
  * Spec: prompd-web/docs/superpowers/specs/2026-09-26-safe-workflow-expressions-design.md */
 
+// Marks instances this module itself constructed. Checked with WeakSet#has,
+// which invokes no trap (unlike `instanceof`, whose `getPrototypeOf` step on
+// a Proxy can run host code and even throw), so the catch boundary in
+// evaluateExpression can tell a genuine ExpressionError from a look-alike
+// (or a thrown Proxy) without itself being made to throw or lie.
+const BRANDED = new WeakSet<object>();
+
 export class ExpressionError extends Error {
   readonly construct: string;
   readonly position: number;
@@ -10,7 +17,15 @@ export class ExpressionError extends Error {
     this.name = 'ExpressionError';
     this.construct = construct;
     this.position = position;
+    BRANDED.add(this);
   }
+}
+
+/** True only for an ExpressionError this module constructed itself. Used at
+ * the evaluateExpression catch boundary in place of `instanceof`, which
+ * would run a thrown Proxy's `getPrototypeOf` trap. */
+function isOwnExpressionError(e: unknown): e is ExpressionError {
+  return typeof e === 'object' && e !== null && BRANDED.has(e);
 }
 
 export function isExpressionError(e: unknown): e is ExpressionError {
@@ -423,8 +438,16 @@ function isPlainArray(o: object): o is unknown[] {
  * iteration) or a method lookup; array `length` included, which is read
  * through `ownIndexLength`. Whatever a trap reports back is only returned
  * after `dataValue` has classified it, so a trap can run its own (host) code
- * but can never hand a function or a non-plain object to the expression or
- * to the caller. */
+ * but can never hand back a function, nor an object dataValue classifies as
+ * neither plain object nor array. It CAN hand back the Proxy itself, whole
+ * and unwalked, when its own getPrototypeOf trap reports `Object.prototype`
+ * or `Array.prototype`: dataValue only checks the prototype, so a Proxy
+ * classified as plain data this way is indistinguishable from real plain
+ * data and is returned to the expression (and, if it's the whole result, to
+ * the caller) exactly as `readProp`/`ownData` etc. would return real plain
+ * data — the evaluator runs nothing further on it beyond that. Hosts must
+ * pass plain data; a Proxy in scope is trusted to report its own shape
+ * honestly, not sandboxed against lying. */
 function dataValue(v: unknown): unknown {
   if (typeof v === 'function') return undefined;
   if (v === null || typeof v !== 'object') return v;
@@ -766,11 +789,13 @@ export function evaluateExpression(expr: string, scope: Record<string, unknown>)
   try {
     return new Evaluator(scope).run(ast);
   } catch (e) {
-    // Only an ExpressionError we threw ourselves passes through; anything
-    // else is wrapped, so a host object (even one named 'ExpressionError',
-    // or one whose own descriptor read itself throws) can never leak past
-    // this boundary unwrapped.
-    if (e instanceof ExpressionError) throw e;
+    // Only an ExpressionError this module branded (via BRANDED, checked with
+    // WeakSet#has — no trap runs) passes through unwrapped. Everything else
+    // is wrapped here: a look-alike object (even one whose prototype IS
+    // ExpressionError.prototype), a thrown Proxy whose getPrototypeOf trap
+    // runs host code, or anything else a trap can hand back. This function
+    // cannot itself throw anything but a genuine ExpressionError.
+    if (isOwnExpressionError(e)) throw e;
     let detail = 'unknown error';
     try {
       detail = thrownDetail(e);
