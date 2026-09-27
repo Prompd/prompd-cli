@@ -209,7 +209,7 @@ sandboxed against a trap that lies.
 - **Workflow expressions:** `evaluateExpression`, `validateExpression`,
   `describeExpressionFailure`, `isExpressionError`, `ExpressionError`,
   `MAX_EXPRESSION_LENGTH`, `MAX_EXPRESSION_DEPTH`, `MAX_ARRAY_SCAN`,
-  `MAX_JSON_NAV_LENGTH`
+  `MAX_JSON_NAV_LENGTH`, and the `ExpressionEvalOptions` type
 - **Types & errors:** `PrompdMetadata`, `PrompdParameter`, `CompilationOptions`,
   `CompilationError`, `ValidationError`, …
 

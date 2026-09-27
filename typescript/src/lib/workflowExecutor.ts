@@ -1630,9 +1630,11 @@ export async function executeWorkflow(
       const nodeDuration = Date.now() - nodeStartTime
 
       // Try to process through referenced ErrorHandler node first
+      // An expression failure reaches the handler as its described message
+      // (naming the node and construct), the same text the node fails with.
       const errorHandlerResult = processErrorHandler(
         nodeId,
-        error instanceof Error ? error : new Error(errorMessage),
+        isExpressionError(error) || !(error instanceof Error) ? new Error(errorMessage) : error,
         workflowFile,
         previousOutput,
         1 // Initial attempt

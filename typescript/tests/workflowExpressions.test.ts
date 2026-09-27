@@ -844,3 +844,34 @@ describe('I4: hyphenated node ids', () => {
     expect(result.nodeOutputs.cond1).toMatchObject({ branch: 'c1' });
   });
 });
+
+describe('Minor: an ErrorHandler receives the described expression failure', () => {
+  it('a fallback template sees describeExpressionFailure text, not the raw ExpressionError message', async () => {
+    const workflow = parseWorkflow(flowJson([
+      {
+        id: 'cond1',
+        type: 'condition',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'My Condition',
+          conditions: [{ id: 'c1', expression: '{{ fetch("x") }}', target: '' }],
+          default: '',
+          errorHandlerNodeId: 'eh1',
+        },
+      },
+      {
+        id: 'eh1',
+        type: 'error-handler',
+        position: { x: 0, y: 0 },
+        data: { label: 'Handler', strategy: 'fallback', fallback: { type: 'template', template: '{{ error.message }}' } },
+      },
+    ]));
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const result = await executeWorkflow(workflow, {});
+      expect(result.nodeOutputs.cond1).toMatch(/^Condition on "My Condition" can't run: call to fetch/);
+    } finally {
+      log.mockRestore();
+    }
+  });
+});

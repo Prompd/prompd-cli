@@ -23,7 +23,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "prompd",

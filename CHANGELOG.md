@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or a numeric `+`) is now an error instead of `NaN`. The usual cause is a hyphenated
   node id: `{{ prompt-abc }}` is subtraction. Every node output is now also reachable
   by id as `nodes`, so read such an id as `{{ nodes['prompt-abc'].output }}`.
+- **Node.js CLI**: A whole-string field holding several `{{ }}` blocks (e.g.
+  `"{{ a }} and {{ b }}"`) now fails its node with a syntax error instead of resolving
+  to `undefined`.
+- **Node.js CLI**: A named member access navigates into a JSON string node output
+  (`{{ classify.category }}`), but `.length` and numeric indices always read the string
+  itself: `{{ previous_output.length }}` on a JSON-array string is the string's length,
+  not the array's.
 - **Python CLI**: Config command was implemented but not registered in CLI - now accessible
 - **Documentation**: Removed misleading "100% Feature Parity" claims between CLI implementations
 
