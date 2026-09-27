@@ -1,4 +1,4 @@
-import { buildExpressionScope, evaluateTemplateExpression, executeWorkflow } from '../src/lib/workflowExecutor';
+import { buildExpressionScope, evaluateTemplateExpression, executeWorkflow, toPlainData } from '../src/lib/workflowExecutor';
 import { parseWorkflow } from '../src/lib/workflowParser';
 
 const ctx = (over: Partial<{ nodeOutputs: Record<string, unknown>; variables: Record<string, unknown>; workflow: Record<string, unknown>; previous_output: unknown }> = {}) => ({
@@ -500,5 +500,122 @@ describe('C1: chat-agent guardrail expressions fail closed', () => {
     );
     expect(result.errors).toHaveLength(0);
     expect(agentRan).toBe(true);
+  });
+});
+
+function codeThenConditionFlow(executionContext: 'isolated' | 'main', code: string, expression: string) {
+  return parseWorkflow(flowJson([
+    { id: 'code1', type: 'code', position: { x: 0, y: 0 }, data: { label: 'Code', language: 'javascript', executionContext, code } },
+    {
+      id: 'cond1',
+      type: 'condition',
+      position: { x: 0, y: 0 },
+      data: { label: 'Cond', conditions: [{ id: 'c1', expression, target: 'big' }], default: 'small' },
+    },
+    { id: 'big', type: 'output', position: { x: 0, y: 0 }, data: { label: 'Big' } },
+    { id: 'small', type: 'output', position: { x: 0, y: 0 }, data: { label: 'Small' } },
+  ], [
+    { id: 'e1', source: 'code1', target: 'cond1' },
+    { id: 'e2', source: 'cond1', target: 'big', sourceHandle: 'c1' },
+    { id: 'e3', source: 'cond1', target: 'small', sourceHandle: 'default' },
+  ]));
+}
+
+function codeOnlyFlow(executionContext: 'isolated' | 'main', code: string) {
+  return parseWorkflow(flowJson([
+    { id: 'code1', type: 'code', position: { x: 0, y: 0 }, data: { label: 'My Code', language: 'javascript', executionContext, code } },
+  ]));
+}
+
+describe('C2: code-node output is plain data expressions can read', () => {
+  it.each(['isolated', 'main'] as const)('%s: a returned object is readable by a following condition', async (mode) => {
+    const result = await executeWorkflow(codeThenConditionFlow(mode, 'return { total: 5 }', '{{ code1.total > 3 }}'), {});
+    expect(result.errors).toHaveLength(0);
+    expect(result.nodeOutputs.cond1).toMatchObject({ branch: 'c1' });
+  });
+
+  it.each(['isolated', 'main'] as const)('%s: a returned array is readable by a following condition', async (mode) => {
+    const result = await executeWorkflow(
+      codeThenConditionFlow(mode, 'return [1, 2, 3]', '{{ code1.length === 3 && code1.includes(2) }}'),
+      {},
+    );
+    expect(result.errors).toHaveLength(0);
+    expect(result.nodeOutputs.cond1).toMatchObject({ branch: 'c1' });
+  });
+
+  it.each(['isolated', 'main'] as const)('%s: a returned Date becomes its ISO string', async (mode) => {
+    const result = await executeWorkflow(codeOnlyFlow(mode, 'return new Date(0)'), {});
+    expect(result.errors).toHaveLength(0);
+    expect(result.nodeOutputs.code1).toBe('1970-01-01T00:00:00.000Z');
+  });
+
+  it.each([
+    ['isolated', 'return function () { return 1 }'],
+    ['main', 'return function () { return 1 }'],
+    ['isolated', 'const a = {}; a.self = a; return a'],
+    ['main', 'const a = {}; a.self = a; return a'],
+  ] as const)('%s: a non-serializable return (%s) becomes undefined with one warning, no throw', async (mode, code) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const result = await executeWorkflow(codeOnlyFlow(mode, code), {});
+      expect(result.errors).toHaveLength(0);
+      expect(result.nodeOutputs.code1).toBeUndefined();
+      const named = warn.mock.calls.filter((c) => String(c[0]).includes('"My Code"'));
+      expect(named).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('toPlainData', () => {
+  it('passes primitives through and JSON-round-trips everything else', () => {
+    expect(toPlainData('x')).toBe('x');
+    expect(toPlainData(3)).toBe(3);
+    expect(toPlainData(null)).toBeNull();
+    expect(toPlainData(undefined)).toBeUndefined();
+    const out = toPlainData({ a: [1, { b: 2 }] }) as { a: unknown[] };
+    expect(out).toEqual({ a: [1, { b: 2 }] });
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(out.a)).toBe(Array.prototype);
+    expect(toPlainData(new Date(0))).toBe('1970-01-01T00:00:00.000Z');
+  });
+  it('a function or circular value becomes undefined without throwing', () => {
+    expect(toPlainData(() => 1)).toBeUndefined();
+    const a: Record<string, unknown> = {};
+    a.self = a;
+    expect(toPlainData(a)).toBeUndefined();
+  });
+});
+
+describe('C2: code-tool output reaches outputTransform as plain data', () => {
+  it.each(['isolated', 'main'] as const)('%s: outputTransform reads a returned object', async (mode) => {
+    const workflow = parseWorkflow(flowJson([
+      {
+        id: 'tool1',
+        type: 'tool',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'Code Tool',
+          toolType: 'code',
+          codeSnippet: 'return { total: 5 }',
+          codeLanguage: 'javascript',
+          codeExecutionContext: mode,
+          outputTransform: '{{ result.total * 2 }}',
+        },
+      },
+    ]));
+    const result = await executeWorkflow(workflow, {});
+    expect(result.errors).toHaveLength(0);
+    expect(result.nodeOutputs.tool1).toBe(10);
+  });
+
+  it.each(['isolated', 'main'] as const)('%s: a returned promise settles before normalizing', async (mode) => {
+    const result = await executeWorkflow(
+      codeThenConditionFlow(mode, 'return Promise.resolve({ total: 5 })', '{{ code1.total > 3 }}'),
+      {},
+    );
+    expect(result.errors).toHaveLength(0);
+    expect(result.nodeOutputs.cond1).toMatchObject({ branch: 'c1' });
   });
 });

@@ -3387,7 +3387,9 @@ function executeInlineCode(
       // Wrap in an async IIFE so user code can use return statements
       const wrapped = `(function() {\n${code}\n})()`
       const script = new vm.Script(wrapped, { filename: `${nodeLabel}.js` })
-      return script.runInContext(vmContext, { timeout: timeoutMs })
+      // Normalized: objects built inside the vm context carry its prototypes,
+      // which the safe expression evaluator would read as undefined.
+      return plainCodeResult(script.runInContext(vmContext, { timeout: timeoutMs }), nodeLabel, nodeId)
     }
 
     // Main context — full access via Function constructor
@@ -3396,7 +3398,8 @@ function executeInlineCode(
 
     // eslint-disable-next-line no-new-func
     const fn = new Function(...paramNames, code)
-    return fn(...paramValues)
+    // Normalized too, so a code node's output has the same shape in both modes.
+    return plainCodeResult(fn(...paramValues), nodeLabel, nodeId)
   }
 
   // Python: pass code via -c flag, input data via stdin as JSON
@@ -3465,6 +3468,48 @@ function executeInlineCode(
     `Supported: typescript, javascript, python, csharp.\n` +
     `Node: "${nodeLabel}" (${nodeId})`
   )
+}
+
+/**
+ * Normalize a value produced by user code into plain data. Primitives pass
+ * through; anything else is round-tripped through JSON, so the result is built
+ * from THIS realm's Object/Array (a `vm` context's objects carry that
+ * context's prototypes, which the safe expression evaluator reads as
+ * undefined) and has JSON semantics (a Date becomes its ISO string, functions
+ * and undefined members drop out). A value JSON cannot represent (a function,
+ * a circular structure, a BigInt inside an object) becomes undefined; this
+ * never throws.
+ */
+export function toPlainData(value: unknown): unknown {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return value
+  try {
+    const json = JSON.stringify(value)
+    return json === undefined ? undefined : JSON.parse(json)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * toPlainData for a code node's return value, warning once (naming the node)
+ * when a value that was returned could not be represented and became
+ * undefined. A returned thenable is awaited first, then normalized.
+ */
+function plainCodeResult(value: unknown, nodeLabel: string, nodeId: string): unknown {
+  if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+    const then: unknown = (value as { then?: unknown }).then
+    if (typeof then === 'function') {
+      return Promise.resolve(value).then((settled) => plainCodeResult(settled, nodeLabel, nodeId))
+    }
+  }
+  const plain = toPlainData(value)
+  if (plain === undefined && value !== undefined) {
+    console.warn(
+      `[WorkflowExecutor] Code node "${nodeLabel}" (${nodeId}) returned a value that is not JSON-serializable ` +
+      `(a function or a circular structure); its output is undefined.`
+    )
+  }
+  return plain
 }
 
 /**
@@ -4673,7 +4718,9 @@ async function executeToolNode(
   // Code tools execute directly via Function constructor — no callback needed
   if (data.toolType === 'code') {
     try {
-      const result = executeToolCodeSnippet(data, node, context)
+      // Already plain data (executeInlineCode normalizes it via toPlainData);
+      // awaited so a returned thenable settles before outputTransform reads it.
+      const result = await executeToolCodeSnippet(data, node, context)
 
       addTraceEntry(trace, {
         type: 'node_complete',
