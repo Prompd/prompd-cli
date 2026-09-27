@@ -753,6 +753,27 @@ function assignOwnProperties(scope: Record<string, unknown>, source: Record<stri
 }
 
 /**
+ * The `extra` scope a chat-agent guardrail verdict is exposed through, built
+ * the same way executeGuardrailNode builds its own: the verdict's own fields
+ * (when it is a parsed object) so `{{ rejected }}` / `{{ score < 0.5 }}` read
+ * them directly, then `response` and `guardrail_response` (both the whole
+ * verdict, parsed object or raw reply string), which win over a verdict field
+ * of the same name. Every key is an own data property via defineProperty.
+ */
+function guardrailVerdictExtra(verdict: unknown): Record<string, unknown> {
+  const extra: Record<string, unknown> = {}
+  if (verdict !== null && typeof verdict === 'object' && !Array.isArray(verdict)) {
+    assignOwnProperties(extra, verdict as Record<string, unknown>)
+  }
+  for (const key of ['response', 'guardrail_response']) {
+    Object.defineProperty(extra, key, {
+      value: verdict, writable: true, enumerable: true, configurable: true,
+    })
+  }
+  return extra
+}
+
+/**
  * Build the data scope a workflow expression evaluates against. Precedence
  * (later wins): workflow params, then workflow variables, then node outputs,
  * then `extra` (e.g. a guardrail verdict's fields) - then the aliases
@@ -6084,8 +6105,12 @@ Analyze the input above. Return a JSON object:
 
           // Priority 1: Custom rejection expression (new field)
           if (data.guardrailRejectionExpression) {
-            const exprContext = { ...context, response: parsed, previous_output: parsed, input: parsed }
-            const exprResult = evaluateExpression(data.guardrailRejectionExpression, exprContext)
+            // previous_output (and so its `input` alias) is the parsed verdict;
+            // the verdict's fields, `response` and `guardrail_response` come in
+            // through `extra` - buildExpressionScope ignores any other
+            // top-level context key.
+            const exprContext = { ...context, previous_output: parsed }
+            const exprResult = evaluateExpression(data.guardrailRejectionExpression, exprContext, guardrailVerdictExtra(parsed))
             guardrailResult = {
               rejected: Boolean(exprResult), // Expression returns true for REJECT
               score: typeof parsed.score === 'number' ? parsed.score : undefined,
@@ -6110,8 +6135,8 @@ Analyze the input above. Return a JSON object:
           }
           // Priority 3: Legacy passExpression
           else if (data.guardrailPassExpression) {
-            const exprContext = { ...context, previous_output: parsed, input: parsed }
-            const exprResult = evaluateExpression(data.guardrailPassExpression, exprContext)
+            const exprContext = { ...context, previous_output: parsed }
+            const exprResult = evaluateExpression(data.guardrailPassExpression, exprContext, guardrailVerdictExtra(parsed))
             guardrailResult = {
               rejected: !exprResult, // Expression returns true for PASS, so negate for rejected
               score: typeof parsed.score === 'number' ? parsed.score : undefined,
@@ -6126,15 +6151,17 @@ Analyze the input above. Return a JSON object:
               analysis: parsed.analysis,
             }
           }
-        } catch {
+        } catch (parseError) {
+          // This catch is for JSON.parse failures only: a broken expression
+          // above must fail the node (fail closed), never be retried against
+          // the raw reply and then swallowed.
+          if (isExpressionError(parseError)) throw parseError
           // If JSON parsing fails, try expression evaluation with raw response
           if (data.guardrailRejectionExpression) {
-            const exprContext = { ...context, response: responseStr, guardrail_response: responseStr }
-            const exprResult = evaluateExpression(data.guardrailRejectionExpression, exprContext)
+            const exprResult = evaluateExpression(data.guardrailRejectionExpression, context, guardrailVerdictExtra(responseStr))
             guardrailResult.rejected = Boolean(exprResult)
           } else if (data.guardrailPassExpression) {
-            const exprContext = { ...context, guardrail_response: responseStr }
-            const exprResult = evaluateExpression(data.guardrailPassExpression, exprContext)
+            const exprResult = evaluateExpression(data.guardrailPassExpression, context, guardrailVerdictExtra(responseStr))
             guardrailResult.rejected = !exprResult
           }
         }
@@ -6207,6 +6234,9 @@ Analyze the input above. Return a JSON object:
         // 'passthrough' - keep currentInput as-is (default)
       }
     } catch (error) {
+      // A broken guardrail expression fails the chat-agent node (fail
+      // closed): the agent must not run behind a guardrail that never judged.
+      if (isExpressionError(error)) throw error
       addTraceEntry(trace, {
         type: 'debug_step',
         nodeId: node.id,
@@ -6214,7 +6244,8 @@ Analyze the input above. Return a JSON object:
         message: 'Guardrail validation failed',
         data: { error: error instanceof Error ? error.message : String(error) },
       }, options)
-      // On guardrail error, continue execution but log the failure
+      // On any other guardrail error (e.g. the judge LLM call failing),
+      // continue execution but log the failure
     }
   }
 

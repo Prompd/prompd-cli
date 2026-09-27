@@ -400,3 +400,105 @@ describe('Fix Round 1: CLI evaluateTemplateExpression enables parseJsonStrings',
     expect(loopOutput.iterations).toBe(3);
   });
 });
+
+// ============================================================================
+// Final review fix wave
+// ============================================================================
+
+function chatAgentGuardFlow(guard: Record<string, unknown>) {
+  return parseWorkflow(flowJson([
+    { id: 'seed', type: 'prompt', position: { x: 0, y: 0 }, data: { label: 'Seed', rawPrompt: 'seed', sourceType: 'raw' } },
+    {
+      id: 'agent1',
+      type: 'chat-agent',
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'My Agent',
+        agentSystemPrompt: 'sys',
+        userInputEnabled: false,
+        guardrailEnabled: true,
+        guardrailSystemPrompt: 'judge it',
+        ...guard,
+        loopMode: 'single-turn',
+        maxIterations: 1,
+        minIterations: 0,
+      },
+    },
+  ], [{ id: 'e1', source: 'seed', target: 'agent1' }]));
+}
+
+async function runChatAgentGuard(guard: Record<string, unknown>, judge: string) {
+  let agentRan = false;
+  const result = await executeWorkflow(chatAgentGuardFlow(guard), {}, {
+    executePrompt: async (p: string) => (p.startsWith('raw:') && p.includes('judge it') ? judge : 'seed output'),
+    onPromptExecute: async () => { agentRan = true; return { success: true, response: 'agent reply' }; },
+  });
+  return { result, agentRan };
+}
+
+describe('C1: chat-agent guardrail expressions fail closed', () => {
+  const verdict = '```json\n{"rejected": true, "score": 0.1}\n```';
+
+  it.each([
+    ['a disallowed passExpression', { guardrailPassExpression: '{{ fetch("x") }}' }],
+    ['a disallowed rejectionExpression', { guardrailRejectionExpression: '{{ fetch("x") }}' }],
+    ['a passExpression with an evaluation error', { guardrailPassExpression: '{{ input.score + {} }}' }],
+  ])('%s fails the node and the agent never runs', async (_name, guard) => {
+    const { result, agentRan } = await runChatAgentGuard(guard, verdict);
+    expect(agentRan).toBe(false);
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].nodeId).toBe('agent1');
+    expect(result.errors[0].message).toMatch(/^Chat-agent on "My Agent"/);
+  });
+
+  it('an expression that fails on the parsed verdict is not retried against the raw reply', async () => {
+    // `.slice` on the parsed verdict object is an evaluation error; on the raw
+    // reply string it would succeed. The JSON-parse fallback must not swallow
+    // the first failure by re-evaluating against the raw string.
+    const { result, agentRan } = await runChatAgentGuard(
+      { guardrailRejectionExpression: "{{ response.slice(0, 3) === '```' }}" },
+      verdict,
+    );
+    expect(agentRan).toBe(false);
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors[0].message).toMatch(/^Chat-agent on "My Agent"/);
+  });
+
+  it('a disallowed expression still fails closed when the judge reply is not JSON', async () => {
+    const { result, agentRan } = await runChatAgentGuard(
+      { guardrailRejectionExpression: '{{ fetch("x") }}' },
+      '{"rejected": true, oops}',
+    );
+    expect(agentRan).toBe(false);
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors[0].message).toMatch(/^Chat-agent on "My Agent"/);
+  });
+
+  it('{{ response.rejected }} reads the verdict and rejects', async () => {
+    const { result, agentRan } = await runChatAgentGuard({ guardrailRejectionExpression: '{{ response.rejected }}' }, verdict);
+    expect(result.errors).toHaveLength(0);
+    expect(agentRan).toBe(false);
+    const out = result.nodeOutputs.agent1 as { rejected?: boolean };
+    expect(out.rejected).toBe(true);
+  });
+
+  it('bare verdict fields and guardrail_response are readable too', async () => {
+    const { result, agentRan } = await runChatAgentGuard(
+      { guardrailRejectionExpression: '{{ rejected && guardrail_response.score < 0.5 }}' },
+      verdict,
+    );
+    expect(result.errors).toHaveLength(0);
+    expect(agentRan).toBe(false);
+    expect((result.nodeOutputs.agent1 as { rejected?: boolean }).rejected).toBe(true);
+  });
+
+  it('a passing verdict lets the agent run', async () => {
+    const { result, agentRan } = await runChatAgentGuard(
+      { guardrailRejectionExpression: '{{ response.rejected }}' },
+      '```json\n{"rejected": false, "score": 0.9}\n```',
+    );
+    expect(result.errors).toHaveLength(0);
+    expect(agentRan).toBe(true);
+  });
+});
