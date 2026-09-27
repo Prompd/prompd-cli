@@ -107,6 +107,96 @@ const order = getExecutionOrder(file);   // topological node order
 const result = validateWorkflow(file);
 ```
 
+## Workflow expressions
+
+`.pdflow` node fields written as `{{ expr }}` are parsed and evaluated as a
+small, safe subset of JavaScript — never executed as code (no `new Function`,
+`eval`, or `vm`). Scope lookups read own data properties only, never getters
+or inherited members.
+
+Allowed: literals (strings, numbers, booleans, `null`/`undefined`, array/
+object literals with identifier or string keys), identifiers resolved from
+scope, member access (`a.b`, `a[expr]`, `a?.b`, `a?.[expr]`), unary `!`/`-`/`+`,
+the arithmetic/comparison/logical operators, `?:`, parentheses, and calls to a
+fixed method list — strings: `includes` `startsWith` `endsWith` `toLowerCase`
+`toUpperCase` `trim` `indexOf` `slice`; arrays: `includes` `indexOf` `join`
+`slice` — always invoked from `String.prototype`/`Array.prototype` directly,
+never looked up on the receiver.
+
+Rejected as an `ExpressionError`: any other call, `new`, tagged templates,
+assignment (`=` and compound), `++`/`--`, `delete`, `typeof`, `void`, `in`,
+`instanceof`, bitwise operators, the comma operator, function/arrow
+expressions, template literals, regex literals, spread, and access to
+`__proto__`/`constructor`/`prototype` by any path. An expression longer than
+`MAX_EXPRESSION_LENGTH` (2,000) characters, or nested deeper than
+`MAX_EXPRESSION_DEPTH` (64) levels, is rejected. Globals (`window`, `fetch`,
+`process`, `require`, …) are simply not in scope: they read as `undefined`.
+
+**Arithmetic on a missing value is an error.** `-`, `*`, `/`, `%`, and a
+numeric `+` (neither side a string) with an `undefined` operand throw an
+`ExpressionError` (construct `evaluation error`) instead of producing `NaN`;
+`+` with a string operand still concatenates as JavaScript does. The usual
+cause is a hyphenated node id: `{{ prompt-abc }}` parses as `prompt - abc`.
+The Prompd CLI workflow engine exposes every node output by id as `nodes`,
+so read such an id as `{{ nodes['prompt-abc'].output }}`.
+
+```ts
+import { evaluateExpression } from '@prompd/core';
+
+evaluateExpression('{{ user.name }}', { user: { name: 'Ada' } }); // 'Ada'
+```
+
+- `evaluateExpression(expr, scope, options?)` — parses and evaluates one
+  `{{ … }}` expression against `scope`; throws `ExpressionError` on anything
+  disallowed, invalid, or over a limit.
+- `validateExpression(expr)` — parses without a scope, for validating
+  expression syntax while editing (e.g. canvas validation) without needing
+  runtime data.
+- `describeExpressionFailure(kind, label, err)` — formats a caught error into
+  the message a workflow node fails with. For a well-formed `ExpressionError`
+  (as `isExpressionError` reads it) it names the node kind/label, the rejected
+  construct and its position; for anything else it returns `<kind> on
+  "<label>" has an invalid expression: <message>.`, where `<message>` is the
+  value's own string `message` property or `unknown error`. Never throws.
+- `isExpressionError(e)` — true for an `ExpressionError` this module
+  constructed (checked by an internal brand, which runs no trap), or for any
+  object whose OWN DATA properties are `name === 'ExpressionError'`, a string
+  `construct` and a number `position` (e.g. one built by another copy of
+  `@prompd/core`). It never uses `instanceof`, never invokes a getter, and
+  never throws: a `Proxy` whose traps throw is reported as `false`. An `Error`
+  merely named `ExpressionError` is not one.
+- `ExpressionError` — thrown by `evaluateExpression`/`validateExpression`;
+  carries `message`, `construct` (what was rejected), and `position`.
+
+**`parseJsonStrings` option:** `evaluateExpression(expr, scope, {
+parseJsonStrings: true })` additionally lets a NAMED member access (never
+`.length`, never a canonical numeric index — those always read the string
+itself) navigate INTO a string by parsing it as JSON first, after stripping
+one optional ` ``` `/` ```json ` fence (typical of an LLM's JSON reply).
+Invalid JSON, an empty string, or a string longer than `MAX_JSON_NAV_LENGTH`
+(1,000,000 characters) reads as `undefined`, exactly like a missing property,
+never throws. Off by default.
+
+**Limits:** `MAX_EXPRESSION_LENGTH` (2,000), `MAX_EXPRESSION_DEPTH` (64),
+`MAX_ARRAY_SCAN` (1,000,000 — the longest array an allowed array method will
+scan; a longer array is an evaluation error rather than a silent hang), and
+`MAX_JSON_NAV_LENGTH` (1,000,000, `parseJsonStrings` only) are all exported so
+a host can reference or test against the same values.
+
+**Coercion is primitive-only.** Every operator that would otherwise coerce a
+value (arithmetic, comparison, template-like concatenation) refuses any
+object, array, or function outright rather than calling its `toString`/
+`valueOf`: `[1] + [2]` is an evaluation error, not `'12'`. `==`/`!=` against an
+object or array compare identity (same reference), never structural
+equality.
+
+**Hosts must pass plain data.** The evaluator only ever reads own data
+properties of plain objects/arrays. The one residual: a `Proxy` placed
+anywhere in scope may still have its `getPrototypeOf` and
+`getOwnPropertyDescriptor` traps invoked (to classify it and to read one own
+property), so a Proxy is trusted to report its own shape honestly — it is not
+sandboxed against a trap that lies.
+
 ## What's exported
 
 - **Parser:** `PrompdParser`
@@ -116,6 +206,10 @@ const result = validateWorkflow(file);
   `IPackageResolver`
 - **Workflows:** `parseWorkflow`, `getExecutionOrder`, `validateWorkflow`,
   `createWorkflowNode`, plus the `WorkflowFile` / node-data types
+- **Workflow expressions:** `evaluateExpression`, `validateExpression`,
+  `describeExpressionFailure`, `isExpressionError`, `ExpressionError`,
+  `MAX_EXPRESSION_LENGTH`, `MAX_EXPRESSION_DEPTH`, `MAX_ARRAY_SCAN`,
+  `MAX_JSON_NAV_LENGTH`, and the `ExpressionEvalOptions` type
 - **Types & errors:** `PrompdMetadata`, `PrompdParameter`, `CompilationOptions`,
   `CompilationError`, `ValidationError`, …
 

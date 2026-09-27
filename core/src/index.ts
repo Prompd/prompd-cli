@@ -36,3 +36,9 @@ export type {
   BranchWaitFor, BranchMergeStrategy, BranchStatus, BranchSpec, BranchResult,
   RunBranchesOptions, RunBranchesOutcome, BranchRunner,
 } from './lib/parallel';
+// Safe workflow expressions — the one evaluator every workflow engine uses.
+export {
+  evaluateExpression, validateExpression, describeExpressionFailure, isExpressionError,
+  ExpressionError, MAX_EXPRESSION_LENGTH, MAX_EXPRESSION_DEPTH, MAX_ARRAY_SCAN, MAX_JSON_NAV_LENGTH,
+} from './lib/expression';
+export type { ExpressionEvalOptions } from './lib/expression';

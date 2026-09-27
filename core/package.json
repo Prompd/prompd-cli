@@ -1,6 +1,6 @@
 {
   "name": "@prompd/core",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Environment-agnostic core for Prompd: .prmd parser, compilation pipeline (Nunjucks templating), formatters, and an injectable file-system/package-resolver. Runs in Node, the browser, and the backend. No Node-only imports.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,7 +23,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "prompd",

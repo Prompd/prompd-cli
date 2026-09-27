@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`@prompd/core` 0.5.4**: Added safe workflow expression evaluator (`evaluateExpression`,
+  `validateExpression`, `describeExpressionFailure`, `isExpressionError`, `ExpressionError`).
 - **Python CLI**: Restored `prompd config` command with full configuration management
   - `prompd config show` - Display all configuration settings
   - `prompd config registry` - Registry configuration subcommands (list, add, remove, set-default, show)
@@ -23,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation**: Confirmed all variable syntax uses Jinja2 format (`{variable}` and `{%- if %}`) not Handlebars
 
 ### Fixed
+- **Node.js CLI**: Workflow expressions are now a safe subset of JavaScript evaluated
+  without executing code. An expression that used anything outside it now fails its
+  node with a message naming what is not allowed. Fixes runtime values being
+  substituted into executed code.
+- **Node.js CLI / `@prompd/core`**: Arithmetic on a missing value (`-`, `*`, `/`, `%`,
+  or a numeric `+`) is now an error instead of `NaN`. The usual cause is a hyphenated
+  node id: `{{ prompt-abc }}` is subtraction. Every node output is now also reachable
+  by id as `nodes`, so read such an id as `{{ nodes['prompt-abc'].output }}`.
+- **Node.js CLI**: A whole-string field holding several `{{ }}` blocks (e.g.
+  `"{{ a }} and {{ b }}"`) now fails its node with a syntax error instead of resolving
+  to `undefined`.
+- **Node.js CLI**: A named member access navigates into a JSON string node output
+  (`{{ classify.category }}`), but `.length` and numeric indices always read the string
+  itself: `{{ previous_output.length }}` on a JSON-array string is the string's length,
+  not the array's.
 - **Python CLI**: Config command was implemented but not registered in CLI - now accessible
 - **Documentation**: Removed misleading "100% Feature Parity" claims between CLI implementations
 
