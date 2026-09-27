@@ -828,6 +828,25 @@ function toNum(v: Prim): number {
   return typeof v === 'number' ? v : Number(v);
 }
 
+/** Arithmetic on `undefined` is almost always a misread name, most often a
+ * hyphenated node id (`prompt-abc` parses as `prompt - abc`), so it is an
+ * error rather than a silent NaN. */
+function missingOperand(p: number): ExpressionError {
+  return new ExpressionError(
+    "arithmetic on a missing value (a hyphenated name like a-b is subtraction; read it as nodes['a-b'])",
+    'evaluation error',
+    p,
+  );
+}
+
+/** A `-`/`*`/`/`/`%` (or numeric `+`) operand: prim-gated, and never
+ * `undefined`. */
+function arithOperand(v: unknown, p: number, what: string): Prim {
+  const pv = prim(v, p, what);
+  if (pv === undefined) throw missingOperand(p);
+  return pv;
+}
+
 class Evaluator {
   constructor(
     private readonly scope: Record<string, unknown>,
@@ -893,12 +912,16 @@ class Evaluator {
         // never String(l)/String(r) or a native +/</>/etc. on a raw object.
         const lp = prim(l, n.p, "'+'");
         const rp = prim(r, n.p, "'+'");
-        return typeof lp === 'string' || typeof rp === 'string' ? String(lp) + String(rp) : toNum(lp) + toNum(rp);
+        // With a string operand `+` concatenates exactly as JavaScript does
+        // (undefined becomes 'undefined'); numeric `+` refuses a missing value.
+        if (typeof lp === 'string' || typeof rp === 'string') return String(lp) + String(rp);
+        if (lp === undefined || rp === undefined) throw missingOperand(n.p);
+        return toNum(lp) + toNum(rp);
       }
-      case '-': return toNum(prim(l, n.p, "'-'")) - toNum(prim(r, n.p, "'-'"));
-      case '*': return toNum(prim(l, n.p, "'*'")) * toNum(prim(r, n.p, "'*'"));
-      case '/': return toNum(prim(l, n.p, "'/'")) / toNum(prim(r, n.p, "'/'"));
-      case '%': return toNum(prim(l, n.p, "'%'")) % toNum(prim(r, n.p, "'%'"));
+      case '-': return toNum(arithOperand(l, n.p, "'-'")) - toNum(arithOperand(r, n.p, "'-'"));
+      case '*': return toNum(arithOperand(l, n.p, "'*'")) * toNum(arithOperand(r, n.p, "'*'"));
+      case '/': return toNum(arithOperand(l, n.p, "'/'")) / toNum(arithOperand(r, n.p, "'/'"));
+      case '%': return toNum(arithOperand(l, n.p, "'%'")) % toNum(arithOperand(r, n.p, "'%'"));
       case '==': return looseEq(l, r);
       case '!=': return !looseEq(l, r);
       case '===': return l === r;

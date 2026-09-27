@@ -777,8 +777,8 @@ function guardrailVerdictExtra(verdict: unknown): Record<string, unknown> {
  * Build the data scope a workflow expression evaluates against. Precedence
  * (later wins): workflow params, then workflow variables, then node outputs,
  * then `extra` (e.g. a guardrail verdict's fields) - then the aliases
- * `workflow`, `previous_output` and `input` always win over any data key of
- * the same name.
+ * `workflow`, `previous_output`, `input` and `nodes` (every node output by
+ * id) always win over any data key of the same name.
  */
 export function buildExpressionScope(
   context: {
@@ -802,6 +802,11 @@ export function buildExpressionScope(
   })
   Object.defineProperty(scope, 'input', {
     value: context.previous_output, writable: true, enumerable: true, configurable: true,
+  })
+  // Every node output by id, so an id that is not an identifier (editors
+  // generate `prompt-1700000000`) is still reachable: `{{ nodes['prompt-1700000000'] }}`.
+  Object.defineProperty(scope, 'nodes', {
+    value: context.nodeOutputs, writable: true, enumerable: true, configurable: true,
   })
   return scope
 }

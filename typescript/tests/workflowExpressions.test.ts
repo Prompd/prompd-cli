@@ -805,3 +805,42 @@ describe('I3: an http tool keeps the outputTransform ExpressionError identity', 
     expect(llm.calls).toBe(1);
   });
 });
+
+describe('I4: hyphenated node ids', () => {
+  it('buildExpressionScope exposes node outputs under nodes, winning over a data key of that name', () => {
+    const s = buildExpressionScope(ctx({ nodeOutputs: { 'prompt-abc': { output: 'x' } }, variables: { nodes: 'shadow' } }));
+    expect(s.nodes).toEqual({ 'prompt-abc': { output: 'x' } });
+    expect(evaluateTemplateExpression("{{ nodes['prompt-abc'].output }}", ctx({ nodeOutputs: { 'prompt-abc': { output: 'x' } } }))).toBe('x');
+  });
+
+  it('a bare hyphenated id fails the node with a hint instead of silently reading NaN', async () => {
+    const workflow = parseWorkflow(flowJson([
+      { id: 'prompt-1700000000', type: 'prompt', position: { x: 0, y: 0 }, data: { label: 'Seed', rawPrompt: 'seed', sourceType: 'raw' } },
+      {
+        id: 'cond1',
+        type: 'condition',
+        position: { x: 0, y: 0 },
+        data: { label: 'My Condition', conditions: [{ id: 'c1', expression: "{{ prompt-1700000000 === 'ok' }}", target: '' }], default: '' },
+      },
+    ], [{ id: 'e1', source: 'prompt-1700000000', target: 'cond1' }]));
+    const result = await executeWorkflow(workflow, {}, { executePrompt: async () => 'ok' });
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors[0].nodeId).toBe('cond1');
+    expect(result.errors[0].message).toContain("read it as nodes['a-b']");
+  });
+
+  it("nodes['id-with-hyphens'] reads the node output in a condition", async () => {
+    const workflow = parseWorkflow(flowJson([
+      { id: 'prompt-1700000000', type: 'prompt', position: { x: 0, y: 0 }, data: { label: 'Seed', rawPrompt: 'seed', sourceType: 'raw' } },
+      {
+        id: 'cond1',
+        type: 'condition',
+        position: { x: 0, y: 0 },
+        data: { label: 'My Condition', conditions: [{ id: 'c1', expression: "{{ nodes['prompt-1700000000'] === 'ok' }}", target: '' }], default: '' },
+      },
+    ], [{ id: 'e1', source: 'prompt-1700000000', target: 'cond1' }]));
+    const result = await executeWorkflow(workflow, {}, { executePrompt: async () => 'ok' });
+    expect(result.errors).toHaveLength(0);
+    expect(result.nodeOutputs.cond1).toMatchObject({ branch: 'c1' });
+  });
+});

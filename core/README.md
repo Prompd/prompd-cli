@@ -132,6 +132,14 @@ expressions, template literals, regex literals, spread, and access to
 `MAX_EXPRESSION_DEPTH` (64) levels, is rejected. Globals (`window`, `fetch`,
 `process`, `require`, …) are simply not in scope: they read as `undefined`.
 
+**Arithmetic on a missing value is an error.** `-`, `*`, `/`, `%`, and a
+numeric `+` (neither side a string) with an `undefined` operand throw an
+`ExpressionError` (construct `evaluation error`) instead of producing `NaN`;
+`+` with a string operand still concatenates as JavaScript does. The usual
+cause is a hyphenated node id: `{{ prompt-abc }}` parses as `prompt - abc`.
+The Prompd CLI workflow engine exposes every node output by id as `nodes`,
+so read such an id as `{{ nodes['prompt-abc'].output }}`.
+
 ```ts
 import { evaluateExpression } from '@prompd/core';
 

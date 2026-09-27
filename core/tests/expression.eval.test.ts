@@ -95,3 +95,37 @@ describe('package exports', () => {
     expect(core.ExpressionError).toBe(ExpressionError);
   });
 });
+
+describe('arithmetic on a missing value', () => {
+  const MISSING = "arithmetic on a missing value (a hyphenated name like a-b is subtraction; read it as nodes['a-b'])";
+  const expectMissing = (expr: string, s: Record<string, unknown>) => {
+    let caught: unknown;
+    try { evaluateExpression(expr, s); } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(ExpressionError);
+    const err = caught as ExpressionError;
+    expect(err.construct).toBe('evaluation error');
+    expect(err.message).toBe(MISSING);
+  };
+
+  it('a hyphenated node id is an error, not NaN', () => {
+    expectMissing('{{ prompt-abc }}', { 'prompt-abc': 'x' });
+    expectMissing('{{ prompt-1700000000 }}', { 'prompt-1700000000': { output: 'x' } });
+  });
+
+  it.each(['a - 1', '1 - a', 'a * 2', '2 * a', 'a / 2', '2 / a', 'a % 2', '2 % a', 'a + 1', '1 + a', 'a + b'])(
+    '%s with a missing operand throws',
+    (expr) => expectMissing(expr, {}),
+  );
+
+  it('+ with a string operand still concatenates, as JavaScript does', () => {
+    expect(evaluateExpression("a + 'x'", {})).toBe('undefinedx');
+    expect(evaluateExpression("'x' + a", {})).toBe('xundefined');
+  });
+
+  it('arithmetic on present values is unchanged', () => {
+    expect(evaluateExpression('a - 1', { a: 3 })).toBe(2);
+    expect(evaluateExpression('a + b', { a: 1, b: 2 })).toBe(3);
+    expect(evaluateExpression('a * 2', { a: null })).toBe(0);
+    expect(evaluateExpression("nodes['prompt-abc'].output", { nodes: { 'prompt-abc': { output: 'x' } } })).toBe('x');
+  });
+});
