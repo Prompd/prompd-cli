@@ -475,20 +475,60 @@ function dataValue(v: unknown): unknown {
  * and real arrays only, then applies the same `dataValue` classification to
  * the result — so a nested class instance, Map, Date, Proxy, etc. read as
  * undefined exactly like one at the scope root, no matter how deep it is. */
-function readProp(obj: unknown, key: string, p: number): unknown {
+function readProp(obj: unknown, key: string, p: number, options?: ExpressionEvalOptions): unknown {
   if (BLOCKED_KEYS.has(key)) throw disallowed(`access to ${key}`, p);
-  return dataValue(readOwnMember(obj, key));
+  return dataValue(readOwnMember(obj, key, options));
+}
+
+/** Options threaded through evaluation. `parseJsonStrings` is opt-in (default
+ * off) and only changes how a NAMED member access reads through a string: see
+ * `readJsonStringMember`. */
+export interface ExpressionEvalOptions {
+  parseJsonStrings?: boolean;
+}
+
+/** Parses a string as JSON for `parseJsonStrings` navigation, stripping one
+ * optional ``` / ```json fence first (an LLM's typical wrapping of a JSON
+ * reply). Returns `undefined` on invalid JSON or an empty string - never
+ * throws, so a member access over unparsable text just reads as absent data,
+ * exactly like any other missing property. */
+function parseJsonFromString(s: string): unknown {
+  const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const text = (fenceMatch ? fenceMatch[1] : s).trim();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 /** readProp's raw lookup; its result is never returned without `dataValue`.
  * `obj.length`/`obj.charAt` below run only on a primitive string. An array's
  * `length` is read as an own data descriptor (`ownIndexLength`), never with
  * `obj.length`: `isPlainArray` accepts a Proxy over a real array, and a
- * `.length` read on that would run its `get` trap. */
-function readOwnMember(obj: unknown, key: string): unknown {
+ * `.length` read on that would run its `get` trap.
+ *
+ * When `options.parseJsonStrings` is set, a NAMED key read on a string (never
+ * `length`, never a canonical index - those keep reading the string itself,
+ * e.g. `str.length`/`str.0`) instead treats the string as JSON: it is parsed
+ * (after stripping an optional code fence), and if the parsed result is a
+ * plain object or a real array, the same key is read from THAT through this
+ * same function (recursively) - so array indices, `.length` on the parsed
+ * array, and further nested navigation over parsed sub-values all go through
+ * the ordinary, already-guarded path below. Invalid/non-object JSON reads as
+ * `undefined`, exactly like a missing property. */
+function readOwnMember(obj: unknown, key: string, options?: ExpressionEvalOptions): unknown {
   if (typeof obj === 'string') {
     if (key === 'length') return obj.length;
-    return isCanonicalIndex(key) && Number(key) < obj.length ? obj.charAt(Number(key)) : undefined;
+    if (isCanonicalIndex(key) && Number(key) < obj.length) return obj.charAt(Number(key));
+    if (options?.parseJsonStrings) {
+      const parsed = parseJsonFromString(obj);
+      if (parsed !== null && typeof parsed === 'object' && (isPlainArray(parsed) || isPlainObject(parsed))) {
+        return readOwnMember(parsed, key, options);
+      }
+    }
+    return undefined;
   }
   if (obj === null || typeof obj !== 'object') return undefined;
   if (isPlainArray(obj)) return key === 'length' ? ownIndexLength(obj) : ownData(obj, key);
@@ -708,7 +748,10 @@ function toNum(v: Prim): number {
 }
 
 class Evaluator {
-  constructor(private readonly scope: Record<string, unknown>) {}
+  constructor(
+    private readonly scope: Record<string, unknown>,
+    private readonly options: ExpressionEvalOptions = {},
+  ) {}
 
   run(n: ExprNode): unknown { return this.val(n); }
 
@@ -738,7 +781,7 @@ class Evaluator {
         if (o === SHORT) return SHORT;
         if (n.optional && (o === null || o === undefined)) return SHORT;
         const key = typeof n.prop === 'string' ? n.prop : propKey(this.val(n.prop), n.p);
-        return readProp(o, key, n.p);
+        return readProp(o, key, n.p, this.options);
       }
       case 'call': {
         const r = this.chain(n.recv);
@@ -800,11 +843,17 @@ function thrownDetail(e: unknown): string {
 
 /** Evaluate an author-written workflow expression against a data scope.
  * Strips one surrounding {{ … }}. Throws ExpressionError when the text is not
- * in the language. Never executes the text as code. */
-export function evaluateExpression(expr: string, scope: Record<string, unknown>): unknown {
+ * in the language. Never executes the text as code.
+ * `options.parseJsonStrings` (default off) lets a named member access parse a
+ * string value as JSON - see `readOwnMember`'s doc comment. */
+export function evaluateExpression(
+  expr: string,
+  scope: Record<string, unknown>,
+  options?: ExpressionEvalOptions,
+): unknown {
   const ast = parseExpression(expr);
   try {
-    return new Evaluator(scope).run(ast);
+    return new Evaluator(scope, options).run(ast);
   } catch (e) {
     // Only an instance created by the ExpressionError constructor itself
     // (not a subclass, not a foreign new.target), frozen at construction and

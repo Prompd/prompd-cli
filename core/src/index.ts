@@ -41,3 +41,4 @@ export {
   evaluateExpression, validateExpression, describeExpressionFailure, isExpressionError,
   ExpressionError, MAX_EXPRESSION_LENGTH, MAX_EXPRESSION_DEPTH, MAX_ARRAY_SCAN,
 } from './lib/expression';
+export type { ExpressionEvalOptions } from './lib/expression';
