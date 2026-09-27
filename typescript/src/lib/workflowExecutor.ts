@@ -807,7 +807,11 @@ export function evaluateTemplateExpression(
     return expression // Not a template, return as-is
   }
 
-  return evaluateSafeExpression(trimmed, buildExpressionScope(context, extra))
+  // parseJsonStrings: CLI workflow outputs are commonly an LLM's JSON reply as
+  // a string (optionally fenced), so `{{ classify.category }}` / `{{
+  // previous_output.items }}` navigate into it exactly like the deleted
+  // hand-rolled evaluator used to.
+  return evaluateSafeExpression(trimmed, buildExpressionScope(context, extra), { parseJsonStrings: true })
 }
 
 // Module-local alias so the many existing call sites below don't need to change.
@@ -1595,7 +1599,7 @@ export async function executeWorkflow(
 
     } catch (error) {
       const errorMessage = isExpressionError(error)
-        ? describeExpressionFailure(kindOf(node.type), node.data.label ?? node.id, error)
+        ? describeExpressionFailure(kindOf(node.type), node.data.label || node.id, error)
         : error instanceof Error ? error.message : String(error)
       const nodeDuration = Date.now() - nodeStartTime
 
@@ -1875,6 +1879,10 @@ async function executePromptNode(
         const evalResult = evaluateExpression(guardrail.rejectionExpression, guardContext)
         isRejected = Boolean(evalResult)
       } catch (error) {
+        // A broken expression must fail the node, not silently fail open
+        // (treat the content as accepted). Only a non-expression error
+        // (unexpected) defaults to not-rejected.
+        if (isExpressionError(error)) throw error
         addTraceEntry(trace, {
           type: 'debug_step',
           nodeId: node.id,
@@ -2171,10 +2179,17 @@ Analyze the input above according to the system criteria. Return your analysis a
 
   // Method 1: Use passExpression if provided
   if (data.passExpression) {
-    // parsedResponse is the parsed judge verdict - its fields (e.g. `score`,
-    // `rejected`, `analysis`) are layered directly into scope so `{{ pass }}`,
-    // `{{ score >= 0.8 }}` can read them, matching the web's evalGuardrail.
-    const passResult = evaluateExpression(data.passExpression, context, parsedResponse)
+    // parsedResponse is the parsed judge verdict - its own fields (e.g.
+    // `score`, `rejected`, `analysis`) are layered directly into scope so
+    // `{{ pass }}`, `{{ score >= 0.8 }}` can read them, matching the web's
+    // evalGuardrail - and it's also exposed as `response` so `{{
+    // response.score > 0.5 }}` (the pre-existing phrasing) keeps working.
+    const guardrailExtra: Record<string, unknown> = {}
+    assignOwnProperties(guardrailExtra, parsedResponse as Record<string, unknown>)
+    Object.defineProperty(guardrailExtra, 'response', {
+      value: parsedResponse, writable: true, enumerable: true, configurable: true,
+    })
+    const passResult = evaluateExpression(data.passExpression, context, guardrailExtra)
     rejected = !passResult
 
     addTraceEntry(trace, {
@@ -2512,7 +2527,17 @@ async function executeNodeSubset(
       options.onProgress?.(deepClone(state))
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      // An ExpressionError thrown by a subset/loop-body node must be
+      // described and attributed HERE, naming that body node - not left for
+      // an outer handler, which (if it re-describes at all) would name the
+      // CONTAINING node (e.g. the loop) instead of the node that actually
+      // threw. Replacing it with a plain Error also means an outer catch's
+      // own `isExpressionError` check no longer fires on it, so it can't be
+      // re-described a second time (and mislabeled) further up.
+      const describedError = isExpressionError(error)
+        ? new Error(describeExpressionFailure(kindOf(node.type), node.data?.label || node.id, error))
+        : error
+      const errorMessage = describedError instanceof Error ? describedError.message : String(describedError)
       state.nodeStates[nodeId].status = 'failed'
       state.nodeStates[nodeId].error = errorMessage
       state.nodeStates[nodeId].endTime = Date.now()
@@ -2527,7 +2552,7 @@ async function executeNodeSubset(
       }, options)
 
       options.onNodeError?.(nodeId, errorMessage)
-      throw error // Re-throw to let caller handle
+      throw describedError // Re-throw (described, if it was an ExpressionError) to let caller handle
     }
   }
 
@@ -4654,6 +4679,11 @@ async function executeToolNode(
 
       return result
     } catch (error) {
+      // Rethrow an ExpressionError unchanged (from the outputTransform above)
+      // rather than wrapping it into a generic message - wrapping would lose
+      // its ExpressionError identity, so an outer isExpressionError() check
+      // (and describeExpressionFailure) could never fire on it again.
+      if (isExpressionError(error)) throw error
       const errorMessage = error instanceof Error ? error.message : String(error)
       throw new Error(
         `Code tool '${toolNameDisplay}' failed: ${errorMessage}\n` +
@@ -4713,6 +4743,9 @@ async function executeToolNode(
 
         return result
       } catch (error) {
+        // See the code-tool catch above: an ExpressionError from the
+        // outputTransform must pass through unchanged, not be wrapped.
+        if (isExpressionError(error)) throw error
         const errorMessage = error instanceof Error ? error.message : String(error)
         const toolNameDisplay = data.toolName || '(unnamed)'
         throw new Error(
@@ -6309,8 +6342,10 @@ Analyze the input above. Return a JSON object:
     try {
       const result = evaluateExpression(data.loopCondition, loopContext)
       return Boolean(result)
-    } catch {
-      // On evaluation error, default to continue
+    } catch (error) {
+      // A broken loop condition must fail the node, not silently keep
+      // looping (fail open). Only a non-expression error defaults to continue.
+      if (isExpressionError(error)) throw error
       return true
     }
   }
