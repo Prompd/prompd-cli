@@ -2,11 +2,18 @@
  * without ever executing the text as code. Shared by every workflow engine.
  * Spec: prompd-web/docs/superpowers/specs/2026-09-26-safe-workflow-expressions-design.md */
 
-// Marks instances this module itself constructed. Checked with WeakSet#has,
-// which invokes no trap (unlike `instanceof`, whose `getPrototypeOf` step on
-// a Proxy can run host code and even throw), so the catch boundary in
-// evaluateExpression can tell a genuine ExpressionError from a look-alike
-// (or a thrown Proxy) without itself being made to throw or lie.
+// Marks an instance created by the ExpressionError constructor itself (not a
+// subclass, and not a foreign `new.target` via Reflect.construct), frozen at
+// construction. Checked with WeakSet#has, which invokes no trap (unlike
+// `instanceof`, whose `getPrototypeOf` step on a Proxy can run host code and
+// even throw), so the catch boundary in evaluateExpression can tell a
+// genuine ExpressionError from a look-alike (or a thrown Proxy) without
+// itself being made to throw or lie. Restricting to `new.target ===
+// ExpressionError` matters: a host subclass can override `message` (or any
+// other property) with a throwing getter, and `Reflect.construct(
+// ExpressionError, args, ForeignNewTarget)` builds on a prototype the caller
+// controls — neither is "an ExpressionError this module built", so neither
+// is branded or trusted.
 const BRANDED = new WeakSet<object>();
 
 export class ExpressionError extends Error {
@@ -17,13 +24,22 @@ export class ExpressionError extends Error {
     this.name = 'ExpressionError';
     this.construct = construct;
     this.position = position;
-    BRANDED.add(this);
+    if (new.target === ExpressionError) {
+      // Brand and freeze only a genuine, exact ExpressionError instance —
+      // never a subclass or a Reflect.construct with a foreign new.target.
+      // Fields are assigned above before freezing so the object is complete.
+      BRANDED.add(this);
+      Object.freeze(this);
+    }
   }
 }
 
-/** True only for an ExpressionError this module constructed itself. Used at
- * the evaluateExpression catch boundary in place of `instanceof`, which
- * would run a thrown Proxy's `getPrototypeOf` trap. */
+/** True only for an instance created by the ExpressionError constructor
+ * itself (not a subclass, not a foreign new.target), frozen at construction.
+ * Used at the evaluateExpression catch boundary in place of `instanceof`,
+ * which would run a thrown Proxy's `getPrototypeOf` trap and would also pass
+ * a subclass or look-alike whose prototype chain includes
+ * ExpressionError.prototype. */
 function isOwnExpressionError(e: unknown): e is ExpressionError {
   return typeof e === 'object' && e !== null && BRANDED.has(e);
 }
@@ -440,8 +456,9 @@ function isPlainArray(o: object): o is unknown[] {
  * after `dataValue` has classified it, so a trap can run its own (host) code
  * but can never hand back a function, nor an object dataValue classifies as
  * neither plain object nor array. It CAN hand back the Proxy itself, whole
- * and unwalked, when its own getPrototypeOf trap reports `Object.prototype`
- * or `Array.prototype`: dataValue only checks the prototype, so a Proxy
+ * and unwalked, when its own getPrototypeOf trap reports `Object.prototype`,
+ * `null`, or (over an array target) `Array.prototype`: dataValue only checks
+ * the prototype, so a Proxy
  * classified as plain data this way is indistinguishable from real plain
  * data and is returned to the expression (and, if it's the whole result, to
  * the caller) exactly as `readProp`/`ownData` etc. would return real plain
@@ -789,12 +806,16 @@ export function evaluateExpression(expr: string, scope: Record<string, unknown>)
   try {
     return new Evaluator(scope).run(ast);
   } catch (e) {
-    // Only an ExpressionError this module branded (via BRANDED, checked with
-    // WeakSet#has — no trap runs) passes through unwrapped. Everything else
-    // is wrapped here: a look-alike object (even one whose prototype IS
-    // ExpressionError.prototype), a thrown Proxy whose getPrototypeOf trap
-    // runs host code, or anything else a trap can hand back. This function
-    // cannot itself throw anything but a genuine ExpressionError.
+    // Only an instance created by the ExpressionError constructor itself
+    // (not a subclass, not a foreign new.target), frozen at construction and
+    // branded (via BRANDED, checked with WeakSet#has — no trap runs), passes
+    // through unwrapped. Everything else is wrapped here: a look-alike
+    // object (even one whose prototype IS ExpressionError.prototype), a
+    // subclass instance (which could override `message` or any other
+    // property with a throwing getter), a Reflect.construct with a foreign
+    // new.target, a thrown Proxy whose getPrototypeOf trap runs host code,
+    // or anything else a trap can hand back. This function cannot itself
+    // throw anything but a genuine ExpressionError.
     if (isOwnExpressionError(e)) throw e;
     let detail = 'unknown error';
     try {

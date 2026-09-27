@@ -665,3 +665,64 @@ describe('evaluateExpression — round 5: the catch boundary cannot be fooled by
     }
   });
 });
+
+describe('evaluateExpression — round 6: brand is exact-constructor-only, not prototype-chain-only', () => {
+  it('a subclass instance with a throwing message getter, thrown from a trap, is wrapped into a fresh genuine ExpressionError', () => {
+    class HostileSubclass extends ExpressionError {
+      get message(): string {
+        throw { toString: () => 'PWNED' };
+      }
+    }
+    const subclassInstance = new HostileSubclass('m', 'forged construct', 0);
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw subclassInstance;
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect(e).not.toBe(subclassInstance);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+  });
+
+  it('a Reflect.construct instance with a foreign new.target is wrapped the same way', () => {
+    class ForeignNewTarget {}
+    const foreignInstance = Reflect.construct(
+      ExpressionError,
+      ['m', 'forged construct', 0],
+      ForeignNewTarget,
+    ) as ExpressionError;
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(): PropertyDescriptor | undefined {
+          throw foreignInstance;
+        },
+      },
+    );
+    try {
+      evaluateExpression('x', hostile as Record<string, unknown>);
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ExpressionError);
+      expect(e).not.toBe(foreignInstance);
+      expect((e as ExpressionError).construct).toBe('evaluation error');
+    }
+  });
+
+  it('a genuine ExpressionError instance is frozen and still carries the right fields', () => {
+    const err = new ExpressionError('boom', 'disallowed construct', 5);
+    expect(Object.isFrozen(err)).toBe(true);
+    expect(err.message).toBe('boom');
+    expect(err.construct).toBe('disallowed construct');
+    expect(err.position).toBe(5);
+    expect(err.name).toBe('ExpressionError');
+  });
+});
