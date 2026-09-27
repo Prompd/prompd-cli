@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`@prompd/core` 0.5.4**: Added safe workflow expression evaluator (`evaluateExpression`,
+  `validateExpression`, `describeExpressionFailure`, `isExpressionError`, `ExpressionError`).
 - **Python CLI**: Restored `prompd config` command with full configuration management
   - `prompd config show` - Display all configuration settings
   - `prompd config registry` - Registry configuration subcommands (list, add, remove, set-default, show)
@@ -23,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation**: Confirmed all variable syntax uses Jinja2 format (`{variable}` and `{%- if %}`) not Handlebars
 
 ### Fixed
+- **Node.js CLI**: Workflow expressions are now a safe subset of JavaScript evaluated
+  without executing code. An expression that used anything outside it now fails its
+  node with a message naming what is not allowed. Fixes runtime values being
+  substituted into executed code.
 - **Python CLI**: Config command was implemented but not registered in CLI - now accessible
 - **Documentation**: Removed misleading "100% Feature Parity" claims between CLI implementations
 
