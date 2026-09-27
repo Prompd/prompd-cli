@@ -144,11 +144,19 @@ evaluateExpression('{{ user.name }}', { user: { name: 'Ada' } }); // 'Ada'
 - `validateExpression(expr)` — parses without a scope, for validating
   expression syntax while editing (e.g. canvas validation) without needing
   runtime data.
-- `describeExpressionFailure(kind, label, err)` — formats a caught
-  `ExpressionError` (or any error) into the message a workflow node fails
-  with, naming the node kind/label and the rejected construct.
-- `isExpressionError(e)` — type guard for `ExpressionError`, safe against a
-  thrown look-alike or a `Proxy`.
+- `describeExpressionFailure(kind, label, err)` — formats a caught error into
+  the message a workflow node fails with. For a well-formed `ExpressionError`
+  (as `isExpressionError` reads it) it names the node kind/label, the rejected
+  construct and its position; for anything else it returns `<kind> on
+  "<label>" has an invalid expression: <message>.`, where `<message>` is the
+  value's own string `message` property or `unknown error`. Never throws.
+- `isExpressionError(e)` — true for an `ExpressionError` this module
+  constructed (checked by an internal brand, which runs no trap), or for any
+  object whose OWN DATA properties are `name === 'ExpressionError'`, a string
+  `construct` and a number `position` (e.g. one built by another copy of
+  `@prompd/core`). It never uses `instanceof`, never invokes a getter, and
+  never throws: a `Proxy` whose traps throw is reported as `false`. An `Error`
+  merely named `ExpressionError` is not one.
 - `ExpressionError` — thrown by `evaluateExpression`/`validateExpression`;
   carries `message`, `construct` (what was rejected), and `position`.
 
