@@ -619,3 +619,189 @@ describe('C2: code-tool output reaches outputTransform as plain data', () => {
     expect(result.nodeOutputs.cond1).toMatchObject({ branch: 'c1' });
   });
 });
+
+describe('I3: memory-node expression errors fail the node', () => {
+  it('a broken key template fails the memory node instead of continuing', async () => {
+    const workflow = parseWorkflow(flowJson([
+      {
+        id: 'mem1',
+        type: 'memory',
+        position: { x: 0, y: 0 },
+        data: { label: 'My Memory', mode: 'kv', operations: ['set'], scope: 'execution', key: '{{ fetch("x") }}', value: 'v' },
+      },
+    ]));
+    const result = await executeWorkflow(workflow, {});
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].nodeId).toBe('mem1');
+    expect(result.errors[0].message).toMatch(/^Memory on "My Memory"/);
+  });
+});
+
+function brokenTransformTool(parentId: string) {
+  return {
+    id: 'tool1',
+    type: 'tool',
+    parentId,
+    position: { x: 0, y: 0 },
+    data: { label: 'Lookup', toolName: 'lookup', toolType: 'function', outputTransform: '{{ fetch("x") }}' },
+  };
+}
+
+function toolCallingLlm() {
+  let calls = 0;
+  return {
+    get calls() { return calls; },
+    onPromptExecute: async () => {
+      calls++;
+      return { success: true, response: calls === 1 ? '<tool_call><name>lookup</name></tool_call>' : 'done' };
+    },
+  };
+}
+
+describe('I3: an agent tool outputTransform ExpressionError fails the agent node', () => {
+  it('agent node: not fed back to the LLM as tool-error text', async () => {
+    const workflow = parseWorkflow(flowJson([
+      {
+        id: 'agent1',
+        type: 'agent',
+        position: { x: 0, y: 0 },
+        data: { label: 'My Agent', systemPrompt: 'sys', userPrompt: 'go', maxIterations: 3 },
+      },
+      { id: 'router1', type: 'tool-call-router', position: { x: 0, y: 0 }, data: { label: 'Router' } },
+      brokenTransformTool('router1'),
+    ], [{ id: 'e1', source: 'agent1', target: 'router1', sourceHandle: 'tools' }]));
+    const llm = toolCallingLlm();
+    const result = await executeWorkflow(workflow, {}, {
+      onPromptExecute: llm.onPromptExecute,
+      onToolCall: async () => ({ success: true, result: { value: 1 } }),
+    });
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors[0].nodeId).toBe('agent1');
+    expect(result.errors[0].message).toMatch(/^Agent on "My Agent"/);
+    expect(llm.calls).toBe(1);
+  });
+
+  it('chat-agent node: not fed back to the LLM as tool-error text', async () => {
+    const workflow = parseWorkflow(flowJson([
+      { id: 'seed', type: 'prompt', position: { x: 0, y: 0 }, data: { label: 'Seed', rawPrompt: 'seed', sourceType: 'raw' } },
+      {
+        id: 'agent1',
+        type: 'chat-agent',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'My Agent',
+          agentSystemPrompt: 'sys',
+          userInputEnabled: false,
+          guardrailEnabled: false,
+          loopMode: 'multi-turn',
+          maxIterations: 3,
+          minIterations: 0,
+        },
+      },
+      brokenTransformTool('agent1'),
+    ], [{ id: 'e1', source: 'seed', target: 'agent1' }]));
+    const llm = toolCallingLlm();
+    const result = await executeWorkflow(workflow, {}, {
+      executePrompt: async () => 'seed output',
+      onPromptExecute: llm.onPromptExecute,
+      onToolCall: async () => ({ success: true, result: { value: 1 } }),
+    });
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors[0].nodeId).toBe('agent1');
+    expect(result.errors[0].message).toMatch(/^Chat-agent on "My Agent"/);
+    expect(llm.calls).toBe(1);
+  });
+});
+
+describe('I3: a command tool keeps the outputTransform ExpressionError identity', () => {
+  it('chat-agent node with a command tool fails with the described message', async () => {
+    const workflow = parseWorkflow(flowJson([
+      { id: 'seed', type: 'prompt', position: { x: 0, y: 0 }, data: { label: 'Seed', rawPrompt: 'seed', sourceType: 'raw' } },
+      {
+        id: 'agent1',
+        type: 'chat-agent',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'My Agent',
+          agentSystemPrompt: 'sys',
+          userInputEnabled: false,
+          guardrailEnabled: false,
+          loopMode: 'multi-turn',
+          maxIterations: 3,
+          minIterations: 0,
+        },
+      },
+      {
+        id: 'tool1',
+        type: 'tool',
+        parentId: 'agent1',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'Lookup',
+          toolName: 'lookup',
+          toolType: 'command',
+          commandExecutable: 'echo',
+          commandArgs: 'hi',
+          outputTransform: '{{ fetch("x") }}',
+        },
+      },
+    ], [{ id: 'e1', source: 'seed', target: 'agent1' }]));
+    const llm = toolCallingLlm();
+    const result = await executeWorkflow(workflow, {}, {
+      executePrompt: async () => 'seed output',
+      onPromptExecute: llm.onPromptExecute,
+      onToolCall: async () => ({ success: true, result: 'hi' }),
+    });
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors[0].nodeId).toBe('agent1');
+    expect(result.errors[0].message).toMatch(/^Chat-agent on "My Agent"/);
+    expect(llm.calls).toBe(1);
+  });
+});
+
+describe('I3: an http tool keeps the outputTransform ExpressionError identity', () => {
+  it('chat-agent node with an http tool fails with the described message', async () => {
+    const workflow = parseWorkflow(flowJson([
+      { id: 'seed', type: 'prompt', position: { x: 0, y: 0 }, data: { label: 'Seed', rawPrompt: 'seed', sourceType: 'raw' } },
+      {
+        id: 'agent1',
+        type: 'chat-agent',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'My Agent',
+          agentSystemPrompt: 'sys',
+          userInputEnabled: false,
+          guardrailEnabled: false,
+          loopMode: 'multi-turn',
+          maxIterations: 3,
+          minIterations: 0,
+        },
+      },
+      {
+        id: 'tool1',
+        type: 'tool',
+        parentId: 'agent1',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'Lookup',
+          toolName: 'lookup',
+          toolType: 'http',
+          httpMethod: 'GET',
+          httpUrl: 'https://example.invalid/x',
+          outputTransform: '{{ fetch("x") }}',
+        },
+      },
+    ], [{ id: 'e1', source: 'seed', target: 'agent1' }]));
+    const llm = toolCallingLlm();
+    const result = await executeWorkflow(workflow, {}, {
+      executePrompt: async () => 'seed output',
+      onPromptExecute: llm.onPromptExecute,
+      onToolCall: async () => ({ success: true, result: { ok: true } }),
+    });
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors[0].nodeId).toBe('agent1');
+    expect(result.errors[0].message).toMatch(/^Chat-agent on "My Agent"/);
+    expect(llm.calls).toBe(1);
+  });
+});

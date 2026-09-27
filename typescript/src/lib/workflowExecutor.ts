@@ -3985,6 +3985,9 @@ async function executeMemoryNode(
         return formatOutput(undefined, false)
     }
   } catch (error) {
+    // A broken key/value/conversationId template fails the node; only a
+    // storage failure is reported through the output.
+    if (isExpressionError(error)) throw error
     console.error('[MemoryNode] Execution error:', error)
     return formatOutput(undefined, false, {
       error: error instanceof Error ? error.message : String(error),
@@ -5623,6 +5626,9 @@ async function executeAgentNode(
         data: { toolName, result: toolResultStr ? (toolResultStr.substring(0, 500) + (toolResultStr.length > 500 ? '...' : '')) : '(empty result)' },
       }, options)
     } catch (error) {
+      // A broken outputTransform on the tool's node is a workflow authoring
+      // error, not a tool failure the LLM can recover from: fail the node.
+      if (isExpressionError(error)) throw error
       // Tool execution failed - send error back to LLM
       const errorMessage = `Error executing tool '${toolName}': ${error instanceof Error ? error.message : String(error)}`
       toolExecutionError = errorMessage
@@ -6680,6 +6686,8 @@ Analyze the input above. Return a JSON object:
         data: { toolResult: toolResultStr ? (toolResultStr.substring(0, 200) + (toolResultStr.length > 200 ? '...' : '')) : '(empty result)' },
       }, options)
     } catch (error) {
+      // See the agent-node tool catch: a broken outputTransform fails the node.
+      if (isExpressionError(error)) throw error
       const errorMessage = `Error executing tool '${toolName}': ${error instanceof Error ? error.message : String(error)}`
       conversationHistory.push({ role: 'tool', content: errorMessage, toolName })
 
@@ -7122,6 +7130,9 @@ async function executeAgentTool(
 
         return applyOutputTransform(result.result, tool._toolNodeId)
       } catch (error) {
+        // Keep an outputTransform ExpressionError's identity (not wrapped) so
+        // the agent loop can fail the node with it.
+        if (isExpressionError(error)) throw error
         const errorMessage = error instanceof Error ? error.message : String(error)
         throw new Error(`Command tool '${tool.name}' failed: ${errorMessage}`)
       }
@@ -7467,6 +7478,8 @@ async function executeAgentTool(
           return applyOutputTransform(httpResult, tool._toolNodeId)
         }
       } catch (error) {
+        // See the command-tool catch: an outputTransform ExpressionError passes through.
+        if (isExpressionError(error)) throw error
         const errorMessage = error instanceof Error ? error.message : String(error)
         addTraceEntry(trace, {
           type: 'debug_step',
