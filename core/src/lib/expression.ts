@@ -44,8 +44,52 @@ function isOwnExpressionError(e: unknown): e is ExpressionError {
   return typeof e === 'object' && e !== null && BRANDED.has(e);
 }
 
+/** An own data property's value; undefined for a missing key or an accessor
+ * (never invoked). May throw only through a Proxy's getOwnPropertyDescriptor
+ * trap — callers catch. */
+function ownDataField(o: object, key: string): unknown {
+  const d = Object.getOwnPropertyDescriptor(o, key);
+  return d && 'value' in d ? d.value : undefined;
+}
+
+/** The fields of a well-formed ExpressionError, read as OWN DATA properties
+ * only (no getter, no inherited value, no `instanceof`, no prototype read):
+ * `name === 'ExpressionError'`, a string `construct` and a number `position`.
+ * Accepts an ExpressionError built by another copy of this module. Returns
+ * null for anything else, including when a Proxy's trap throws. */
+function expressionErrorFields(e: unknown): { construct: string; position: number; message: string } | null {
+  if (e === null || typeof e !== 'object') return null;
+  try {
+    if (ownDataField(e, 'name') !== 'ExpressionError') return null;
+    const construct = ownDataField(e, 'construct');
+    const position = ownDataField(e, 'position');
+    if (typeof construct !== 'string' || typeof position !== 'number') return null;
+    const message = ownDataField(e, 'message');
+    return { construct, position, message: typeof message === 'string' ? message : '' };
+  } catch {
+    return null;
+  }
+}
+
+/** An own string `message` data property, or 'unknown error'; never throws. */
+function ownMessage(e: unknown): string {
+  if (e === null || typeof e !== 'object') return 'unknown error';
+  try {
+    const m = ownDataField(e, 'message');
+    return typeof m === 'string' ? m : 'unknown error';
+  } catch {
+    return 'unknown error';
+  }
+}
+
+/** True for an ExpressionError this module built (the WeakSet brand, no trap
+ * runs) or a structural look-alike whose OWN DATA fields are well formed
+ * (`name === 'ExpressionError'`, string `construct`, number `position`) — e.g.
+ * one built by another copy of @prompd/core. Never uses `instanceof`, never
+ * invokes a getter, and never throws: a Proxy whose traps throw is simply
+ * not an ExpressionError. */
 export function isExpressionError(e: unknown): e is ExpressionError {
-  return e instanceof ExpressionError || (e instanceof Error && e.name === 'ExpressionError');
+  return isOwnExpressionError(e) || expressionErrorFields(e) !== null;
 }
 
 export const MAX_EXPRESSION_LENGTH = 2000;
@@ -86,10 +130,17 @@ export function syntax(message: string, position: number): ExpressionError {
   return new ExpressionError(message, 'syntax error', position);
 }
 
-export function describeExpressionFailure(kind: string, label: string, e: ExpressionError): string {
-  return e.construct === 'syntax error' || e.construct === 'evaluation error'
-    ? `${kind} on "${label}" has an invalid expression: ${e.message} (position ${e.position}).`
-    : `${kind} on "${label}" can't run: ${e.construct}, which workflow expressions can't do (position ${e.position}).`;
+/** The message a workflow node fails with. Takes anything: a well-formed
+ * ExpressionError (per `isExpressionError`'s own-data read) names the
+ * rejected construct and position; anything else gets
+ * `<kind> on "<label>" has an invalid expression: <own string message, or
+ * 'unknown error'>.` Never throws. */
+export function describeExpressionFailure(kind: string, label: string, e: unknown): string {
+  const f = expressionErrorFields(e);
+  if (!f) return `${kind} on "${label}" has an invalid expression: ${ownMessage(e)}.`;
+  return f.construct === 'syntax error' || f.construct === 'evaluation error'
+    ? `${kind} on "${label}" has an invalid expression: ${f.message} (position ${f.position}).`
+    : `${kind} on "${label}" can't run: ${f.construct}, which workflow expressions can't do (position ${f.position}).`;
 }
 
 type Tok =

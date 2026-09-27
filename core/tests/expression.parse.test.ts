@@ -96,10 +96,56 @@ describe('describeExpressionFailure / isExpressionError', () => {
     expect(describeExpressionFailure('Loop condition', 'Retry', s))
       .toBe(`Loop condition on "Retry" has an invalid expression: ${s.message} (position ${s.position}).`);
   });
-  it('recognises errors by class and by name', () => {
+  it('recognises a branded ExpressionError', () => {
     expect(isExpressionError(validateExpression('a='))).toBe(true);
-    const foreign = new Error('x'); foreign.name = 'ExpressionError';
+    expect(isExpressionError(new ExpressionError('m', 'syntax error', 1))).toBe(true);
+  });
+  it('accepts a cross-copy look-alike by its own data fields', () => {
+    // What an ExpressionError built by another copy of @prompd/core looks like.
+    const foreign = Object.assign(new Error('boom'), { name: 'ExpressionError', construct: 'call to fetch', position: 3 });
     expect(isExpressionError(foreign)).toBe(true);
+    expect(describeExpressionFailure('Condition', 'X', foreign))
+      .toBe(`Condition on "X" can't run: call to fetch, which workflow expressions can't do (position 3).`);
+  });
+  it('rejects a name-only look-alike, a plain Error, and primitives', () => {
+    const nameOnly = new Error('x'); nameOnly.name = 'ExpressionError';
+    expect(isExpressionError(nameOnly)).toBe(false);
     expect(isExpressionError(new Error('x'))).toBe(false);
+    expect(isExpressionError('ExpressionError')).toBe(false);
+    expect(isExpressionError(null)).toBe(false);
+    expect(isExpressionError(undefined)).toBe(false);
+  });
+  it('reads fields as own data only: a getter is never invoked and does not count', () => {
+    let ran = 0;
+    const withGetters = Object.defineProperties(new Error('x'), {
+      name: { get() { ran++; return 'ExpressionError'; } },
+      construct: { value: 'syntax error' },
+      position: { value: 0 },
+    });
+    expect(isExpressionError(withGetters)).toBe(false);
+    const inherited = Object.create({ name: 'ExpressionError', construct: 'syntax error', position: 0 }) as object;
+    expect(isExpressionError(inherited)).toBe(false);
+    expect(ran).toBe(0);
+  });
+  it('a Proxy with throwing traps is not an ExpressionError, and checking it does not throw', () => {
+    const boom = (): never => { throw new Error('trap ran'); };
+    const hostile = new Proxy({}, {
+      getPrototypeOf: boom, getOwnPropertyDescriptor: boom, get: boom, has: boom, ownKeys: boom,
+    });
+    expect(() => isExpressionError(hostile)).not.toThrow();
+    expect(isExpressionError(hostile)).toBe(false);
+    expect(describeExpressionFailure('Condition', 'X', hostile))
+      .toBe('Condition on "X" has an invalid expression: unknown error.');
+  });
+  it('describes anything that is not a well-formed ExpressionError with the fallback text', () => {
+    expect(describeExpressionFailure('Condition', 'X', new Error('boom')))
+      .toBe('Condition on "X" has an invalid expression: boom.');
+    const nameOnly = new Error('bad'); nameOnly.name = 'ExpressionError';
+    expect(describeExpressionFailure('Guardrail', 'G', nameOnly))
+      .toBe('Guardrail on "G" has an invalid expression: bad.');
+    expect(describeExpressionFailure('Condition', 'X', 'a string'))
+      .toBe('Condition on "X" has an invalid expression: unknown error.');
+    expect(describeExpressionFailure('Condition', 'X', { message: 42 }))
+      .toBe('Condition on "X" has an invalid expression: unknown error.');
   });
 });
