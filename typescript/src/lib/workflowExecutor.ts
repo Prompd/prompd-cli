@@ -52,6 +52,11 @@ import type {
 } from './workflowTypes'
 import { getExecutionOrder, type ParsedWorkflow } from './workflowParser'
 import { MemoryBackend, InMemoryBackend, NoOpBackend } from './memoryBackend'
+import {
+  evaluateExpression as evaluateSafeExpression,
+  isExpressionError,
+  describeExpressionFailure,
+} from '@prompd/core'
 
 type ExecutionCallback = (state: WorkflowExecutionState) => void
 
@@ -710,120 +715,103 @@ function processFallback(
 }
 
 /**
- * Evaluate a template expression like {{ node.output }} or {{ workflow.param }}
+ * Node-type label used in expression failure messages (`describeExpressionFailure`).
+ * Maps the node types that host a user-authored expression to the noun a failure
+ * message should name; anything else falls back to the node type, capitalized.
  */
-function evaluateExpression(
+function kindOf(nodeType: string): string {
+  switch (nodeType) {
+    case 'condition':
+      return 'Condition'
+    case 'loop':
+      return 'Loop condition'
+    case 'guardrail':
+      return 'Guardrail'
+    default:
+      return nodeType.length > 0 ? nodeType.charAt(0).toUpperCase() + nodeType.slice(1) : nodeType
+  }
+}
+
+/**
+ * Assign every own key of `source` onto `scope` as a genuine own data property,
+ * via Object.defineProperty rather than `scope[key] = value`. A plain assignment
+ * would let a `__proto__` own key (e.g. from `JSON.parse('{"__proto__":...}')`,
+ * which creates a real own property, not the exotic setter) silently repoint
+ * `scope`'s prototype instead of becoming ordinary data. defineProperty never
+ * triggers that inherited accessor.
+ */
+function assignOwnProperties(scope: Record<string, unknown>, source: Record<string, unknown> | undefined): void {
+  if (!source) return
+  for (const key of Object.keys(source)) {
+    Object.defineProperty(scope, key, {
+      value: source[key],
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    })
+  }
+}
+
+/**
+ * Build the data scope a workflow expression evaluates against. Precedence
+ * (later wins): workflow params, then workflow variables, then node outputs,
+ * then `extra` (e.g. a guardrail verdict's fields) - then the aliases
+ * `workflow`, `previous_output` and `input` always win over any data key of
+ * the same name.
+ */
+export function buildExpressionScope(
+  context: {
+    nodeOutputs: Record<string, unknown>
+    variables: Record<string, unknown>
+    workflow: Record<string, unknown>
+    previous_output?: unknown
+  },
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const scope: Record<string, unknown> = {}
+  assignOwnProperties(scope, context.workflow)
+  assignOwnProperties(scope, context.variables)
+  assignOwnProperties(scope, context.nodeOutputs)
+  assignOwnProperties(scope, extra)
+  Object.defineProperty(scope, 'workflow', {
+    value: context.workflow, writable: true, enumerable: true, configurable: true,
+  })
+  Object.defineProperty(scope, 'previous_output', {
+    value: context.previous_output, writable: true, enumerable: true, configurable: true,
+  })
+  Object.defineProperty(scope, 'input', {
+    value: context.previous_output, writable: true, enumerable: true, configurable: true,
+  })
+  return scope
+}
+
+/**
+ * Evaluate a template expression like {{ node.output }} or {{ workflow.param }}
+ * using @prompd/core's safe expression evaluator - a small JavaScript subset
+ * that is parsed and evaluated without ever executing the text as code.
+ * `extra` layers additional fields directly into scope (e.g. a guardrail's
+ * parsed verdict, so `{{ pass }}` / `{{ score >= 0.8 }}` can read it).
+ */
+export function evaluateTemplateExpression(
   expression: string,
   context: {
     nodeOutputs: Record<string, unknown>
     variables: Record<string, unknown>
     workflow: Record<string, unknown>
     previous_output?: unknown
-  }
+  },
+  extra: Record<string, unknown> = {}
 ): unknown {
-  // Remove {{ }} wrapper
   const trimmed = expression.trim()
   if (!trimmed.startsWith('{{') || !trimmed.endsWith('}}')) {
     return expression // Not a template, return as-is
   }
 
-  const inner = trimmed.slice(2, -2).trim()
-
-  // Handle comparison expressions
-  if (inner.includes('<') || inner.includes('>') || inner.includes('==') || inner.includes('&&') || inner.includes('||')) {
-    try {
-      // Build context for eval
-      // "input" and "previous_output" are both aliases for the output of the previous node
-      const evalContext = {
-        ...context.nodeOutputs,
-        ...context.variables,
-        workflow: context.workflow,
-        previous_output: context.previous_output,
-        input: context.previous_output,
-      }
-
-      // Replace dot notation with bracket notation for safety
-      let evalExpr = inner
-      for (const [key, value] of Object.entries(evalContext)) {
-        // Replace simple references like "node.field" with actual values
-        const regex = new RegExp(`\\b${key}\\b`, 'g')
-        if (typeof value === 'object' && value !== null) {
-          // For objects, we need to handle nested access
-          evalExpr = evalExpr.replace(regex, JSON.stringify(value))
-        } else if (typeof value === 'string') {
-          evalExpr = evalExpr.replace(regex, `"${value}"`)
-        } else {
-          evalExpr = evalExpr.replace(regex, String(value))
-        }
-      }
-
-      // Safe evaluation using Function constructor
-      // eslint-disable-next-line no-new-func
-      const result = new Function(`return (${evalExpr})`)()
-      return result
-    } catch (e) {
-      console.warn(`Failed to evaluate expression: ${inner}`, e)
-      return false
-    }
-  }
-
-  // Handle simple property access: node.output or workflow.param
-  const parts = inner.split('.')
-  if (parts.length === 1) {
-    // Single variable - check for common aliases first
-    const varName = parts[0]
-
-    // "input" and "previous_output" are aliases for the output of the previous node
-    // This is the most common pattern for passing data through a workflow
-    if (varName === 'input' || varName === 'previous_output') {
-      return context.previous_output
-    }
-
-    return context.nodeOutputs[varName] ?? context.variables[varName] ?? context.workflow[varName]
-  }
-
-  const [source, ...path] = parts
-
-  let value: unknown
-  if (source === 'workflow') {
-    value = context.workflow
-  } else if (source === 'previous_output' || source === 'input') {
-    // Both are aliases for the previous node's output
-    value = context.previous_output
-  } else if (context.nodeOutputs[source] !== undefined) {
-    value = context.nodeOutputs[source]
-  } else if (context.variables[source] !== undefined) {
-    value = context.variables[source]
-  } else {
-    return undefined
-  }
-
-  // Navigate the path
-  for (const key of path) {
-    if (value === null || value === undefined) return undefined
-
-    // If value is a string, try parsing it as JSON to access nested properties
-    // This handles cases where previous_output is a JSON string from an LLM response
-    if (typeof value === 'string') {
-      // Try to extract JSON from markdown code blocks (```json ... ```)
-      const jsonMatch = value.match(/```(?:json)?\s*([\s\S]*?)```/)
-      const jsonString = jsonMatch ? jsonMatch[1].trim() : value.trim()
-
-      try {
-        const parsed = JSON.parse(jsonString)
-        if (typeof parsed === 'object' && parsed !== null) {
-          value = parsed
-        }
-      } catch {
-        // Not valid JSON, continue with string (will likely return undefined)
-      }
-    }
-
-    value = (value as Record<string, unknown>)[key]
-  }
-
-  return value
+  return evaluateSafeExpression(trimmed, buildExpressionScope(context, extra))
 }
+
+// Module-local alias so the many existing call sites below don't need to change.
+const evaluateExpression = evaluateTemplateExpression
 
 /**
  * Resolve parameters by evaluating template expressions
@@ -1606,7 +1594,9 @@ export async function executeWorkflow(
       options.onNodeComplete?.(nodeId, output)
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = isExpressionError(error)
+        ? describeExpressionFailure(kindOf(node.type), node.data.label ?? node.id, error)
+        : error instanceof Error ? error.message : String(error)
       const nodeDuration = Date.now() - nodeStartTime
 
       // Try to process through referenced ErrorHandler node first
@@ -2181,15 +2171,10 @@ Analyze the input above according to the system criteria. Return your analysis a
 
   // Method 1: Use passExpression if provided
   if (data.passExpression) {
-    const expressionContext = {
-      ...context,
-      nodeOutputs: { ...context.nodeOutputs, response: parsedResponse },
-      // Make response fields directly accessible
-      score: parsedResponse.score,
-      rejected: parsedResponse.rejected,
-      analysis: parsedResponse.analysis,
-    }
-    const passResult = evaluateExpression(data.passExpression, expressionContext)
+    // parsedResponse is the parsed judge verdict - its fields (e.g. `score`,
+    // `rejected`, `analysis`) are layered directly into scope so `{{ pass }}`,
+    // `{{ score >= 0.8 }}` can read them, matching the web's evalGuardrail.
+    const passResult = evaluateExpression(data.passExpression, context, parsedResponse)
     rejected = !passResult
 
     addTraceEntry(trace, {
