@@ -6412,8 +6412,10 @@ Analyze the input above. Return a JSON object:
         message: 'Guardrail validation failed',
         data: { error: error instanceof Error ? error.message : String(error) },
       }, options)
-      // On any other guardrail error (e.g. the judge LLM call failing),
-      // continue execution but log the failure
+      // Any other error that reaches here (e.g. a checkpoint handler
+      // throwing) has lost the verdict, so it fails the node too (fail
+      // closed). A judge-call failure never gets here: it is a rejection.
+      throw error
     }
   }
 
