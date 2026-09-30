@@ -156,6 +156,28 @@ describe('chat-agent guardrail fails closed', () => {
     expect((await runChatAgent({ guardrailScoreThreshold: 0.5 }, '```json\n{"score": 0.5}\n```')).agentRan).toBe(true);
     expect((await runChatAgent({ guardrailScoreThreshold: 0.5 }, '```json\n{"score": 0.4, "rejected": false}\n```')).agentRan).toBe(false);
   });
+
+  it('an error after the verdict (afterGuardrail checkpoint throws) fails the node; the agent never runs', async () => {
+    let agentRan = false;
+    const result = await executeWorkflow(
+      chatAgentFlow({ checkpoints: { afterGuardrail: { enabled: true } } }),
+      {},
+      {
+        executePrompt: async (p: string) => (p.startsWith('raw:') && p.includes('judge it') ? '```json\n{"rejected": true}\n```' : 'seed output'),
+        onPromptExecute: async () => { agentRan = true; return { success: true, response: 'agent reply' }; },
+        onAgentCheckpoint: (event) => {
+          if (event.agentNodeId === 'agent1') throw new Error('checkpoint handler exploded');
+          return true;
+        },
+      },
+    );
+    expect(agentRan).toBe(false);
+    expect(result.trace.status).toBe('failed');
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].nodeId).toBe('agent1');
+    expect(result.errors[0].message).toMatch(/checkpoint handler exploded/);
+    expect(result.trace.entries.some(e => e.nodeId === 'agent1' && e.message === 'Guardrail validation failed')).toBe(true);
+  });
 });
 
 // ----------------------------------------------------------------------------
