@@ -773,6 +773,33 @@ function guardrailVerdictExtra(verdict: unknown): Record<string, unknown> {
   return extra
 }
 
+/** A judge verdict is readable only as a plain JSON object. */
+function isVerdictObject(verdict: unknown): verdict is Record<string, unknown> {
+  return verdict !== null && typeof verdict === 'object' && !Array.isArray(verdict)
+}
+
+/**
+ * Own-field check on a judge verdict. Anything that is not a verdict object
+ * (prose, a bare JSON string or number, null) has no fields, so every check
+ * against it reads as "missing" - and a missing field fails the guardrail
+ * closed.
+ */
+function verdictHasField(verdict: unknown, field: string): boolean {
+  return isVerdictObject(verdict) && Object.prototype.hasOwnProperty.call(verdict, field)
+}
+
+/** The verdict's score, only when it is a finite number. */
+function finiteVerdictScore(verdict: unknown): number | undefined {
+  if (!isVerdictObject(verdict)) return undefined
+  const score = verdict.score
+  return typeof score === 'number' && Number.isFinite(score) ? score : undefined
+}
+
+/** The analysis text recorded when a guardrail rejects because it could not judge. */
+function guardrailFailClosedReason(detail: string): string {
+  return `Guardrail ${detail}; rejected (fail closed)`
+}
+
 /**
  * Build the data scope a workflow expression evaluates against. Precedence
  * (later wins): workflow params, then workflow variables, then node outputs,
@@ -2021,8 +2048,10 @@ async function executePromptNode(
  *
  * Pass/fail is determined by:
  * - passExpression: A template expression evaluated against the LLM response
- * - scoreThreshold: If response has a 'score' field, compare against threshold
- * - Default: If response has 'rejected' field, use its boolean value
+ * - scoreThreshold: Compare the response's finite 'score' against the threshold
+ * - Default: The response's 'pass' field, else its 'rejected' field
+ * A reply that is not a JSON verdict, or lacks what the chosen method needs,
+ * is rejected (fail closed).
  */
 async function executeGuardrailNode(
   node: WorkflowNode,
@@ -2179,8 +2208,10 @@ Analyze the input above according to the system criteria. Return your analysis a
     data: { response: llmResponse },
   }, options)
 
-  // Parse the LLM response
-  let parsedResponse: { analysis?: string; score?: number; rejected?: boolean } = {}
+  // Parse the LLM response. Only a JSON verdict object is readable; prose or
+  // any other shape is kept as `analysis` for display but decides nothing.
+  let parsedResponse: { analysis?: string; score?: number; rejected?: boolean; pass?: unknown } = {}
+  let readable = false
 
   if (typeof llmResponse === 'string') {
     // Try to extract JSON from the response (may be wrapped in markdown code blocks)
@@ -2188,25 +2219,31 @@ Analyze the input above according to the system criteria. Return your analysis a
     const jsonString = jsonMatch ? jsonMatch[1].trim() : llmResponse.trim()
 
     try {
-      parsedResponse = JSON.parse(jsonString)
-    } catch {
-      // If we can't parse JSON, treat it as a text response
-      // Look for keywords to determine pass/fail
-      const lowerResponse = llmResponse.toLowerCase()
-      parsedResponse = {
-        analysis: llmResponse,
-        rejected: lowerResponse.includes('reject') || lowerResponse.includes('fail') || lowerResponse.includes('invalid'),
+      const parsed: unknown = JSON.parse(jsonString)
+      if (isVerdictObject(parsed)) {
+        parsedResponse = parsed as typeof parsedResponse
+        readable = true
+      } else {
+        parsedResponse = { analysis: llmResponse }
       }
+    } catch {
+      parsedResponse = { analysis: llmResponse }
     }
-  } else if (typeof llmResponse === 'object' && llmResponse !== null) {
+  } else if (isVerdictObject(llmResponse)) {
     parsedResponse = llmResponse as typeof parsedResponse
+    readable = true
   }
 
-  // Determine pass/fail
-  let rejected = false
+  // Determine pass/fail. Starts REJECTED: a verdict that cannot be read, or
+  // that lacks what the configured method needs, fails closed.
+  let rejected = true
+  let failClosedReason: string | undefined
 
+  if (!readable) {
+    failClosedReason = guardrailFailClosedReason('judge reply was not a readable verdict')
+  }
   // Method 1: Use passExpression if provided
-  if (data.passExpression) {
+  else if (data.passExpression) {
     // parsedResponse is the parsed judge verdict - its own fields (e.g.
     // `score`, `rejected`, `analysis`) are layered directly into scope so
     // `{{ pass }}`, `{{ score >= 0.8 }}` can read them, matching the web's
@@ -2228,21 +2265,38 @@ Analyze the input above according to the system criteria. Return your analysis a
       data: { expression: data.passExpression, result: passResult, rejected },
     }, options)
   }
-  // Method 2: Use scoreThreshold if provided and response has score
-  else if (data.scoreThreshold !== undefined && parsedResponse.score !== undefined) {
-    rejected = parsedResponse.score < data.scoreThreshold
+  // Method 2: Use scoreThreshold if provided; the verdict must carry a finite score
+  else if (data.scoreThreshold !== undefined) {
+    const score = finiteVerdictScore(parsedResponse)
+    if (score === undefined) {
+      failClosedReason = guardrailFailClosedReason('verdict has no numeric "score" for the score threshold')
+    } else {
+      rejected = score < data.scoreThreshold
+
+      addTraceEntry(trace, {
+        type: 'expression_eval',
+        nodeId: node.id,
+        nodeName: data.label,
+        message: `Guardrail score ${score} ${rejected ? '<' : '>='} threshold ${data.scoreThreshold}`,
+        data: { score, threshold: data.scoreThreshold, rejected },
+      }, options)
+    }
+  }
+  // Method 3: Use the 'pass' field from the response
+  else if (verdictHasField(parsedResponse, 'pass')) {
+    rejected = !parsedResponse.pass
 
     addTraceEntry(trace, {
       type: 'expression_eval',
       nodeId: node.id,
       nodeName: data.label,
-      message: `Guardrail score ${parsedResponse.score} ${rejected ? '<' : '>='} threshold ${data.scoreThreshold}`,
-      data: { score: parsedResponse.score, threshold: data.scoreThreshold, rejected },
+      message: `Guardrail using response.pass = ${!rejected}`,
+      data: { rejected },
     }, options)
   }
-  // Method 3: Use the 'rejected' field from the response
-  else if (parsedResponse.rejected !== undefined) {
-    rejected = parsedResponse.rejected
+  // Method 4: Use the 'rejected' field from the response
+  else if (verdictHasField(parsedResponse, 'rejected')) {
+    rejected = Boolean(parsedResponse.rejected)
 
     addTraceEntry(trace, {
       type: 'expression_eval',
@@ -2250,6 +2304,19 @@ Analyze the input above according to the system criteria. Return your analysis a
       nodeName: data.label,
       message: `Guardrail using response.rejected = ${rejected}`,
       data: { rejected },
+    }, options)
+  }
+  else {
+    failClosedReason = guardrailFailClosedReason('verdict has no "pass" or "rejected" field')
+  }
+
+  if (failClosedReason) {
+    addTraceEntry(trace, {
+      type: 'debug_step',
+      nodeId: node.id,
+      nodeName: data.label,
+      message: failClosedReason,
+      data: { response: llmResponse },
     }, options)
   }
 
@@ -6146,92 +6213,133 @@ Analyze the input above. Return a JSON object:
     }
 
     try {
-      const llmResponse = await options.executePrompt(
-        `raw:${validationPrompt}`,
-        { previous_output: currentInput },
-        guardrailProvider,
-        guardrailModel
-      )
-
-      // Parse guardrail response
-      let guardrailResult: { rejected: boolean; score?: number; analysis?: string } = { rejected: false }
-      const responseStr = typeof llmResponse === 'string' ? llmResponse : JSON.stringify(llmResponse)
-
-      const jsonMatch = responseStr.match(/```json\s*([\s\S]*?)\s*```/) ||
-                        responseStr.match(/\{[\s\S]*"rejected"[\s\S]*\}/)
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0])
-
-          // Priority 1: Custom rejection expression (new field)
-          if (data.guardrailRejectionExpression) {
-            // previous_output (and so its `input` alias) is the parsed verdict;
-            // the verdict's fields, `response` and `guardrail_response` come in
-            // through `extra` - buildExpressionScope ignores any other
-            // top-level context key.
-            const exprContext = { ...context, previous_output: parsed }
-            const exprResult = evaluateExpression(data.guardrailRejectionExpression, exprContext, guardrailVerdictExtra(parsed))
-            guardrailResult = {
-              rejected: Boolean(exprResult), // Expression returns true for REJECT
-              score: typeof parsed.score === 'number' ? parsed.score : undefined,
-              analysis: parsed.analysis,
-            }
-          }
-          // Priority 2: Field-based check (new fields)
-          else if (data.guardrailRejectionField && data.guardrailExpectedFormat === 'json') {
-            const fieldValue = parsed?.[data.guardrailRejectionField]
-            if (data.guardrailPassWhen === 'true') {
-              // Pass when field is true, reject when false
-              guardrailResult.rejected = !fieldValue
-            } else if (data.guardrailPassWhen === 'false') {
-              // Pass when field is false, reject when true
-              guardrailResult.rejected = Boolean(fieldValue)
-            } else {
-              // Default: check parsed.rejected field
-              guardrailResult.rejected = parsed.rejected === true
-            }
-            guardrailResult.score = typeof parsed.score === 'number' ? parsed.score : undefined
-            guardrailResult.analysis = parsed.analysis
-          }
-          // Priority 3: Legacy passExpression
-          else if (data.guardrailPassExpression) {
-            const exprContext = { ...context, previous_output: parsed }
-            const exprResult = evaluateExpression(data.guardrailPassExpression, exprContext, guardrailVerdictExtra(parsed))
-            guardrailResult = {
-              rejected: !exprResult, // Expression returns true for PASS, so negate for rejected
-              score: typeof parsed.score === 'number' ? parsed.score : undefined,
-              analysis: parsed.analysis,
-            }
-          }
-          // Priority 4: Fallback to checking parsed.rejected field
-          else {
-            guardrailResult = {
-              rejected: parsed.rejected === true,
-              score: typeof parsed.score === 'number' ? parsed.score : undefined,
-              analysis: parsed.analysis,
-            }
-          }
-        } catch (parseError) {
-          // This catch is for JSON.parse failures only: a broken expression
-          // above must fail the node (fail closed), never be retried against
-          // the raw reply and then swallowed.
-          if (isExpressionError(parseError)) throw parseError
-          // If JSON parsing fails, try expression evaluation with raw response
-          if (data.guardrailRejectionExpression) {
-            const exprResult = evaluateExpression(data.guardrailRejectionExpression, context, guardrailVerdictExtra(responseStr))
-            guardrailResult.rejected = Boolean(exprResult)
-          } else if (data.guardrailPassExpression) {
-            const exprResult = evaluateExpression(data.guardrailPassExpression, context, guardrailVerdictExtra(responseStr))
-            guardrailResult.rejected = !exprResult
-          }
-        }
+      // The guardrail starts REJECTED and only a readable verdict can pass
+      // it (fail closed): prose, broken JSON no expression can decide, a
+      // verdict missing the field the configured method needs, or a judge
+      // call that threw all reject, and then flow through guardrailFailAction
+      // like any other rejection. The agent never runs unjudged.
+      let guardrailResult: { rejected: boolean; score?: number; analysis?: string } = {
+        rejected: true,
+        analysis: guardrailFailClosedReason('judge reply was not a readable verdict'),
       }
 
-      // Apply score threshold ONLY if no passExpression/rejectionExpression/fieldCheck is configured
-      // This ensures explicit conditions take precedence
-      if (!data.guardrailRejectionExpression && !data.guardrailPassExpression && !data.guardrailRejectionField &&
-          data.guardrailScoreThreshold !== undefined && guardrailResult.score !== undefined) {
-        guardrailResult.rejected = guardrailResult.score < data.guardrailScoreThreshold
+      let llmResponse: unknown
+      let judgeFailed = false
+      try {
+        llmResponse = await options.executePrompt(
+          `raw:${validationPrompt}`,
+          { previous_output: currentInput },
+          guardrailProvider,
+          guardrailModel
+        )
+      } catch (judgeError) {
+        judgeFailed = true
+        const judgeMessage = judgeError instanceof Error ? judgeError.message : String(judgeError)
+        guardrailResult = {
+          rejected: true,
+          analysis: guardrailFailClosedReason(`judge call failed (${judgeMessage})`),
+        }
+        addTraceEntry(trace, {
+          type: 'debug_step',
+          nodeId: node.id,
+          nodeName: data.label,
+          message: 'Guardrail judge call failed; rejecting (fail closed)',
+          data: { error: judgeMessage },
+        }, options)
+      }
+
+      if (!judgeFailed) {
+        // Parse guardrail response
+        const responseStr = typeof llmResponse === 'string' ? llmResponse : JSON.stringify(llmResponse)
+
+        const jsonMatch = responseStr.match(/```json\s*([\s\S]*?)\s*```/) ||
+                          responseStr.match(/\{[\s\S]*"rejected"[\s\S]*\}/) ||
+                          responseStr.trim().match(/^\{[\s\S]*\}$/)
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0])
+            const score = typeof parsed?.score === 'number' ? parsed.score : undefined
+
+            // Priority 1: Custom rejection expression (new field)
+            if (data.guardrailRejectionExpression) {
+              // previous_output (and so its `input` alias) is the parsed verdict;
+              // the verdict's fields, `response` and `guardrail_response` come in
+              // through `extra` - buildExpressionScope ignores any other
+              // top-level context key.
+              const exprContext = { ...context, previous_output: parsed }
+              const exprResult = evaluateExpression(data.guardrailRejectionExpression, exprContext, guardrailVerdictExtra(parsed))
+              guardrailResult = {
+                rejected: Boolean(exprResult), // Expression returns true for REJECT
+                score,
+                analysis: parsed.analysis,
+              }
+            }
+            // Priority 2: Field-based check (new fields). A missing field rejects.
+            else if (data.guardrailRejectionField && data.guardrailExpectedFormat === 'json') {
+              const field = data.guardrailRejectionField
+              if (!verdictHasField(parsed, field)) {
+                guardrailResult = { rejected: true, score, analysis: guardrailFailClosedReason(`verdict has no "${field}" field`) }
+              } else if (data.guardrailPassWhen === 'true') {
+                // Pass when field is true, reject when false
+                guardrailResult = { rejected: !parsed[field], score, analysis: parsed.analysis }
+              } else if (data.guardrailPassWhen === 'false') {
+                // Pass when field is false, reject when true
+                guardrailResult = { rejected: Boolean(parsed[field]), score, analysis: parsed.analysis }
+              } else if (!verdictHasField(parsed, 'rejected')) {
+                // Default reads parsed.rejected, which must be present
+                guardrailResult = { rejected: true, score, analysis: guardrailFailClosedReason('verdict has no "rejected" field') }
+              } else {
+                // Default: check parsed.rejected field
+                guardrailResult = { rejected: parsed.rejected === true, score, analysis: parsed.analysis }
+              }
+            }
+            // Priority 3: Legacy passExpression
+            else if (data.guardrailPassExpression) {
+              const exprContext = { ...context, previous_output: parsed }
+              const exprResult = evaluateExpression(data.guardrailPassExpression, exprContext, guardrailVerdictExtra(parsed))
+              guardrailResult = {
+                rejected: !exprResult, // Expression returns true for PASS, so negate for rejected
+                score,
+                analysis: parsed.analysis,
+              }
+            }
+            // Priority 4: Score threshold (only when no expression/field check
+            // is configured); a missing or non-finite score rejects
+            else if (data.guardrailScoreThreshold !== undefined && !data.guardrailRejectionField) {
+              const finiteScore = finiteVerdictScore(parsed)
+              guardrailResult = finiteScore === undefined
+                ? { rejected: true, analysis: guardrailFailClosedReason('verdict has no numeric "score" for the score threshold') }
+                : { rejected: finiteScore < data.guardrailScoreThreshold, score: finiteScore, analysis: parsed.analysis }
+            }
+            // Priority 5: Fallback to the verdict's pass, then rejected, field
+            else if (verdictHasField(parsed, 'pass')) {
+              guardrailResult = { rejected: !parsed.pass, score, analysis: parsed.analysis }
+            } else if (verdictHasField(parsed, 'rejected')) {
+              guardrailResult = { rejected: Boolean(parsed.rejected), score, analysis: parsed.analysis }
+            } else {
+              guardrailResult = { rejected: true, score, analysis: guardrailFailClosedReason('verdict has no "pass" or "rejected" field') }
+            }
+          } catch (parseError) {
+            // This catch is for JSON.parse failures only: a broken expression
+            // above must fail the node (fail closed), never be retried against
+            // the raw reply and then swallowed.
+            if (isExpressionError(parseError)) throw parseError
+            // If JSON parsing fails, try expression evaluation with raw response;
+            // with no expression to decide, the unreadable reply rejects.
+            if (data.guardrailRejectionExpression) {
+              const exprResult = evaluateExpression(data.guardrailRejectionExpression, context, guardrailVerdictExtra(responseStr))
+              guardrailResult = { rejected: Boolean(exprResult) }
+            } else if (data.guardrailPassExpression) {
+              const exprResult = evaluateExpression(data.guardrailPassExpression, context, guardrailVerdictExtra(responseStr))
+              guardrailResult = { rejected: !exprResult }
+            } else {
+              guardrailResult = {
+                rejected: true,
+                analysis: guardrailFailClosedReason('judge reply was not a readable verdict'),
+              }
+            }
+          }
+        }
       }
 
       // Emit afterGuardrail checkpoint
