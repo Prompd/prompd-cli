@@ -29,6 +29,9 @@ export interface WorkflowMetadata {
 
 export interface WorkflowParameter {
   name: string
+  /** Human-readable name for run forms and pickers. `name` stays the template
+   * key; a host shows `label` when set and falls back to `name`. */
+  label?: string
   type: 'string' | 'number' | 'boolean' | 'array' | 'object' | 'integer' | 'date' | 'datetime'
   required?: boolean
   description?: string

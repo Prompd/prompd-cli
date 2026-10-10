@@ -8,6 +8,7 @@
 import type {
   WorkflowFile,
   WorkflowNode,
+  WorkflowParameter,
   WorkflowValidationError,
   WorkflowValidationWarning,
   WorkflowNodeType,
@@ -45,6 +46,11 @@ export function validateWorkflow(workflow: WorkflowFile): ValidationResult {
   for (const node of workflow.nodes) {
     const nodeErrors = validateNode(node, workflow)
     errors.push(...nodeErrors)
+  }
+
+  // Validate parameters
+  for (const param of workflow.parameters || []) {
+    errors.push(...validateParameter(param))
   }
 
   // Validate edges
@@ -296,6 +302,22 @@ function validateLoopNode(node: WorkflowNode): WorkflowValidationError[] {
     })
   }
 
+  return errors
+}
+
+/**
+ * Validate a workflow parameter declaration
+ */
+function validateParameter(param: WorkflowParameter): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = []
+  const label: unknown = param.label
+  if (label !== undefined && (typeof label !== 'string' || label.trim() === '')) {
+    errors.push({
+      field: 'label',
+      message: `Parameter '${param.name}' has an invalid label. Use a non-empty string, or remove it to show the parameter name.`,
+      code: 'INVALID_PARAM_LABEL',
+    })
+  }
   return errors
 }
 
