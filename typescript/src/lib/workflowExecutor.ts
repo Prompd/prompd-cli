@@ -2670,7 +2670,7 @@ async function executeLoopNode(
   workflowFile: WorkflowFile,
   trace: ExecutionTrace,
   memoryBackend: MemoryBackend
-): Promise<{ iterations: number; results: unknown[]; lastOutput: unknown }> {
+): Promise<{ iterations: number; results: unknown[]; lastOutput: unknown } | string> {
   const data = node.data as LoopNodeData
   const results: unknown[] = []
   let iteration = 0
@@ -2797,7 +2797,19 @@ async function executeLoopNode(
     data: { totalIterations: iteration, resultsCount: results.length },
   }, options)
 
+  // collect: 'text' hands on one readable string - the same string the browser
+  // runner produces - instead of the structured result object.
+  if (data.collect === 'text') return joinLoopResults(results, data.separator)
   return { iterations: iteration, results, lastOutput }
+}
+
+/** Join loop iteration outputs for collect: 'text'. Strings pass through as-is;
+ * anything else is JSON. Must match the browser runner's join exactly. */
+export function joinLoopResults(results: unknown[], separator?: string): string {
+  const sep = typeof separator === 'string' ? separator : '\n\n'
+  return results
+    .map((r) => (typeof r === 'string' ? r : r == null ? '' : JSON.stringify(r)))
+    .join(sep)
 }
 
 /**

@@ -348,6 +348,15 @@ export interface LoopNodeData extends BaseNodeData {
   maxIterations: number // Safety limit
   body: string[] // Node IDs to execute in loop
   onComplete?: string // Target node ID after loop
+  /**
+   * What the loop hands on once it finishes. 'list' (default) keeps each engine's
+   * existing structured result. 'text' joins every iteration's output with
+   * `separator` into one string, identical in every engine - for output a person
+   * reads or pastes, where a JSON array of escaped strings is unusable.
+   */
+  collect?: 'list' | 'text'
+  /** Joins iterations when collect is 'text'. Default: a blank line. */
+  separator?: string
   /** Whether the container is collapsed (hides child nodes) */
   collapsed?: boolean
 }

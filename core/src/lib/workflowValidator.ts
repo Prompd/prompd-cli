@@ -287,6 +287,15 @@ function validateLoopNode(node: WorkflowNode): WorkflowValidationError[] {
     })
   }
 
+  if (data.collect !== undefined && data.collect !== 'list' && data.collect !== 'text') {
+    errors.push({
+      nodeId: node.id,
+      field: 'collect',
+      message: `Loop '${data.label || node.id}' has an unknown collect mode '${String(data.collect)}'. Use 'list' or 'text'.`,
+      code: 'INVALID_LOOP_COLLECT',
+    })
+  }
+
   return errors
 }
 
