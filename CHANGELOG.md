@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`@prompd/core` 0.5.5**: Workflow loop nodes take `collect: 'text'` (with optional
+  `separator`, default a blank line) to join iteration outputs into one string instead of a
+  JSON list; `INVALID_LOOP_COLLECT` for an unknown mode. Workflow parameters take an optional
+  `label` (display name; `name` stays the template key) and `multiline` (render as a text
+  area that keeps newlines); `INVALID_PARAM_LABEL` and `INVALID_PARAM_MULTILINE` for bad values.
 - **`@prompd/core` 0.5.4**: Added safe workflow expression evaluator (`evaluateExpression`,
   `validateExpression`, `describeExpressionFailure`, `isExpressionError`, `ExpressionError`).
 - **Python CLI**: Restored `prompd config` command with full configuration management
