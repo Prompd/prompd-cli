@@ -39,6 +39,10 @@ export interface WorkflowParameter {
   enum?: string[]
   min?: number
   max?: number
+  /** Render a `string` parameter as a multi-line text area that keeps newlines.
+   * Set it on any parameter a loop splits into lines: a single-line input
+   * drops the newlines on paste. */
+  multiline?: boolean
 }
 
 export interface PackageAlias {

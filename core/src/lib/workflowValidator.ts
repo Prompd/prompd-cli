@@ -318,6 +318,14 @@ function validateParameter(param: WorkflowParameter): WorkflowValidationError[] 
       code: 'INVALID_PARAM_LABEL',
     })
   }
+  const multiline: unknown = param.multiline
+  if (multiline !== undefined && typeof multiline !== 'boolean') {
+    errors.push({
+      field: 'multiline',
+      message: `Parameter '${param.name}' has an invalid multiline value. Use true or false.`,
+      code: 'INVALID_PARAM_MULTILINE',
+    })
+  }
   return errors
 }
 
