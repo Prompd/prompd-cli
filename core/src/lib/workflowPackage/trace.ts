@@ -3,6 +3,7 @@
  * cycle-safe. A path that escapes the workspace is reported missing and never
  * handed to the reader. */
 import { normalizeWorkspacePath, resolveFlowFileRef } from '../workflowRun/paths'
+import { normalizePosix } from '../compiler/path-utils'
 import { workflowNodeRefs, prmdFileRefs, type FileRefs } from './refs'
 
 /** Read a workspace-relative path; null when it does not exist. */
@@ -17,7 +18,12 @@ export interface WorkflowTrace {
   packageRefs: string[]
 }
 
-const escapesWorkspace = (p: string): boolean => p === '..' || p.startsWith('../')
+/** True for anything a host reader must never be asked for: a drive-letter path,
+ * a NUL, or a path that climbs out of the workspace once `..` is collapsed. */
+function escapesWorkspace(p: string): boolean {
+  if (/^[A-Za-z]:/.test(p) || p.includes('\0')) return true
+  return normalizePosix(p).split('/').includes('..')
+}
 const isPromptPath = (p: string): boolean => /\.(prmd|md)$/i.test(p)
 
 function parseJson(text: string): unknown {
@@ -35,7 +41,7 @@ export async function traceWorkflowFiles(read: WorkflowFileReader, entryPath: st
   const missing = new Set<string>()
   const packageRefs = new Set<string>()
   const seen = new Set<string>()
-  const queue: string[] = [normalizeWorkspacePath(entryPath)]
+  const queue: string[] = [normalizePosix(normalizeWorkspacePath(entryPath))]
   while (queue.length) {
     const p = queue.shift() as string
     if (seen.has(p)) continue

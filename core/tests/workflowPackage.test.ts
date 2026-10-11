@@ -155,3 +155,37 @@ describe('buildWorkflowPackage', () => {
     expect(packagePathError('flows/sub/x.prmd')).toBeNull()
   })
 })
+
+describe('traceWorkflowFiles containment', () => {
+  const prmdWith = (fm: string, body = ''): string => `---\nid: x\nname: x\nversion: 1.0.0\n${fm}\n---\n${body}`
+
+  it.each([
+    ['a drive path in an include', 'root.prmd', prmdWith('', '{% include "C:/x.md" %}'), 'C:/x.md'],
+    ['a drive path in inherits', 'root.prmd', prmdWith('inherits: D:/secret.prmd'), 'D:/secret.prmd'],
+    ['./C:/ from a root-level prmd', 'root.prmd', prmdWith('context: ./C:/x.md'), 'C:/x.md'],
+    ['../C:/ from sub/', 'sub/a.prmd', prmdWith('context: ../C:/x.md'), 'C:/x.md'],
+  ])('%s is missing and never read', async (_n, entry, text, bad) => {
+    const r = memReader({ [entry]: text })
+    const t = await traceWorkflowFiles(r.read, entry)
+    expect(t.missing).toEqual([bad])
+    expect(r.reads).toEqual([entry])
+  })
+
+  it('an entry that climbs out via a/../../ is missing and never read', async () => {
+    const r = memReader({})
+    const t = await traceWorkflowFiles(r.read, 'a/../../x.pdflow')
+    expect(t.missing).toEqual(['../x.pdflow'])
+    expect(r.reads).toEqual([])
+  })
+
+  it('a normal ../sibling.prmd from sub/ is still read', async () => {
+    const r = memReader({
+      'sub/a.prmd': prmdWith('context: ../sibling.prmd'),
+      'sibling.prmd': prmdWith(''),
+    })
+    const t = await traceWorkflowFiles(r.read, 'sub/a.prmd')
+    expect(t.files).toEqual(['sibling.prmd', 'sub/a.prmd'])
+    expect(t.missing).toEqual([])
+    expect(r.reads).toContain('sibling.prmd')
+  })
+})
