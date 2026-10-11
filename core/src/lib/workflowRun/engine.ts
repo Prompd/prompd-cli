@@ -373,7 +373,17 @@ export async function runWorkflow(
       const policy = (rule.systemPrompt || '').replace(/\.?\s*Respond with ONLY JSON[\s\S]*$/i, '').trim() || 'sensitive or disallowed content';
       // A rule's own scrubPrompt still wins; the config default is what it falls
       // back to, so overriding it retunes every rule that has not set one.
-      const sys = rule.scrubPrompt || (await host.compilePrompt({ text: await host.redactionPrompt() }, { policy })).trim();
+      // As before, a template that fails to compile or compiles to nothing is used
+      // raw rather than ending the run or sending an empty system prompt.
+      let sys = rule.scrubPrompt;
+      if (!sys) {
+        const tpl = await host.redactionPrompt();
+        try {
+          sys = (await host.compilePrompt({ text: tpl }, { policy })).trim() || tpl.trim();
+        } catch {
+          sys = tpl.trim();
+        }
+      }
       return (await complete(model, [{ role: 'system', content: sys }, { role: 'user', content: text }])).trim();
     };
 

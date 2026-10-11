@@ -373,4 +373,39 @@ describe('engine: workflow-level guardrails', () => {
     expect(f.compiles).toContainEqual({ src: { text: 'You are a redaction filter for {{ policy }}' }, vars: { policy: 'Find names' } })
     expect(finalOutput(events)).toBe('clean')
   })
+
+  /* Like the browser's compileConfigTemplate: a redaction template that fails to
+   * compile, or compiles to nothing, falls back to the raw template text. */
+  const scrubFlow = (): object => ({
+    ...chain(T(), node('x', 'transformer', { template: '{{ topic }}' }), O()),
+    guardrails: {
+      input: [{ id: 'g1', label: 'PII', systemPrompt: 'Find names.', passExpression: '{{ pass }}', action: 'scrub' }],
+      output: [],
+    },
+  })
+  const scrubModel: ModelFn = (m) => (m[0]?.role === 'system' && m[0].content.includes('redaction filter')
+    ? { content: 'clean' }
+    : { content: '{"pass":false,"reason":"pii"}' })
+  const scrubSystem = (f: Fake): string | undefined =>
+    f.modelCalls.find((c) => c.messages[0]?.role === 'system' && c.messages[0].content.includes('redaction filter'))?.messages[0].content
+
+  it('a redaction template that fails to compile is used raw and the run continues', async () => {
+    const f = fakeHost({
+      async compilePrompt(src) {
+        if ('text' in src) throw new Error('template error')
+        return 'unused'
+      },
+    }, scrubModel)
+    const events = await run(scrubFlow(), f.host, { topic: 'secret' })
+    expect(scrubSystem(f)).toBe('You are a redaction filter for {{ policy }}')
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    expect(finalOutput(events)).toBe('clean')
+  })
+
+  it('a redaction template that compiles to nothing is used raw', async () => {
+    const f = fakeHost({ compilePrompt: async () => '   ' }, scrubModel)
+    const events = await run(scrubFlow(), f.host, { topic: 'secret' })
+    expect(scrubSystem(f)).toBe('You are a redaction filter for {{ policy }}')
+    expect(finalOutput(events)).toBe('clean')
+  })
 })
