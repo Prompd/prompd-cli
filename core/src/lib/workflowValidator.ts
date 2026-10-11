@@ -19,6 +19,7 @@ import type {
   AgentNodeData,
   BaseNodeData,
 } from './workflowTypes'
+import { isTriggerType } from './workflowTypes'
 
 export interface ValidationResult {
   errors: WorkflowValidationError[]
@@ -174,41 +175,79 @@ function validateNode(node: WorkflowNode, workflow: WorkflowFile): WorkflowValid
 }
 
 /**
- * Validate trigger node
+ * Validate trigger node. A trigger node may carry neither field (runs by hand),
+ * the deprecated single `triggerType`, or the `triggers` list, or both. The
+ * legacy schedule/webhook checks still apply when `triggerType` names them;
+ * `triggers`, when present, is a list of known trigger types with object
+ * configs, and a schedule entry names its cron.
  */
 function validateTriggerNode(node: WorkflowNode): WorkflowValidationError[] {
   const errors: WorkflowValidationError[] = []
   const data = node.data as TriggerNodeData
+  const label = data.label || node.id
 
-  if (!data.triggerType) {
-    errors.push({
-      nodeId: node.id,
-      field: 'triggerType',
-      message: `Trigger '${data.label || node.id}' is missing a trigger type. Select Manual, Schedule, Webhook, or Event in the properties panel.`,
-      code: 'MISSING_TRIGGER_TYPE',
-    })
-  }
-
-  // Validate schedule trigger - check BOTH fields
+  // Deprecated single trigger (removed after workflow deploy Plan 2): unchanged checks.
   if (data.triggerType === 'schedule' && !data.schedule && !data.scheduleCron) {
     errors.push({
       nodeId: node.id,
       field: 'schedule',
-      message: `Schedule trigger '${data.label || node.id}' needs a schedule. Enter a cron expression in the properties panel.`,
+      message: `Schedule trigger '${label}' needs a schedule. Enter a cron expression in the properties panel.`,
       code: 'MISSING_SCHEDULE',
     })
   }
-
-  // Validate webhook trigger
   if (data.triggerType === 'webhook' && !data.webhookPath) {
     errors.push({
       nodeId: node.id,
       field: 'webhookPath',
-      message: `Webhook trigger '${data.label || node.id}' needs a webhook path. Enter a URL path (e.g., /api/trigger) in the properties panel.`,
+      message: `Webhook trigger '${label}' needs a webhook path. Enter a URL path (e.g., /api/trigger) in the properties panel.`,
       code: 'MISSING_WEBHOOK_PATH',
     })
   }
 
+  const triggers = (data as { triggers?: unknown }).triggers
+  if (triggers === undefined) return errors
+  if (!Array.isArray(triggers)) {
+    errors.push({
+      nodeId: node.id,
+      field: 'triggers',
+      message: `Trigger '${label}' has a triggers value that is not a list.`,
+      code: 'INVALID_TRIGGERS',
+    })
+    return errors
+  }
+  triggers.forEach((t: unknown, i: number) => {
+    const entry = t && typeof t === 'object' ? (t as { type?: unknown; config?: unknown }) : {}
+    if (!isTriggerType(entry.type)) {
+      errors.push({
+        nodeId: node.id,
+        field: `triggers[${i}].type`,
+        message: `Trigger '${label}' has an unknown trigger type: ${String(entry.type)}.`,
+        code: 'INVALID_TRIGGER_TYPE',
+      })
+      return
+    }
+    const config = entry.config
+    if (config !== undefined && (config === null || typeof config !== 'object' || Array.isArray(config))) {
+      errors.push({
+        nodeId: node.id,
+        field: `triggers[${i}].config`,
+        message: `Trigger '${label}' has a ${entry.type} config that is not an object.`,
+        code: 'INVALID_TRIGGER_CONFIG',
+      })
+      return
+    }
+    if (entry.type === 'schedule') {
+      const cron = config ? (config as Record<string, unknown>).cron : undefined
+      if (typeof cron !== 'string' || !cron.trim()) {
+        errors.push({
+          nodeId: node.id,
+          field: `triggers[${i}].config.cron`,
+          message: `Schedule trigger on '${label}' needs a cron expression (config.cron).`,
+          code: 'MISSING_SCHEDULE',
+        })
+      }
+    }
+  })
   return errors
 }
 
