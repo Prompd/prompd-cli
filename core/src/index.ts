@@ -46,3 +46,6 @@ export type { ExpressionEvalOptions } from './lib/expression';
 // Workflow engine contract and helpers: run model, WorkflowHost, guardrails,
 // expressions, path and text helpers. The engine itself lands in workflowRun/engine.
 export * from './lib/workflowRun';
+
+// Workflow packaging: trace a workflow's files, scan for secrets, write a .pdpkg.
+export * from './lib/workflowPackage';
