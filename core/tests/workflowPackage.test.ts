@@ -58,6 +58,23 @@ describe('prmdFileRefs', () => {
       packageRefs: ['@scope/pkg@1.0.0/base.prmd'],
     })
   })
+  const fmOnly = (fm: string): string => `---\nid: x\nname: x\nversion: 1.0.0\n${fm}\n---\nBody.`
+  it.each([
+    ['a string', 'using: "@acme/a@1.0.0"', ['@acme/a@1.0.0']],
+    ['an array of strings', 'using:\n  - "@acme/a@1.0.0"\n  - "@acme/b@2.0.0"', ['@acme/a@1.0.0', '@acme/b@2.0.0']],
+    ['an array of {name, prefix}', 'using:\n  - name: "@acme/a@1.0.0"\n    prefix: "@a"', ['@acme/a@1.0.0']],
+    ['an array of {package, prefix}', 'using:\n  - package: "@acme/b@1.0.0"\n    prefix: "@b"', ['@acme/b@1.0.0']],
+    ['an object map of prefixes', 'using:\n  "@acme/c@1.0.0": "@c"\n  "@acme/d@2.0.0":\n    prefix: "@d"', ['@acme/c@1.0.0', '@acme/d@2.0.0']],
+  ])('using as %s is a package ref', (_n, fm, refs) => {
+    expect(prmdFileRefs(fmOnly(fm))).toEqual({ files: [], packageRefs: refs })
+  })
+  it('@-prefixed section, context and override values are package refs, not dropped', () => {
+    const text = fmOnly('system: "@acme/sys@1.0.0/s.md"\ncontext: "@acme/ctx@1.0.0/notes.md"\noverride:\n  task: "@acme/t@1.0.0/t.md"')
+    expect(prmdFileRefs(text)).toEqual({
+      files: [],
+      packageRefs: ['@acme/sys@1.0.0/s.md', '@acme/ctx@1.0.0/notes.md', '@acme/t@1.0.0/t.md'],
+    })
+  })
   it('a file without frontmatter has no refs', () => {
     expect(prmdFileRefs('just text {% include "x.md" %}')).toEqual({ files: [], packageRefs: [] })
   })
@@ -100,6 +117,16 @@ describe('traceWorkflowFiles', () => {
     expect(t.missing).toEqual(['x.prmd'])
   })
 
+  it('a .prmd that depends on a package through using: reports it in packageRefs', async () => {
+    const r = memReader({
+      'main.pdflow': pdflow([{ id: 'p', type: 'prompt', data: { label: 'p', source: './u.prmd' } }]),
+      'u.prmd': '---\nid: u\nname: u\nversion: 1.0.0\nusing:\n  - name: "@acme/lib@1.2.0"\n    prefix: "@lib"\n---\nBody.',
+    })
+    const t = await traceWorkflowFiles(r.read, 'main.pdflow')
+    expect(t.files).toEqual(['main.pdflow', 'u.prmd'])
+    expect(t.packageRefs).toEqual(['@acme/lib@1.2.0'])
+  })
+
   it('starts from a .prmd too (the CLI packager uses this)', async () => {
     const t = await traceWorkflowFiles(memReader(WORKSPACE).read, 'prompts/a.prmd')
     expect(t.files).toEqual(['prompts/a.prmd', 'prompts/base.prmd', 'prompts/parts/intro.md'])
@@ -140,6 +167,7 @@ describe('buildWorkflowPackage', () => {
     ['C:/x.prmd', /is absolute/],
     ['a\\b.prmd', /backslashes/],
     ['prompd.json', /reserved/],
+    ['manifest.json', /reserved/],
     ['', /empty path/],
   ])('refuses the path %s', async (p, why) => {
     await expect(buildWorkflowPackage([{ path: p, text: 'x' }, { path: 'flows/main.pdflow', text: '{}' }], manifest)).rejects.toThrow(why)

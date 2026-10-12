@@ -58,10 +58,37 @@ export function workflowNodeRefs(file: unknown): FileRefs {
   return { files, packageRefs }
 }
 
-/** A .prmd/.md's local file references: section fields (system, user, task,
- * assistant, response, output), context/contexts and override values when they
- * are ./ or ../ paths; inherits (local, or a package ref when @-prefixed); and
- * {% include %} targets. Bare inherits/include names are folder-relative. */
+/** The package names a frontmatter `using:` imports, in every form the
+ * compiler's dependency stage accepts: a string, an array of strings or
+ * `{ name | package, prefix }` objects, or an object map keyed by package.
+ * Entries the compiler would reject (an object with no prefix) are still
+ * reported: a package ref over-reported refuses a deploy, one missed ships a
+ * workflow that cannot resolve its imports. */
+function usingPackageNames(using: unknown): string[] {
+  const out: string[] = []
+  const add = (v: unknown): void => {
+    if (typeof v === 'string' && v.trim()) out.push(v.trim())
+  }
+  if (typeof using === 'string') add(using)
+  else if (Array.isArray(using)) {
+    for (const item of using) {
+      if (typeof item === 'string') add(item)
+      else if (item && typeof item === 'object') {
+        const o = item as { name?: unknown; package?: unknown }
+        add(o.name || o.package)
+      }
+    }
+  } else if (using && typeof using === 'object') {
+    for (const key of Object.keys(using as Record<string, unknown>)) add(key)
+  }
+  return out
+}
+
+/** A .prmd/.md's references: section fields (system, user, task, assistant,
+ * response, output), context/contexts and override values when they are ./ or
+ * ../ paths (or package refs when @-prefixed); every `using:` package; inherits
+ * (local, or a package ref when @-prefixed); and {% include %} targets. Bare
+ * inherits/include names are folder-relative. */
 export function prmdFileRefs(text: string): FileRefs {
   const files: string[] = []
   const packageRefs: string[] = []
@@ -76,7 +103,9 @@ export function prmdFileRefs(text: string): FileRefs {
     return { files, packageRefs }
   }
   const pathRef = (v: unknown): void => {
-    if (typeof v === 'string' && (v.startsWith('./') || v.startsWith('../'))) files.push(v)
+    if (typeof v !== 'string') return
+    if (v.startsWith('@')) packageRefs.push(v)
+    else if (v.startsWith('./') || v.startsWith('../')) files.push(v)
   }
   const folderRef = (v: string): void => {
     if (v.startsWith('@')) packageRefs.push(v)
@@ -92,6 +121,7 @@ export function prmdFileRefs(text: string): FileRefs {
   if (ov && typeof ov === 'object' && !Array.isArray(ov)) {
     for (const v of Object.values(ov as Record<string, unknown>)) pathRef(v)
   }
+  packageRefs.push(...usingPackageNames(meta.using))
   const inherits = meta.inherits
   if (typeof inherits === 'string' && inherits.trim()) folderRef(inherits.trim())
   const body = content.slice(fm[0].length)

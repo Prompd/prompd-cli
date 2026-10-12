@@ -27,7 +27,9 @@ export function packagePathError(p: string): string | null {
   const segments = p.split('/')
   if (segments.some((s) => s === '..')) return 'has a .. segment'
   if (segments.some((s) => s === '' || s === '.')) return 'has an empty or . segment'
-  if (p === 'prompd.json') return 'is reserved for the manifest'
+  // Core's package reader prefers manifest.json over prompd.json, so a packaged
+  // manifest.json would replace this package's manifest on ingest.
+  if (p === 'prompd.json' || p === 'manifest.json') return 'is reserved for the manifest'
   return null
 }
 
