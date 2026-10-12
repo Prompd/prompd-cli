@@ -203,68 +203,86 @@ export const DOCKABLE_HANDLES: Array<{
 // ============================================================================
 
 /**
- * TriggerNodeData - Workflow entry point configuration
+ * Every trigger a workflow or a crew agent can carry. ONE list: @corenel/crew
+ * re-exports it as CrewTriggerType, so the two never drift.
+ */
+export type TriggerType =
+  | 'manual' | 'file-change' | 'run-complete' | 'interval-while-open'
+  | 'app-init' | 'workspace-init' | 'schedule' | 'continuous'
+  | 'self-directed' | 'external-webhook'
+
+/** A trigger and its config. Config keys are crew's: schedule.cron (5-field, UTC),
+ * file-change.include/exclude, run-complete.after/onStatus,
+ * interval-while-open.everyMinutes. */
+export interface Trigger {
+  type: TriggerType
+  config?: Record<string, unknown>
+}
+
+export const TRIGGER_TYPES: readonly TriggerType[] = [
+  'manual', 'file-change', 'run-complete', 'interval-while-open', 'app-init',
+  'workspace-init', 'schedule', 'continuous', 'self-directed', 'external-webhook',
+]
+
+export function isTriggerType(v: unknown): v is TriggerType {
+  return typeof v === 'string' && (TRIGGER_TYPES as readonly string[]).includes(v)
+}
+
+/**
+ * TriggerNodeData - the workflow's entry point and what fires it.
  *
- * Trigger types:
- * - manual: User clicks "Run" button (default)
- * - webhook: HTTP POST to a generated endpoint
- * - schedule: Cron expression or interval-based
- * - file-watch: File system changes (Electron only)
- * - event: Internal event from another workflow
+ * `triggers` lists what fires the workflow besides the Run button; absent or empty
+ * means it runs by hand only. The single-trigger fields below are DEPRECATED but
+ * kept, loaded and saved as before: the browser canvas and its in-tab deploys
+ * still read them until workflow deploy Plan 2 moves them to `triggers`, which
+ * removes them in a later core release.
  *
  * Every workflow should have exactly one TriggerNode as its entry point.
  * The trigger node has no inputs and one output that starts the workflow.
  */
 export interface TriggerNodeData extends BaseNodeData {
-  /** Type of trigger */
-  triggerType: 'manual' | 'webhook' | 'schedule' | 'file-watch' | 'event'
+  /** What fires this workflow besides the Run button. */
+  triggers?: Trigger[]
+
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
+  triggerType?: 'manual' | 'webhook' | 'schedule' | 'file-watch' | 'event'
 
   /** Description of when/how this workflow runs */
   description?: string
 
-  // === Webhook Configuration (triggerType: 'webhook') ===
-
-  /** Webhook path suffix (e.g., '/my-workflow' -> POST /api/webhooks/my-workflow) */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   webhookPath?: string
-  /** Secret for HMAC signature validation */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   webhookSecret?: string
-  /** HTTP methods to accept (default: POST only) */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   webhookMethods?: ('GET' | 'POST' | 'PUT')[]
-  /** Whether to require authentication */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   webhookRequireAuth?: boolean
 
-  // === Schedule Configuration (triggerType: 'schedule') ===
-
-  /** Schedule type */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   scheduleType?: 'cron' | 'interval'
-  /** Cron expression (e.g., '0 9 * * *' for 9am daily) */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   scheduleCron?: string
-  /** Interval in milliseconds (e.g., 60000 for every minute) */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   scheduleIntervalMs?: number
-  /** Timezone for cron expressions (default: UTC) */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   scheduleTimezone?: string
-  /** Whether schedule is currently active */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   scheduleEnabled?: boolean
 
-  // === File Watch Configuration (triggerType: 'file-watch', Electron only) ===
-
-  /** Glob patterns for files to watch */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   fileWatchPaths?: string[]
-  /** Events to trigger on */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   fileWatchEvents?: ('create' | 'modify' | 'delete')[]
-  /** Debounce time in ms to batch rapid changes */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   fileWatchDebounceMs?: number
-  /** Whether to watch subdirectories */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   fileWatchRecursive?: boolean
 
-  // === Event Configuration (triggerType: 'event') ===
-
-  /** Event name to listen for */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   eventName?: string
-  /** Optional filter expression for event data */
+  /** @deprecated removed after the browser moves to triggers (workflow deploy Plan 2) */
   eventFilter?: string
-
-  // === Output Schema ===
 
   /** Schema for data this trigger provides to the workflow */
   outputSchema?: JsonSchema

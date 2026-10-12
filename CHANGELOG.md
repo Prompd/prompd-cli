@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`@prompd/core` 0.6.0**: The `.pdflow` workflow engine, `runWorkflow`, runs over an injected
+  `WorkflowHost` (model turns, tools, prompt compile, fetch, model and price lookup, the redaction
+  prompt, user input), so the app and the sidecar run the same engine. Also exported: the run
+  event contract and run-view reducers (`WfEvent`, `applyWfEvent`, `emptyRun`, `runToText`,
+  `runTotals`, `stripRunInspect`), `parseWorkflowJson`, `substitute`, `renderConversation`,
+  `resolveFlowFileRef`, `relativizeFlowRef`, guardrail evaluation (`parseVerdict`,
+  `checkGuardrail`, `firstGuardrailHit`), `evalWorkflowCondition` and `nodeToolNames`.
+- **`@prompd/core` 0.6.0**: Workflow packaging. `traceWorkflowFiles` finds every local file a
+  workflow or prompt uses (recursive, cycle-safe; missing files and registry package refs are
+  reported, including `using:` packages and `@` refs as `packageRefs`), `scanForSecrets` flags
+  likely secrets by file and line, and `buildWorkflowPackage` writes a `.pdpkg` with a
+  `prompd.json` manifest (`type: 'workflow'`), refusing absolute and `..` paths. `manifest.json`
+  and `prompd.json` are reserved package paths.
+- **`@prompd/core` 0.6.0**: One trigger vocabulary for workflows and crew agents: `TriggerType`,
+  `Trigger`, `TRIGGER_TYPES`, `isTriggerType`, and `TriggerNodeData.triggers`. The single-trigger
+  fields (`triggerType`, `webhook*`, `schedule*`, `fileWatch*`, `eventName`, `eventFilter`) stay,
+  deprecated, and still round-trip; they will be removed in a later release.
 - **`@prompd/core` 0.5.5**: Workflow loop nodes take `collect: 'text'` (with optional
   `separator`, default a blank line) to join iteration outputs into one string instead of a
   JSON list; `INVALID_LOOP_COLLECT` for an unknown mode. Workflow parameters take an optional
@@ -23,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `prompd config providers` - Alias for provider list
 
 ### Changed
+- **`@prompd/core` 0.6.0**: A trigger node no longer needs `triggerType` to validate
+  (`TriggerNodeData.triggerType` is now optional and the `MISSING_TRIGGER_TYPE` validation code
+  is removed): it may carry `triggerType`, `triggers`, both, or neither.
+- **Node.js CLI**: `prompd package` traces `.prmd` dependencies and `.pdflow` references, and
+  scans for secrets, with `@prompd/core`'s functions, so the CLI and the app share one tracer.
+  Dependency tracing is now recursive: a dependency's own dependencies are packaged too.
 - **README.md**: Updated CLI command reference with accurate syntax from `--help` output
 - **README.md**: Corrected feature parity claims - Python CLI is most complete, Go/Node.js working toward parity
 - **README.md**: Added links to centralized documentation in `prompd-docs` repository

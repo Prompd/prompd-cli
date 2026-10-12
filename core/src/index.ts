@@ -42,3 +42,10 @@ export {
   ExpressionError, MAX_EXPRESSION_LENGTH, MAX_EXPRESSION_DEPTH, MAX_ARRAY_SCAN, MAX_JSON_NAV_LENGTH,
 } from './lib/expression';
 export type { ExpressionEvalOptions } from './lib/expression';
+
+// Workflow engine contract and helpers: run model, WorkflowHost, guardrails,
+// expressions, path and text helpers. The engine itself lands in workflowRun/engine.
+export * from './lib/workflowRun';
+
+// Workflow packaging: trace a workflow's files, scan for secrets, write a .pdpkg.
+export * from './lib/workflowPackage';

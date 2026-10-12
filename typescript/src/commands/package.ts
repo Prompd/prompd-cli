@@ -2,7 +2,6 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import * as yaml from 'js-yaml';
 import archiver from 'archiver';
 import { createHash } from 'crypto';
 import mammoth from 'mammoth';
@@ -10,6 +9,7 @@ import { excelToMarkdownSheets } from '../lib/excel';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
 import { PrompdParser } from '../lib/parser';
+import { traceWorkflowFiles, workflowNodeRefs, normalizeWorkspacePath } from '@prompd/core';
 import { needsFrontmatterProtection, getContentType, isValidPackageType, VALID_PACKAGE_TYPES, PackageType } from '../types';
 
 interface PackageExclusions {
@@ -602,96 +602,27 @@ async function discoverPackableFiles(
 }
 
 /**
- * Parse a single .prmd file and return all local file dependencies as
- * workspace-relative paths.  Traces:
- *   - system:, user:, task:, assistant:, response:, output: (file path values)
- *   - context: / contexts: (string or array of strings)
- *   - override: (object whose values are file paths)
- *   - inherits: (local .prmd path — excludes @scope/pkg references)
- *   - {% include "..." %} directives in the body
- *
- * Only paths starting with ./ or ../ are treated as file references.
- * Returns workspace-relative forward-slash paths.
+ * Every local file a .prmd depends on, as workspace-relative forward-slash
+ * paths, traced by @prompd/core's traceWorkflowFiles (the same walk the app uses
+ * to deploy workflows): section fields, context/contexts, override, inherits
+ * (local) and {% include %}, recursively. Missing files are included so the
+ * caller reports them; the entry itself and anything outside the workspace are
+ * not.
  */
-async function tracePrmdFileDependencies(
-  prmdRelativePath: string,
-  workspacePath: string
-): Promise<string[]> {
-  const deps = new Set<string>();
-  const prmdDir = path.dirname(path.join(workspacePath, prmdRelativePath));
-
-  let content: string;
-  try {
-    content = (await fs.readFile(path.join(workspacePath, prmdRelativePath), 'utf-8')).replace(/\r\n/g, '\n');
-  } catch {
-    return [];
-  }
-
-  // Parse YAML frontmatter
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) return [];
-
-  let frontmatter: Record<string, unknown>;
-  try {
-    frontmatter = (yaml.load(fmMatch[1]) as Record<string, unknown>) || {};
-  } catch {
-    return [];
-  }
-
-  /** Resolve a ref relative to the .prmd file and return workspace-relative path, or null if out-of-workspace or not a path ref */
-  function resolve(ref: unknown): string | null {
-    if (typeof ref !== 'string') return null;
-    if (!ref.startsWith('./') && !ref.startsWith('../')) return null;
-    const abs = path.resolve(prmdDir, ref);
-    const wsRoot = path.resolve(workspacePath);
-    if (!abs.startsWith(wsRoot + path.sep) && abs !== wsRoot) return null;
-    return path.relative(workspacePath, abs).replace(/\\/g, '/');
-  }
-
-  // system:, user:, task:, assistant:, response:, output:
-  const sectionFields = ['system', 'user', 'task', 'assistant', 'response', 'output'];
-  for (const field of sectionFields) {
-    const val = frontmatter[field];
-    const refs = Array.isArray(val) ? val : [val];
-    for (const ref of refs) {
-      const r = resolve(ref);
-      if (r) deps.add(r);
+export async function traceLocalPrmdDeps(prmdRelativePath: string, workspacePath: string): Promise<string[]> {
+  const root = path.resolve(workspacePath);
+  const read = async (rel: string): Promise<string | null> => {
+    const abs = path.resolve(root, rel);
+    if (abs !== root && !abs.startsWith(root + path.sep)) return null;
+    try {
+      return await fs.readFile(abs, 'utf-8');
+    } catch {
+      return null;
     }
-  }
-
-  // context: / contexts:
-  const ctxVal = frontmatter['context'] ?? frontmatter['contexts'];
-  const ctxRefs = Array.isArray(ctxVal) ? ctxVal : ctxVal !== undefined ? [ctxVal] : [];
-  for (const ref of ctxRefs) {
-    const r = resolve(ref);
-    if (r) deps.add(r);
-  }
-
-  // override: { key: "path" }
-  if (frontmatter['override'] && typeof frontmatter['override'] === 'object' && !Array.isArray(frontmatter['override'])) {
-    for (const val of Object.values(frontmatter['override'] as Record<string, unknown>)) {
-      const r = resolve(val);
-      if (r) deps.add(r);
-    }
-  }
-
-  // inherits: (local only — skip @scope/pkg refs)
-  const inherits = frontmatter['inherits'];
-  if (typeof inherits === 'string' && !inherits.startsWith('@')) {
-    const r = resolve(inherits.startsWith('./') || inherits.startsWith('../') ? inherits : './' + inherits);
-    if (r) deps.add(r);
-  }
-
-  // {% include "..." %} in body
-  const body = content.slice(fmMatch[0].length);
-  const includeRe = /\{%-?\s*include\s+["']([^"']+)["']\s*-?%\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = includeRe.exec(body)) !== null) {
-    const r = resolve(m[1].startsWith('./') || m[1].startsWith('../') ? m[1] : './' + m[1]);
-    if (r) deps.add(r);
-  }
-
-  return Array.from(deps);
+  };
+  const entry = normalizeWorkspacePath(prmdRelativePath);
+  const trace = await traceWorkflowFiles(read, entry);
+  return [...trace.files, ...trace.missing].filter((p) => p !== entry && !p.startsWith('../'));
 }
 
 export async function createPackageFromPrompdJson(
@@ -967,31 +898,10 @@ export async function createPackageFromPrompdJson(
         errors.push('Missing or invalid field: edges (must be an array)');
       }
 
-      // Extract and validate referenced files
-      const referencedFiles = new Set<string>();
-
-      if (Array.isArray(workflow.nodes)) {
-        for (const node of workflow.nodes) {
-          // Check prompt nodes for file references
-          if (node.type === 'prompt' && node.data?.source) {
-            const source = node.data.source;
-            const sourceType = node.data.sourceType;
-
-            // Only validate local file references (not package references or raw)
-            if (sourceType !== 'raw' && !source.startsWith('@')) {
-              referencedFiles.add(source);
-            }
-          }
-
-          // Check workflow nodes for sub-workflow references
-          if (node.type === 'workflow' && node.data?.workflowPath) {
-            const workflowPath = node.data.workflowPath;
-            if (!workflowPath.startsWith('@')) {
-              referencedFiles.add(workflowPath);
-            }
-          }
-        }
-      }
+      // Referenced files, by the same walk @prompd/core's workflow tracer uses
+      // (prompt sources, sub-workflows, file-backed system prompts). Registry
+      // package refs are not local files and are not checked here.
+      const referencedFiles = new Set<string>(workflowNodeRefs(workflow).files);
 
       // Verify all referenced files exist
       // Resolve relative to workflow file directory (handles ../prompts/file.prmd)
@@ -1069,7 +979,7 @@ export async function createPackageFromPrompdJson(
   for (const filePath of filesToPackage) {
     if (!filePath.endsWith('.prmd')) continue;
 
-    const deps = await tracePrmdFileDependencies(filePath, workspacePath);
+    const deps = await traceLocalPrmdDeps(filePath, workspacePath);
     if (deps.length === 0) continue;
 
     const missing: string[] = [];
