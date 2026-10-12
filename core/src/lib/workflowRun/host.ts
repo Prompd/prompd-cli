@@ -98,7 +98,11 @@ export interface WorkflowHost {
     url: string,
     init: { method: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
   ): Promise<{ status: number; statusText: string; text: string }>
-  /** The model a node runs on: node setting, else workflow default, else the host's. */
+  /** A model the host offers. The engine calls it twice over: once as
+   * resolveModel(undefined, undefined) for the run's default model, and once per
+   * provider node as resolveModel(providerModel, undefined), so a model no longer
+   * offered falls back. A node's inline `model` is NOT passed through here: it
+   * goes straight to callModel. The engine never passes a workflowModel today. */
   resolveModel(nodeModel: string | undefined, workflowModel: string | undefined): string
   /** Price per million tokens, for node-end cost; null when unknown. */
   priceOf(model: string): { input: number; output: number } | null
@@ -108,7 +112,9 @@ export interface WorkflowHost {
   /** A user-input node. Null = no answer (headless hosts return null). */
   requestInput(req: WfInputRequest): Promise<string | null>
   /** Optional telemetry for self-healing. The engine forwards each retry the
-   * host reports through onRetry here, with the node and model. */
+   * host reports through onRetry here, as a 'retrying' record with the node and
+   * model. A host records heals EITHER itself inside callModel/runTool OR by
+   * implementing onHeal, never both, or each retry is counted twice. */
   onHeal?(rec: WfHealRecord): void
 }
 

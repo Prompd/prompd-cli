@@ -219,7 +219,7 @@ export async function runWorkflow(
     // Per-node telemetry. The runner emits node-start..outputs..(skip|error) per node
     // but has many exit points, so rather than instrument each, an emit WRAPPER stamps
     // the elapsed time and accumulated token usage as a single `node-end`, flushed when
-    // the next node starts or the run ends. Cost is priced from the model catalog.
+    // the next node starts or the run ends. Cost is priced by the host (host.priceOf).
     let curUsage = { inTok: 0, outTok: 0, model: '' };
     const addUsage = (model: string, u: WfUsage | undefined): void => {
       curUsage.model = model;
@@ -742,8 +742,9 @@ export async function runWorkflow(
         return 'continue';
       }
 
-      // API: a REST call with templated url/headers/body. Browser fetch, so the
-      // endpoint must allow CORS (or be same-origin / proxied). Response text flows on.
+      // API: a REST call with templated url/headers/body, made through host.fetch
+      // (which applies the host's outbound guard; a browser host is also subject to
+      // CORS). Response text flows on.
       if (node.type === 'api') {
         emit({ type: 'node-start', id: node.id, nodeType: node.type, label });
         ctx.input = lastOutput; ctx.previous_output = lastOutput;
