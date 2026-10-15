@@ -11,4 +11,10 @@ describe('@prompd/core package exports', () => {
       expect(core).toHaveProperty(name);
     }
   });
+
+  it('does not expose the unchecked archive reader from the root', () => {
+    expect(core).not.toHaveProperty('readArchive');
+    expect(core).toHaveProperty('entryNameProblem');
+    expect(core).toHaveProperty('ARCHIVE_LIMITS');
+  });
 });
