@@ -2,22 +2,20 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import archiver from 'archiver';
-import { createHash } from 'crypto';
 import mammoth from 'mammoth';
 import { excelToMarkdownSheets } from '../lib/excel';
 import { SecurityManager } from '../lib/security';
 import { PrompdCompiler, NodeFileSystem } from '../lib/compiler';
 import { PrompdParser } from '../lib/parser';
-import { traceWorkflowFiles, workflowNodeRefs, normalizeWorkspacePath } from '@prompd/core';
+import { traceWorkflowFiles, workflowNodeRefs, normalizeWorkspacePath, packPdpkg, type PackageType as CorePackageType } from '@prompd/core';
 import { needsFrontmatterProtection, getContentType, isValidPackageType, VALID_PACKAGE_TYPES, PackageType } from '../types';
 
-interface PackageExclusions {
+export interface PackageExclusions {
   directories?: string[];
   patterns?: string[];
 }
 
-interface PackageManifest {
+export interface PackageManifest {
   name: string;
   version: string;
   description: string;
@@ -82,7 +80,7 @@ export function createPackageCommand(): Command {
     .option('-v, --pkg-version <version>', 'Package version')
     .option('-d, --description <description>', 'Package description')
     .option('-a, --author <author>', 'Package author')
-    .option('-t, --type <type>', 'Package type (package, workflow, skill, node-template)', 'package')
+    .option('-t, --type <type>', 'Package type (package, workflow, skill, agent)', 'package')
     .action(async (source: string, output?: string, options?: Record<string, string>) => {
       try {
         // Map pkgVersion to version for backwards compatibility
@@ -139,6 +137,11 @@ export function createPackageCommand(): Command {
   return command;
 }
 
+export const DEFAULT_EXCLUSIONS: PackageExclusions = {
+  directories: ['.git', '.prmd', 'node_modules', '__pycache__'],
+  patterns: ['*.log', '*.tmp', '*.cache', '.env*']
+};
+
 async function packageFromDirectory(
   sourceDir: string,
   outputPath?: string,
@@ -184,12 +187,7 @@ async function packageFromDirectory(
   };
 
   // Create package with default exclusions
-  const exclusions: PackageExclusions = {
-    directories: ['.git', '.prmd', 'node_modules', '__pycache__'],
-    patterns: ['*.log', '*.tmp', '*.cache', '.env*']
-  };
-
-  await createPackage(sourceDir, outputPath, manifest, exclusions);
+  await createPackage(sourceDir, outputPath, manifest, DEFAULT_EXCLUSIONS);
 
   console.log(chalk.green('✓ Package created successfully!'));
   console.log(chalk.cyan(`   Package: ${outputPath}`));
@@ -209,6 +207,19 @@ async function createPackage(
   manifest: PackageManifest,
   exclusions: PackageExclusions
 ): Promise<void> {
+  const bytes = await buildPackageBytes(sourceDir, manifest, exclusions);
+  await fs.writeFile(outputPath, bytes);
+}
+
+/**
+ * Scan for secrets, collect the files and pack them through core's packPdpkg, which
+ * writes the integrity block and refuses anything the verifier would refuse.
+ */
+export async function buildPackageBytes(
+  sourceDir: string,
+  manifest: PackageManifest,
+  exclusions: PackageExclusions
+): Promise<Uint8Array> {
   // First pass: scan for secrets
   const secretsFound: Array<{ file: string; type: string; line: number }> = [];
 
@@ -265,8 +276,7 @@ async function createPackage(
     throw new Error('Secrets detected in package contents');
   }
 
-  // Second pass: collect files, apply frontmatter, and compute hashes
-  const fileHashes: Record<string, string> = {};
+  // Second pass: collect files and apply frontmatter protection
   const fileContents: Array<{ zipPath: string; content: string | Buffer }> = [];
 
   const collectFiles = (dir: string, relativePath: string = '') => {
@@ -286,17 +296,19 @@ async function createPackage(
       } else {
         const zipPath = itemRelPath.replace(/\\/g, '/');
 
+        // The source manifest is read below and re-written by packPdpkg; it is not a package entry
+        if (zipPath === 'prompd.json' || zipPath === 'manifest.json') {
+          continue;
+        }
+
         // For code files, add frontmatter protection
         if (needsFrontmatterProtection(itemPath)) {
           const content = fs.readFileSync(itemPath, 'utf-8');
           const filename = path.basename(itemPath);
           const protectedContent = addContentFrontmatter(content, filename);
-          fileHashes[zipPath] = createHash('sha256').update(protectedContent).digest('hex');
           fileContents.push({ zipPath, content: protectedContent });
         } else {
-          // For non-code files, read content for hashing
           const content = fs.readFileSync(itemPath);
-          fileHashes[zipPath] = createHash('sha256').update(content).digest('hex');
           fileContents.push({ zipPath, content });
         }
       }
@@ -305,33 +317,27 @@ async function createPackage(
 
   collectFiles(sourceDir);
 
-  // Third pass: create the package with integrity hashes
-  return new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(outputPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
-
-    output.on('close', () => resolve());
-    archive.on('error', (err) => reject(err));
-
-    archive.pipe(output);
-
-    // Add prompd.json with integrity hashes
-    const fullManifest = {
-      ...manifest,
-      integrity: {
-        algorithm: 'sha256',
-        files: fileHashes
-      }
-    };
-    archive.append(JSON.stringify(fullManifest, null, 2), { name: 'prompd.json' });
-
-    // Add all files to archive
-    for (const { zipPath, content } of fileContents) {
-      archive.append(content, { name: zipPath });
+  // Dependencies, requires, main, readme and files come from the source prompd.json;
+  // the command's own fields win.
+  let sourceJson: Record<string, unknown> = {};
+  const sourceManifestPath = path.join(sourceDir, 'prompd.json');
+  if (await fs.pathExists(sourceManifestPath)) {
+    const parsed: unknown = await fs.readJson(sourceManifestPath);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      sourceJson = parsed as Record<string, unknown>;
     }
+  }
+  const inherited: Record<string, unknown> = {};
+  for (const key of ['dependencies', 'requires', 'main', 'readme', 'files']) {
+    if (sourceJson[key] !== undefined) inherited[key] = sourceJson[key];
+  }
+  const defined = Object.fromEntries(Object.entries(manifest).filter(([, v]) => v !== undefined));
+  const merged = { ...inherited, ...defined, name: manifest.name, version: manifest.version, type: (manifest.type ?? 'package') as CorePackageType };
 
-    archive.finalize();
-  });
+  const files = new Map<string, Uint8Array | string>(
+    fileContents.map(({ zipPath, content }) => [zipPath, typeof content === 'string' ? content : new Uint8Array(content)])
+  );
+  return packPdpkg(merged, files);
 }
 
 function shouldExclude(relPath: string, isDirectory: boolean, exclusions: PackageExclusions): boolean {
@@ -447,7 +453,7 @@ export function createPackCommand(): Command {
     .option('-d, --description <description>', 'Package description (overrides .pdproj)')
     .option('--author <author>', 'Package author (overrides .pdproj)')
     .option('-a, --author <author>', 'Package author (overrides .pdproj)')
-    .option('-t, --type <type>', 'Package type (package, workflow, skill, node-template)', 'package')
+    .option('-t, --type <type>', 'Package type (package, workflow, skill, agent)', 'package')
     .action(async (source: string, output?: string, options?: Record<string, string>) => {
       try {
         await handlePackageCreate(source, output, options);
@@ -666,7 +672,7 @@ export async function createPackageFromPrompdJson(
 
   // Validate package type if specified
   if (prompdJson.type && !isValidPackageType(prompdJson.type)) {
-    return { success: false, error: `Invalid package type '${prompdJson.type}' in prompd.json. Valid types: package, workflow, skill, node-template` };
+    return { success: false, error: `Invalid package type '${prompdJson.type}' in prompd.json. Valid types: package, workflow, skill, agent` };
   }
 
   // 4. Auto-discover files if files array is empty or missing
@@ -1165,7 +1171,6 @@ async function createPackageFromFiles(
 ): Promise<void> {
   // Pre-process files: extract binary assets to text, apply frontmatter protection
   const normalizedFiles = files.map(f => f.replace(/\\/g, '/'));
-  const fileHashes: Record<string, string> = {};
   const fileContents: Array<{ zipPath: string; content: string | Buffer }> = [];
   const pathRenames: Record<string, string> = {};
 
@@ -1181,52 +1186,32 @@ async function createPackageFromFiles(
       const newZipPath = (dirName === '.' ? '' : dirName + '/') + baseName + extracted.newExtension;
       pathRenames[zipPath] = newZipPath;
       zipPath = newZipPath;
-      fileHashes[zipPath] = createHash('sha256').update(extracted.content).digest('hex');
       fileContents.push({ zipPath, content: extracted.content });
     } else if (needsFrontmatterProtection(filePath)) {
       const content = fs.readFileSync(fullPath, 'utf-8');
       const filename = path.basename(filePath);
       const protectedContent = addContentFrontmatter(content, filename);
-      fileHashes[zipPath] = createHash('sha256').update(protectedContent).digest('hex');
       fileContents.push({ zipPath, content: protectedContent });
     } else {
       const content = fs.readFileSync(fullPath);
-      fileHashes[zipPath] = createHash('sha256').update(content).digest('hex');
       fileContents.push({ zipPath, content });
     }
   }
 
   const finalFiles = normalizedFiles.map(f => pathRenames[f] || f);
 
-  return new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(outputPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
-
-    output.on('close', () => resolve());
-    archive.on('error', (err) => reject(err));
-
-    archive.pipe(output);
-
-    // Add prompd.json (inside the package) with files array and integrity hashes
-    // This writes the files array to the archive only, not the filesystem
-    const fullManifest = {
+  const bytes = await packPdpkg(
+    {
       ...manifest,
-      main: mainFile,
-      readme: readmeFile,
+      type: (manifest.type ?? 'package') as CorePackageType,
+      ...(mainFile ? { main: mainFile } : {}),
+      ...(readmeFile ? { readme: readmeFile } : {}),
       files: finalFiles,
-      integrity: {
-        algorithm: 'sha256',
-        files: fileHashes
-      },
-      ...(ignorePatterns && ignorePatterns.length > 0 ? { ignore: ignorePatterns } : {})
-    };
-    archive.append(JSON.stringify(fullManifest, null, 2), { name: 'prompd.json' });
-
-    // Add all files to archive
-    for (const { zipPath, content } of fileContents) {
-      archive.append(content, { name: zipPath });
-    }
-
-    archive.finalize();
-  });
+      ...(ignorePatterns && ignorePatterns.length > 0 ? { ignore: ignorePatterns } : {}),
+    },
+    new Map<string, Uint8Array | string>(
+      fileContents.map(({ zipPath, content }) => [zipPath, typeof content === 'string' ? content : new Uint8Array(content)])
+    ),
+  );
+  await fs.writeFile(outputPath, bytes);
 }

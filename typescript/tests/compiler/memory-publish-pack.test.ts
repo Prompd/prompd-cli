@@ -7,6 +7,7 @@ import { RegistryClient } from '../../src/lib/registry';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
+import { packPdpkg, openPdpkg, isPackageVerificationError } from '@prompd/core';
 
 // Increase timeout for zip operations
 jest.setTimeout(30000);
@@ -100,7 +101,7 @@ describe('In-Memory Package Pack, Publish, and Security', () => {
       expect(buffer.length).toBeGreaterThan(0);
     });
 
-    it('should include manifest.json in package', async () => {
+    it('should include prompd.json with an integrity block in package', async () => {
       memoryFS.addFile('pkg/test.prmd', '# Test');
 
       const manifest = {
@@ -114,12 +115,16 @@ describe('In-Memory Package Pack, Publish, and Security', () => {
 
       // Extract and verify manifest is present (ZIP format)
       const zip = new AdmZip(buffer);
-      const manifestEntry = zip.getEntry('manifest.json');
+      expect(zip.getEntry('manifest.json')).toBeNull();
+      const manifestEntry = zip.getEntry('prompd.json');
       expect(manifestEntry).not.toBeNull();
 
       const manifestContent = JSON.parse(manifestEntry!.getData().toString('utf8'));
       expect(manifestContent.name).toBe('@test/pkg');
       expect(manifestContent.version).toBe('1.0.0');
+      expect(manifestContent.integrity.algorithm).toBe('sha256');
+      expect(Object.keys(manifestContent.integrity.files)).toEqual(['test.prmd']);
+      await openPdpkg(new Uint8Array(buffer));
     });
 
     it('should reject packages with missing required manifest fields', async () => {
@@ -180,29 +185,47 @@ Hello!`);
       const zip = new AdmZip(buffer);
       const entries = zip.getEntries().map(e => e.entryName);
 
-      expect(entries).toContain('manifest.json');
+      expect(entries).toContain('prompd.json');
+      expect(entries).not.toContain('manifest.json');
       expect(entries.some(e => e.includes('greeting.prmd'))).toBe(true);
     });
   });
 
-  describe('Backward Compatibility', () => {
-    it('should maintain compatibility with existing tests', async () => {
-      // Create a valid ZIP package for addPackage
-      const testBuffer = createZipPackage({
-        'test.prmd': '---\nname: test\nversion: 1.0.0\n---\n# Test'
-      });
+  describe('addPackage() verifies through core', () => {
+    it('extracts a package built by packPdpkg', async () => {
+      const bytes = await packPdpkg(
+        { name: '@test/compat', version: '1.0.0', type: 'package' },
+        new Map([['test.prmd', '---\nname: test\nversion: 1.0.0\n---\n# Test']])
+      );
 
-      await memoryFS.addPackage('@test/compat', '1.0.0', testBuffer);
+      await memoryFS.addPackage('@test/compat', '1.0.0', Buffer.from(bytes));
 
       const packagePath = memoryFS.getPackagePath('@test/compat', '1.0.0');
       expect(memoryFS.exists(`${packagePath}/test.prmd`)).toBe(true);
+    });
+
+    it('refuses a hand-built zip with no integrity block', async () => {
+      const handBuilt = createZipPackage({
+        'test.prmd': '# Test',
+        'prompd.json': JSON.stringify({ name: '@test/hand', version: '1.0.0', type: 'package' })
+      });
+
+      const err = await memoryFS.addPackage('@test/hand', '1.0.0', handBuilt).catch((e: unknown) => e);
+      expect(isPackageVerificationError(err) && err.code).toBe('INTEGRITY_MISSING');
+    });
+
+    it('refuses a zip whose root manifest is manifest.json', async () => {
+      const handBuilt = createZipPackage({ 'manifest.json': '{}', 'a.prmd': 'x' });
+
+      const err = await memoryFS.addPackage('@test/hand', '1.0.0', handBuilt).catch((e: unknown) => e);
+      expect(isPackageVerificationError(err) && err.code).toBe('MANIFEST_RESERVED');
     });
   });
 });
 
 /**
- * Helper function to create a ZIP package buffer from a file map.
- * Uses AdmZip to match the .pdpkg format expected by MemoryFileSystem.addPackage.
+ * Hand-built (adm-zip) archive: what a foreign packer would produce, with no
+ * integrity block. Real packages come from packPdpkg.
  */
 function createZipPackage(files: Record<string, string>): Buffer {
   const zip = new AdmZip();

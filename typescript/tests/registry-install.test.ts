@@ -136,6 +136,21 @@ describe('RegistryClient.install (through core)', () => {
     }
   });
 
+  it('downloadPackageBuffer accepts the unversioned ref (latest) and an exact version', async () => {
+    const pkg = await packPdpkg({ name: '@t/x', version: '1.2.0', type: 'package' }, new Map([['a.md', 'x']]));
+    const reg = await serve([{ name: '@t/x', version: '1.2.0', bytes: pkg }]);
+    try {
+      const client = new RegistryClient({ registryUrl: reg.url, cacheDir: path.join(tmp, 'cache') });
+      const latest = await client.downloadPackageBuffer('@t/x', 'latest');
+      expect(latest.metadata.version).toBe('1.2.0');
+      expect(new Uint8Array(latest.tarball)).toEqual(pkg);
+      const exact = await client.downloadPackageBuffer('@t/x', '1.2.0');
+      expect(exact.metadata.version).toBe('1.2.0');
+    } finally {
+      await reg.close();
+    }
+  });
+
   it('uninstalls through core and drops the workspace dependency', async () => {
     const pkg = await packPdpkg({ name: '@t/u', version: '1.0.0', type: 'package' }, new Map([['a.md', 'u']]));
     const reg = await serve([{ name: '@t/u', version: '1.0.0', bytes: pkg }]);

@@ -3,28 +3,26 @@
  *
  * The interface and the pure in-memory base live in @prompd/core. This module
  * adds the Node-only pieces: NodeFileSystem (real fs) and a MemoryFileSystem
- * subclass that can ingest .pdpkg (ZIP) packages via adm-zip. Re-exported so
+ * subclass that adds name/size guards and a packPdpkg-backed createPackageBuffer. Re-exported so
  * existing `./compiler/file-system` imports keep working unchanged.
  */
 
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import AdmZip from 'adm-zip';
 import {
   IFileSystem,
   MemoryFileSystem as CoreMemoryFileSystem,
-  parsePackageReference as parsePackageRef
+  parsePackageReference as parsePackageRef,
+  packPdpkg,
+  type PackageType
 } from '@prompd/core';
 
 export type { IFileSystem } from '@prompd/core';
 
-// CLI-only package ingestion limits. Module-level (not class statics) because
-// core's MemoryFileSystem also declares private static MAX_PACKAGE_SIZE etc.,
-// and TS2417 rejects a subclass redeclaring a base class's private static
-// member under the same name.
+// CLI-only cap on the archive size, checked before core opens it. Module-level
+// (not a class static) because core's MemoryFileSystem declares private statics
+// of its own, and TS2417 rejects a subclass redeclaring one under the same name.
 const CLI_MAX_PACKAGE_SIZE = 50 * 1024 * 1024; // 50MB
-const CLI_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
-const CLI_MAX_FILE_COUNT = 1000;
 
 /**
  * Default file system implementation using Node.js fs.
@@ -81,43 +79,6 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
     }
   }
 
-  private validateZipStructure(zip: AdmZip): void {
-    const entries = zip.getEntries();
-    let fileCount = 0;
-    let totalSize = 0;
-
-    for (const entry of entries) {
-      fileCount++;
-      totalSize += entry.header.size;
-
-      if (fileCount > CLI_MAX_FILE_COUNT) {
-        throw new Error(`Package contains too many files (max: ${CLI_MAX_FILE_COUNT})`);
-      }
-      if (totalSize > CLI_MAX_PACKAGE_SIZE) {
-        throw new Error(`Package too large (max: ${CLI_MAX_PACKAGE_SIZE} bytes)`);
-      }
-      this.validateZipEntry(entry);
-    }
-  }
-
-  private validateZipEntry(entry: AdmZip.IZipEntry): void {
-    const entryPath = entry.entryName;
-    if (entryPath.includes('..') || entryPath.startsWith('/') || entryPath.startsWith('\\')) {
-      throw new Error(`Security violation: Path traversal attempt (${entryPath})`);
-    }
-    if (path.isAbsolute(entryPath)) {
-      throw new Error(`Security violation: Absolute path (${entryPath})`);
-    }
-    if (entry.header.size > CLI_MAX_FILE_SIZE) {
-      throw new Error(
-        `File too large: ${entryPath} (${entry.header.size} bytes, max: ${CLI_MAX_FILE_SIZE})`
-      );
-    }
-    if (entryPath.includes('\0')) {
-      throw new Error(`Security violation: Null byte in path (${entryPath})`);
-    }
-  }
-
   /**
    * Add a package from a ZIP Buffer to the in-memory file system.
    */
@@ -131,31 +92,8 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
       );
     }
 
-    const zip = new AdmZip(packageBuffer);
-    this.validateZipStructure(zip);
-
-    const packagePath = this.getPackagePath(packageName, version);
-    const entries = zip.getEntries();
-
-    const normalizedPackagePath = this.normalizePath(packagePath);
-    const packagePrefix = normalizedPackagePath.endsWith('/')
-      ? normalizedPackagePath
-      : normalizedPackagePath + '/';
-
-    for (const entry of entries) {
-      if (entry.isDirectory) continue;
-
-      const content = entry.getData().toString('utf8');
-      const entryPath = entry.entryName;
-      const filePath = this.join(packagePath, entryPath);
-
-      const normalizedFilePath = this.normalizePath(filePath);
-      if (!normalizedFilePath.startsWith(packagePrefix) && normalizedFilePath !== normalizedPackagePath) {
-        throw new Error(`Security violation: extracted path escapes package directory: ${entryPath}`);
-      }
-
-      this.addFile(filePath, content);
-    }
+    // Verification, extraction and path-escape checks are core's single ingest path.
+    await super.addPackage(packageName, version, new Uint8Array(packageBuffer));
   }
 
   private async loadDirectoryToMemory(sourceDir: string, targetPath: string): Promise<void> {
@@ -177,7 +115,7 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
    */
   async addPackageFromRegistry(
     packageRef: string,
-    downloadFn?: (packageName: string, version: string) => Promise<{ tarball: Buffer; metadata: any }>
+    downloadFn?: (packageName: string, version: string) => Promise<{ tarball: Buffer; metadata: unknown }>
   ): Promise<void> {
     const { name, version } = parsePackageRef(packageRef);
 
@@ -194,7 +132,7 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
    */
   async createPackageBuffer(
     basePath: string,
-    manifest: Record<string, any>,
+    manifest: Record<string, unknown>,
     options?: { filter?: (path: string) => boolean }
   ): Promise<Buffer> {
     if (!manifest.name || !manifest.version || !manifest.description) {
@@ -212,17 +150,24 @@ export class MemoryFileSystem extends CoreMemoryFileSystem {
       }
     }
 
-    const zip = new AdmZip();
+    const base = this.normalizePath(basePath);
+    const packed = new Map<string, string>();
     for (const [filePath, content] of files.entries()) {
       if (options?.filter && !options.filter(filePath)) continue;
-      const relativePath = filePath.startsWith(basePath)
-        ? filePath.substring(basePath.length + 1)
-        : filePath;
-      zip.addFile(relativePath, Buffer.from(content, 'utf-8'));
+      const rel = filePath.startsWith(base + '/') ? filePath.substring(base.length + 1) : filePath;
+      if (rel === 'prompd.json' || rel === 'manifest.json') continue;
+      packed.set(rel, content);
     }
-    zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf-8'));
-
-    return zip.toBuffer();
+    const bytes = await packPdpkg(
+      {
+        ...manifest,
+        name: String(manifest.name),
+        version: String(manifest.version),
+        type: (manifest.type ?? 'package') as PackageType,
+      },
+      packed
+    );
+    return Buffer.from(bytes);
   }
 }
 

@@ -4,7 +4,7 @@
 
 import { MemoryFileSystem } from '../../src/lib/compiler/file-system';
 import { PrompdCompiler } from '../../src/lib/compiler';
-import AdmZip from 'adm-zip';
+import { packPdpkg } from '@prompd/core';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 
@@ -12,15 +12,11 @@ import * as path from 'path';
 jest.setTimeout(30000);
 
 /**
- * Helper function to create a ZIP package buffer from file map.
+ * Helper function to create a verified .pdpkg buffer from a file map (written by packPdpkg).
  * Keys are file paths inside the ZIP (no package/ prefix needed).
  */
-function createZipPackage(files: Record<string, string>): Buffer {
-  const zip = new AdmZip();
-  for (const [filePath, content] of Object.entries(files)) {
-    zip.addFile(filePath, Buffer.from(content, 'utf-8'));
-  }
-  return zip.toBuffer();
+async function createZipPackage(files: Record<string, string>, name: string, version: string): Promise<Buffer> {
+  return Buffer.from(await packPdpkg({ name, version, type: 'package' }, new Map(Object.entries(files))));
 }
 
 describe('In-Memory Package Installation', () => {
@@ -32,7 +28,7 @@ describe('In-Memory Package Installation', () => {
 
   describe('MemoryFileSystem.addPackage()', () => {
     it('should extract zip package to memory', async () => {
-      const zipBuffer = createZipPackage({
+      const zipBuffer = await createZipPackage({
         'base.prmd': `---
 name: base-template
 version: 1.0.0
@@ -45,19 +41,15 @@ You are a helpful assistant.
 # User
 {user_input}
 `,
-        'manifest.json': JSON.stringify({
-          name: '@test/package',
-          version: '1.0.0',
-          description: 'Test package'
-        })
-      });
+        'README.md': '# Test package'
+      }, '@test/package', '1.0.0');
 
       await memoryFS.addPackage('@test/package', '1.0.0', zipBuffer);
 
       const packagePath = memoryFS.getPackagePath('@test/package', '1.0.0');
 
       expect(memoryFS.exists(`${packagePath}/base.prmd`)).toBe(true);
-      expect(memoryFS.exists(`${packagePath}/manifest.json`)).toBe(true);
+      expect(memoryFS.exists(`${packagePath}/README.md`)).toBe(true);
 
       const prmdContent = memoryFS.readFile(`${packagePath}/base.prmd`);
       expect(prmdContent).toContain('name: base-template');
@@ -65,9 +57,9 @@ You are a helpful assistant.
     });
 
     it('should store files at correct virtual paths', async () => {
-      const zipBuffer = createZipPackage({
+      const zipBuffer = await createZipPackage({
         'test.prmd': '---\nname: test\n---\n# User\nHello'
-      });
+      }, '@test/pkg', '1.0.0');
 
       await memoryFS.addPackage('@test/pkg', '1.0.0', zipBuffer);
 
@@ -77,11 +69,11 @@ You are a helpful assistant.
     });
 
     it('should support nested directory structures', async () => {
-      const zipBuffer = createZipPackage({
+      const zipBuffer = await createZipPackage({
         'prompts/greeting.prmd': '---\nname: greeting\n---\n# User\nHi',
         'prompts/farewell.prmd': '---\nname: farewell\n---\n# User\nBye',
         'utils/helper.prmd': '---\nname: helper\n---\n# System\nHelper'
-      });
+      }, '@test/nested', '2.0.0');
 
       await memoryFS.addPackage('@test/nested', '2.0.0', zipBuffer);
 
@@ -106,7 +98,7 @@ You are a helpful assistant.
 
   describe('Package Resolution with MemoryFileSystem', () => {
     it('should resolve package references from memory', async () => {
-      const baseZip = createZipPackage({
+      const baseZip = await createZipPackage({
         'base.prmd': `---
 name: base-template
 version: 1.0.0
@@ -115,7 +107,7 @@ version: 1.0.0
 # System
 Base system prompt.
 `
-      });
+      }, '@prompd.io/base', '1.0.0');
 
       await memoryFS.addPackage('@prompd.io/base', '1.0.0', baseZip);
 
@@ -136,7 +128,7 @@ User request goes here.
 
   describe('Compiler Integration with In-Memory Packages', () => {
     it('should compile prompts using in-memory packages', async () => {
-      const baseZip = createZipPackage({
+      const baseZip = await createZipPackage({
         'base.prmd': `---
 name: base
 version: 1.0.0
@@ -154,7 +146,7 @@ You are a helpful AI assistant.
 {{ context }}
 {%- endif %}
 `
-      });
+      }, '@test/base', '1.0.0');
 
       await memoryFS.addPackage('@test/base', '1.0.0', baseZip);
 

@@ -682,7 +682,11 @@ export class RegistryClient extends EventEmitter {
    */
   async downloadPackageBuffer(packageName: string, version: string): Promise<{ tarball: Buffer; metadata: PackageMetadata }> {
     const bytes = await this.cachedDownload(packageName, version, false);
-    const pkg = await openPdpkg(bytes, { name: packageName, range: version });
+    // An unversioned ref resolves as 'latest', which is not a range; only a real range constrains the manifest.
+    const pkg = await openPdpkg(bytes, {
+      name: packageName,
+      ...(semver.validRange(version) !== null ? { range: version } : {}),
+    });
     return { tarball: Buffer.from(bytes), metadata: pkg.manifest as unknown as PackageMetadata };
   }
 
@@ -923,7 +927,7 @@ export class RegistryClient extends EventEmitter {
   }
 
   /**
-   * Create package tarball Buffer using file system abstraction.
+   * Build the upload: the same verified zip `prompd package create` writes.
    * Supports both in-memory and disk-based package creation.
    */
   private async createPackageTarballBuffer(
@@ -931,31 +935,21 @@ export class RegistryClient extends EventEmitter {
     metadata: PackageMetadata,
     fileSystem: IFileSystem
   ): Promise<Buffer> {
-    // Memory-based path
     if (fileSystem instanceof MemoryFileSystem) {
-      return await fileSystem.createPackageBuffer(packagePath, metadata, {
+      return await fileSystem.createPackageBuffer(packagePath, { ...metadata }, {
         filter: (filePath: string) => this.matchesFilePatterns(filePath, metadata.files)
       });
     }
 
-    // Disk-based path (existing logic)
-    const tarballName = `${metadata.name}-${metadata.version}.tgz`;
-    const tarballPath = path.join(this.cacheDir, 'temp', tarballName);
-
-    await fs.ensureDir(path.dirname(tarballPath));
-
-    await tar.create({
-      gzip: true,
-      file: tarballPath,
-      cwd: packagePath,
-      prefix: 'package/',
-      filter: (filePath: string) => this.matchesFilePatterns(filePath, metadata.files)
-    }, ['.']);
-
-    const buffer = await fs.readFile(tarballPath);
-    await fs.remove(tarballPath); // Cleanup
-
-    return buffer;
+    const { buildPackageBytes, DEFAULT_EXCLUSIONS } = await import('../commands/package');
+    const bytes = await buildPackageBytes(packagePath, {
+      name: metadata.name,
+      version: metadata.version,
+      description: metadata.description,
+      ...(metadata.author ? { author: metadata.author } : {}),
+      type: metadata.type ?? 'package'
+    }, DEFAULT_EXCLUSIONS);
+    return Buffer.from(bytes);
   }
 
   /**
