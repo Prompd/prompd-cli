@@ -137,10 +137,6 @@ export function createPackageCommand(): Command {
   return command;
 }
 
-export const DEFAULT_EXCLUSIONS: PackageExclusions = {
-  directories: ['.git', '.prmd', 'node_modules', '__pycache__'],
-  patterns: ['*.log', '*.tmp', '*.cache', '.env*']
-};
 
 async function packageFromDirectory(
   sourceDir: string,
@@ -218,7 +214,8 @@ async function createPackage(
 export async function buildPackageBytes(
   sourceDir: string,
   manifest: PackageManifest,
-  exclusions: PackageExclusions
+  exclusions: PackageExclusions,
+  filter?: (relPath: string) => boolean
 ): Promise<Uint8Array> {
   // First pass: scan for secrets
   const secretsFound: Array<{ file: string; type: string; line: number }> = [];
@@ -238,6 +235,10 @@ export async function buildPackageBytes(
       if (stat.isDirectory()) {
         await scanDir(itemPath, itemRelPath);
       } else {
+        if (filter && !filter(itemRelPath.replace(/\\/g, '/'))) {
+          continue;
+        }
+
         // Scan text files for secrets
         const ext = path.extname(itemPath).toLowerCase();
         const textExtensions = ['.prmd', '.txt', '.json', '.yaml', '.yml', '.md', '.js', '.ts', '.py', '.sh', '.env'];
@@ -279,7 +280,7 @@ export async function buildPackageBytes(
   // Second pass: collect files and apply frontmatter protection
   const fileContents: Array<{ zipPath: string; content: string | Buffer }> = [];
 
-  const collectFiles = (dir: string, relativePath: string = '') => {
+  const collectFiles = async (dir: string, relativePath: string = ''): Promise<void> => {
     const items = fs.readdirSync(dir);
 
     for (const item of items) {
@@ -292,30 +293,37 @@ export async function buildPackageBytes(
       }
 
       if (stat.isDirectory()) {
-        collectFiles(itemPath, itemRelPath);
+        await collectFiles(itemPath, itemRelPath);
       } else {
         const zipPath = itemRelPath.replace(/\\/g, '/');
 
         // The source manifest is read below and re-written by packPdpkg; it is not a package entry
-        if (zipPath === 'prompd.json' || zipPath === 'manifest.json') {
+        if (zipPath.toLowerCase() === 'prompd.json' || zipPath.toLowerCase() === 'manifest.json') {
           continue;
         }
 
-        // For code files, add frontmatter protection
-        if (needsFrontmatterProtection(itemPath)) {
+        if (filter && !filter(zipPath)) {
+          continue;
+        }
+
+        // Binary documents are stored as extracted text, as in createPackageFromFiles
+        const extracted = await extractBinaryAsset(itemPath);
+        if (extracted) {
+          const dirName = path.posix.dirname(zipPath);
+          const baseName = path.posix.basename(zipPath, path.posix.extname(zipPath));
+          fileContents.push({ zipPath: (dirName === '.' ? '' : dirName + '/') + baseName + extracted.newExtension, content: extracted.content });
+        } else if (needsFrontmatterProtection(itemPath)) {
           const content = fs.readFileSync(itemPath, 'utf-8');
           const filename = path.basename(itemPath);
-          const protectedContent = addContentFrontmatter(content, filename);
-          fileContents.push({ zipPath, content: protectedContent });
+          fileContents.push({ zipPath, content: addContentFrontmatter(content, filename) });
         } else {
-          const content = fs.readFileSync(itemPath);
-          fileContents.push({ zipPath, content });
+          fileContents.push({ zipPath, content: fs.readFileSync(itemPath) });
         }
       }
     }
   };
 
-  collectFiles(sourceDir);
+  await collectFiles(sourceDir);
 
   // Dependencies, requires, main, readme and files come from the source prompd.json;
   // the command's own fields win.
@@ -508,6 +516,12 @@ const DEFAULT_EXCLUDE_PATTERNS = [
   'dist/**', '.prompd/**',  // Build output and installed dependencies
   'prompd.json',  // Excluded - we generate this in the archive with populated files array
 ];
+
+/** Exclusions every packer applies: the lists above, minus path globs (matched on base names) and the root manifest (handled separately). */
+export const DEFAULT_EXCLUSIONS: PackageExclusions = {
+  directories: DEFAULT_EXCLUDE_DIRS,
+  patterns: DEFAULT_EXCLUDE_PATTERNS.filter((p) => !p.includes('/') && p !== 'prompd.json')
+};
 
 /**
  * Check if a file path matches any of the ignore patterns

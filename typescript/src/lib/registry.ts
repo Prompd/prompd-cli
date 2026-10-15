@@ -7,7 +7,6 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as os from 'os';
 import * as semver from 'semver';
-import * as tar from 'tar';
 import { EventEmitter } from 'events';
 import { SecurityManager } from './security';
 import { ConfigManager } from './config';
@@ -630,48 +629,6 @@ export class RegistryClient extends EventEmitter {
     }
   }
 
-  private async createPackageTarball(packageDir: string, metadata: PackageMetadata): Promise<string> {
-    const tarballName = `${metadata.name}-${metadata.version}.tgz`;
-    const tarballPath = path.join(this.cacheDir, 'temp', tarballName);
-    
-    await fs.ensureDir(path.dirname(tarballPath));
-
-    // Create tarball with only specified files
-    await tar.create({
-      gzip: true,
-      file: tarballPath,
-      cwd: packageDir,
-      prefix: 'package/',
-      filter: (path: string) => {
-        // Include files matching patterns in metadata.files
-        return this.matchesFilePatterns(path, metadata.files);
-      }
-    }, ['.']);
-
-    return tarballPath;
-  }
-
-  private async uploadPackage(tarballPath: string, metadata: PackageMetadata, options: PublishOptions): Promise<void> {
-    const formData = new FormData();
-    const tarballBuffer = await fs.readFile(tarballPath);
-    
-    formData.append('package', new Blob([tarballBuffer]), `${metadata.name}-${metadata.version}.tgz`);
-    formData.append('metadata', JSON.stringify(metadata));
-    formData.append('access', options.access);
-    formData.append('tag', options.tag);
-
-    const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(metadata.name)}`, {
-      method: 'PUT',
-      headers: this.getAuthHeaders(),
-      body: formData
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Publish failed: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-  }
-
   /**
    * Download a package without installing it to disk, verified through core.
    * Useful for in-memory package loading.
@@ -948,7 +905,7 @@ export class RegistryClient extends EventEmitter {
       description: metadata.description,
       ...(metadata.author ? { author: metadata.author } : {}),
       type: metadata.type ?? 'package'
-    }, DEFAULT_EXCLUSIONS);
+    }, DEFAULT_EXCLUSIONS, (relPath) => this.matchesFilePatterns(relPath, metadata.files));
     return Buffer.from(bytes);
   }
 

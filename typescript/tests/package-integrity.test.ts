@@ -1,9 +1,11 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs-extra';
+import AdmZip from 'adm-zip';
 import { openPdpkg } from '@prompd/core';
 import { buildPackageBytes, DEFAULT_EXCLUSIONS } from '../src/commands/package';
-import { MemoryFileSystem } from '../src/lib/compiler/file-system';
+import { MemoryFileSystem, NodeFileSystem, IFileSystem } from '../src/lib/compiler/file-system';
+import { RegistryClient, PackageMetadata } from '../src/lib/registry';
 
 describe('CLI packers write verifiable packages', () => {
   let tmp: string;
@@ -29,6 +31,32 @@ describe('CLI packers write verifiable packages', () => {
       .rejects.toThrow(/secret/);
   });
 
+  it('buildPackageBytes applies the filter and skips the root manifests in any case', async () => {
+    await fs.outputFile(path.join(tmp, 'a.prmd'), '---\nid: a\n---\nhi');
+    await fs.outputFile(path.join(tmp, 'notes.txt'), 'n');
+    await fs.outputJson(path.join(tmp, 'Prompd.JSON'), { name: '@t/p', version: '1.0.0' });
+    const bytes = await buildPackageBytes(tmp, { name: '@t/p', version: '1.0.0', description: 'd', type: 'package' }, DEFAULT_EXCLUSIONS, (p) => p.endsWith('.prmd'));
+    expect([...(await openPdpkg(bytes)).files.keys()]).toEqual(['a.prmd']);
+  });
+
+  it('disk publish packs only files matching metadata.files, never dist, *.pdpkg or .prompd', async () => {
+    await fs.outputFile(path.join(tmp, 'a.prmd'), '---\nid: a\n---\nhi');
+    await fs.outputFile(path.join(tmp, 'sub', 'b.prmd'), '---\nid: b\n---\nhi');
+    await fs.outputFile(path.join(tmp, 'secret.txt'), 'not matched');
+    await fs.outputFile(path.join(tmp, 'dist', 'x.pdpkg'), 'zip');
+    await fs.outputFile(path.join(tmp, 'dist', 'c.prmd'), '---\nid: c\n---\nhi');
+    await fs.outputFile(path.join(tmp, '.prompd', 'packages', 'd.prmd'), '---\nid: d\n---\nhi');
+    await fs.outputFile(path.join(tmp, 'old.pdpkg'), 'zip');
+    const client = new RegistryClient({ registryUrl: 'http://127.0.0.1:1', cacheDir: path.join(tmp, '..', 'prompd-cache-unused') });
+    const seam = client as unknown as {
+      createPackageTarballBuffer(p: string, m: PackageMetadata, f: IFileSystem): Promise<Buffer>;
+    };
+    const metadata = { name: '@t/p', version: '1.0.0', description: 'd', author: 'a', type: 'package', files: ['*.prmd', '**/*.prmd'] } as unknown as PackageMetadata;
+    const buf = await seam.createPackageTarballBuffer(tmp, metadata, new NodeFileSystem());
+    const keys = [...(await openPdpkg(new Uint8Array(buf))).files.keys()].sort();
+    expect(keys).toEqual(['a.prmd', 'sub/b.prmd']);
+  });
+
   it('MemoryFileSystem.createPackageBuffer writes prompd.json with integrity', async () => {
     const mem = new MemoryFileSystem();
     mem.addFile('/pkg/a.prmd', '---\nid: a\n---\nhi');
@@ -39,7 +67,6 @@ describe('CLI packers write verifiable packages', () => {
 
   it('MemoryFileSystem.addPackage goes through core: a package without integrity is refused', async () => {
     const mem = new MemoryFileSystem();
-    const AdmZip = require('adm-zip');
     const zip = new AdmZip();
     zip.addFile('a.md', Buffer.from('x'));
     zip.addFile('prompd.json', Buffer.from(JSON.stringify({ name: '@t/n', version: '1.0.0', type: 'package' })));
