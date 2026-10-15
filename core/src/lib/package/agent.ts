@@ -76,6 +76,12 @@ function mcpServerOf(addr: string): string | null {
     }
   }
   if (!addr.startsWith(MCP_PREFIX)) return null;
+  // Runtime addresses escape '/' in a server name as '\/', so a backslash here would make
+  // requires.mcp name a different server than the one the entry reaches.
+  const slash = addr.indexOf('/', MCP_PREFIX.length);
+  if (addr.slice(MCP_PREFIX.length, slash < 0 ? undefined : slash).includes('\\')) {
+    throw invalid(`POLICY.yaml allows "${addr}"; MCP server names with escaped characters cannot be used in a package`, 'POLICY.yaml');
+  }
   const m = NAMED_MCP_RE.exec(addr);
   if (!m) throw unnamedMcp(addr);
   return m[1];

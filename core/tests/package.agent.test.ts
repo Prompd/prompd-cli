@@ -79,6 +79,14 @@ describe('checkAgentPackage', () => {
     expect(codeOf(() => checkAgentPackage(manifest({ requires: { mcp: ['github', 'jira'] } }), files))).toBe('MANIFEST_INVALID:POLICY.yaml');
   });
 
+  it('refuses an MCP server name with an escaped character', () => {
+    const entry = 'mcp:team\\/prod/*';
+    expect(entry).toHaveLength(16);
+    const files = agentFiles({ policy: ['tools:', `  allow: [${JSON.stringify(entry)}]`, ''].join('\n') });
+    expect(codeOf(() => checkAgentPackage(manifest({ requires: { mcp: ['team\\', 'team/prod'] } }), files))).toBe('MANIFEST_INVALID:POLICY.yaml');
+    expect(() => checkAgentPackage(manifest({ requires: { mcp: ['team\\', 'team/prod'] } }), files)).toThrow(/escaped characters/);
+  });
+
   it('accepts a named MCP server and non-MCP globs', () => {
     const refs = checkAgentPackage(
       manifest({ requires: { mcp: ['github'] } }),
