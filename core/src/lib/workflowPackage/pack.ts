@@ -1,7 +1,8 @@
 /* Write a workflow .pdpkg: the traced files at their workspace-relative paths
- * plus a prompd.json manifest (type 'workflow', main = the .pdflow). JSZip runs
- * in the browser and in Node; reading it back is core's extractPdpkg. */
-import JSZip from 'jszip'
+ * plus a prompd.json manifest (type 'workflow', main = the .pdflow), written
+ * through packPdpkg so the package carries integrity. Reading it back is core's
+ * extractPdpkg / openPdpkg. */
+import { packPdpkg } from '../package/pack'
 
 export interface WorkflowPackageFile {
   /** Workspace-relative posix path. */
@@ -27,8 +28,8 @@ export function packagePathError(p: string): string | null {
   const segments = p.split('/')
   if (segments.some((s) => s === '..')) return 'has a .. segment'
   if (segments.some((s) => s === '' || s === '.')) return 'has an empty or . segment'
-  // Core's package reader prefers manifest.json over prompd.json, so a packaged
-  // manifest.json would replace this package's manifest on ingest.
+  // Core refuses a package that holds a root manifest.json, and prompd.json is
+  // written by the packer.
   if (p === 'prompd.json' || p === 'manifest.json') return 'is reserved for the manifest'
   return null
 }
@@ -49,9 +50,9 @@ export async function buildWorkflowPackage(
   if (!seen.has(manifest.main)) throw new Error(`Package main "${manifest.main}" is not one of the packaged files`)
   if (!manifest.main.toLowerCase().endsWith('.pdflow')) throw new Error(`Package main "${manifest.main}" is not a .pdflow`)
   const paths = [...seen].sort()
-  const zip = new JSZip()
-  zip.file('prompd.json', JSON.stringify({ ...manifest, files: paths }, null, 2))
   const byPath = new Map(files.map((f) => [f.path, f.text]))
-  for (const p of paths) zip.file(p, byPath.get(p) as string)
-  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
+  return packPdpkg(
+    { ...manifest, files: paths },
+    new Map(paths.map((p) => [p, byPath.get(p) as string])),
+  )
 }

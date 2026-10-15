@@ -10,6 +10,7 @@
 import semver from 'semver';
 import { SecurityError } from '../errors';
 import type { IPackageResolver, ResolvePackageOptions } from './types';
+import type { OpenExpectations } from '../package/verify';
 
 /** POSIX path normalize (collapse ./ and ../, no fs). */
 function posixNormalize(p: string): string {
@@ -140,7 +141,7 @@ export type PackageDownloader = (name: string, version: string) => Promise<Uint8
 interface PackageCapableFileSystem {
   getPackagePath(name: string, version: string): string;
   isDirectory(path: string): boolean | Promise<boolean>;
-  addPackage(name: string, version: string, buffer: Uint8Array): Promise<void>;
+  addPackage(name: string, version: string, buffer: Uint8Array, expect?: OpenExpectations): Promise<void>;
 }
 function isPackageCapable(fs: unknown): fs is PackageCapableFileSystem {
   const f = fs as Partial<PackageCapableFileSystem> | undefined;
@@ -156,8 +157,13 @@ function isPackageCapable(fs: unknown): fs is PackageCapableFileSystem {
  * `resolvePackage` returns the in-memory directory path; the compiler then reads
  * the referenced file from `options.fileSystem` via resolvePackageFile.
  */
+export interface MemoryPackageResolverOptions {
+  /** Lockfile pins, "name@version" -> "sha256:<hex>". */
+  pins?: ReadonlyMap<string, string>;
+}
+
 export class MemoryPackageResolver implements IPackageResolver {
-  constructor(private readonly download: PackageDownloader) {}
+  constructor(private readonly download: PackageDownloader, private readonly opts: MemoryPackageResolverOptions = {}) {}
 
   async resolvePackage(packageRef: string, options: ResolvePackageOptions): Promise<string> {
     const fs = options.fileSystem;
@@ -171,7 +177,8 @@ export class MemoryPackageResolver implements IPackageResolver {
     const packagePath = fs.getPackagePath(name, version);
     if (await fs.isDirectory(packagePath)) return packagePath; // already loaded this session
     const buffer = await this.download(name, version);
-    await fs.addPackage(name, version, buffer);
+    const digest = this.opts.pins?.get(`${name}@${version}`);
+    await fs.addPackage(name, version, buffer, digest !== undefined ? { digest } : {});
     return packagePath;
   }
 }

@@ -6,7 +6,8 @@
  * .pdpkg helpers live in @prompd/cli (they need Node APIs). Path operations here
  * are inlined as POSIX so this module has zero Node imports.
  */
-import JSZip from 'jszip';
+import semver from 'semver';
+import { openPdpkg, type OpenExpectations } from '../package/verify';
 
 /**
  * File system interface that can be implemented for different storage backends.
@@ -42,52 +43,22 @@ function isBinaryAsset(name: string): boolean {
   return dot >= 0 && BINARY_ASSET_EXT.has(name.slice(dot + 1).toLowerCase());
 }
 
-/** ZIP extraction limits (CLI parity — decompression-bomb protection). */
-const MAX_FILE_SIZE_IN_ZIP = 10 * 1024 * 1024;       // 10MB per file
-const MAX_TOTAL_EXTRACTED_SIZE = 500 * 1024 * 1024;  // 500MB total
-
-/** S_IFLNK in the unix mode bits — a symlink entry, which we reject. */
-function isSymlinkEntry(perms: number | string | null | undefined): boolean {
-  return typeof perms === 'number' && (perms & 0xF000) === 0xA000;
-}
-
-/** One reusable UTF-8 decoder for extraction (avoids a per-entry allocation). */
-const pdpkgDecoder = new TextDecoder();
+const textDecoder = new TextDecoder('utf-8', { fatal: true });
 
 /**
- * Extract a `.pdpkg` (ZIP) buffer to a flat map of entry-relative path -> UTF-8
- * content. The SINGLE ZIP-extraction primitive shared by package ingestion
- * (MemoryFileSystem.addPackage), the installer, and skill install — so hosts never
- * hand-roll their own jszip pass. Directories and binary assets are skipped (the
- * consumers store text only). Enforces the same archive-security checks as the CLI:
- * rejects null bytes, path traversal, symlinks, and oversized / decompression-bomb
- * archives.
+ * Open a `.pdpkg` through openPdpkg (integrity, names, sizes, expectations) and
+ * return its TEXT entries plus prompd.json as path -> content. The text view for
+ * the compiler and skill install; binary assets (by extension) are skipped
+ * because the consumers store text only. Nothing unverified is returned.
  */
-export async function extractPdpkg(buffer: Uint8Array): Promise<Map<string, string>> {
-  const zip = await JSZip.loadAsync(buffer);
+export async function extractPdpkg(buffer: Uint8Array, expect: OpenExpectations = {}): Promise<Map<string, string>> {
+  const pkg = await openPdpkg(buffer, expect);
   const out = new Map<string, string>();
-  let total = 0;
-  for (const entry of Object.values(zip.files)) {
-    // Security checks apply to every entry, regardless of whether we store it.
-    if (entry.name.includes('\0')) {
-      throw new Error(`Security violation: null byte in entry name: ${entry.name}`);
-    }
-    if (entry.name.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(entry.name)) {
-      throw new Error(`Security violation: path traversal in entry: ${entry.name}`);
-    }
-    if (isSymlinkEntry(entry.unixPermissions)) {
-      throw new Error(`Security violation: symlink entry in archive: ${entry.name}`);
-    }
-    if (entry.dir || isBinaryAsset(entry.name)) continue;
-    const bytes = await entry.async('uint8array');
-    if (bytes.length > MAX_FILE_SIZE_IN_ZIP) {
-      throw new Error(`File too large in package: ${entry.name} (${bytes.length} bytes, max ${MAX_FILE_SIZE_IN_ZIP})`);
-    }
-    total += bytes.length;
-    if (total > MAX_TOTAL_EXTRACTED_SIZE) {
-      throw new Error(`Package total decompressed size exceeds limit (${MAX_TOTAL_EXTRACTED_SIZE} bytes). Possible decompression bomb.`);
-    }
-    out.set(entry.name, pdpkgDecoder.decode(bytes));
+  out.set('prompd.json', textDecoder.decode(pkg.manifestBytes));
+  for (const [p, b] of pkg.files) {
+    if (isBinaryAsset(p)) continue;
+    try { out.set(p, textDecoder.decode(b)); }
+    catch { throw new Error(`${p} in ${pkg.manifest.name}@${pkg.manifest.version} is not UTF-8 text`); }
   }
   return out;
 }
@@ -143,8 +114,6 @@ function toRelKey(filePath: string): string {
  * Files are provided as a map of path -> content.
  */
 export class MemoryFileSystem implements IFileSystem {
-  /** Cap on an ingested package buffer (defends against a hostile/huge .pdpkg). */
-  private static readonly MAX_PACKAGE_SIZE = 50 * 1024 * 1024;
   private files: Map<string, string>;
 
   constructor(files: Record<string, string> = {}) {
@@ -234,11 +203,12 @@ export class MemoryFileSystem implements IFileSystem {
    * .prmd/.md/.json/.yaml is what matters for compilation). Validates entry paths
    * can't escape the package directory.
    */
-  async addPackage(packageName: string, version: string, packageBuffer: Uint8Array): Promise<void> {
-    if (packageBuffer.length > MemoryFileSystem.MAX_PACKAGE_SIZE) {
-      throw new Error(`Package too large: ${packageBuffer.length} bytes (max ${MemoryFileSystem.MAX_PACKAGE_SIZE})`);
-    }
-    const files = await extractPdpkg(packageBuffer);
+  async addPackage(packageName: string, version: string, packageBuffer: Uint8Array, expect: OpenExpectations = {}): Promise<void> {
+    const files = await extractPdpkg(packageBuffer, {
+      name: packageName,
+      ...(semver.validRange(version) !== null ? { range: version } : {}),
+      ...expect,
+    });
 
     const packagePath = this.getPackagePath(packageName, version);
     const packagePrefix = this.normalizePath(packagePath.endsWith('/') ? packagePath : packagePath + '/');
@@ -350,8 +320,8 @@ export class HybridFileSystem implements IFileSystem {
 
   /** Ingest a `.pdpkg` (ZIP) buffer into the in-memory layer, so package files are
    * served synchronously alongside the workspace sources. */
-  addPackage(packageName: string, version: string, packageBuffer: Uint8Array): Promise<void> {
-    return this.mem.addPackage(packageName, version, packageBuffer);
+  addPackage(packageName: string, version: string, packageBuffer: Uint8Array, expect: OpenExpectations = {}): Promise<void> {
+    return this.mem.addPackage(packageName, version, packageBuffer, expect);
   }
 
   exists(filePath: string): boolean | Promise<boolean> {

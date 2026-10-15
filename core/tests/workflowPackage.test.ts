@@ -147,7 +147,7 @@ describe('scanForSecrets', () => {
 })
 
 describe('buildWorkflowPackage', () => {
-  const manifest: WorkflowPackageManifest = { name: 'weekly', version: '1.0.0', type: 'workflow', main: 'flows/main.pdflow' }
+  const manifest: WorkflowPackageManifest = { name: '@acme/weekly', version: '1.0.0', type: 'workflow', main: 'flows/main.pdflow' }
 
   it('round-trips through core ingest with a prompd.json manifest', async () => {
     const bytes = await buildWorkflowPackage(
@@ -157,7 +157,8 @@ describe('buildWorkflowPackage', () => {
     const files = await extractPdpkg(bytes)
     expect(files.get('prompts/a.prmd')).toBe('A')
     expect(files.get('flows/main.pdflow')).toBe('{}')
-    expect(JSON.parse(files.get('prompd.json') ?? '')).toEqual({ ...manifest, files: ['flows/main.pdflow', 'prompts/a.prmd'] })
+    expect(JSON.parse(files.get('prompd.json') ?? '')).toMatchObject({ ...manifest, files: ['flows/main.pdflow', 'prompts/a.prmd'] })
+    expect(JSON.parse(files.get('prompd.json') ?? '').integrity).toBeDefined()
   })
 
   it.each([
