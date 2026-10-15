@@ -1,24 +1,29 @@
+// src/lib/compiler/install.ts
 /**
- * Package installation — the single, host-agnostic installer for every Prompd
- * artifact type (packages, skills, workflows, agents). Ported to match
- * @prompd/cli's RegistryClient.extractAndInstallPackage / uninstall so the browser,
- * desktop app, and CLI install identically.
+ * Package installation: the single, host-agnostic installer for every Prompd
+ * artifact type (packages, workflows, skills, agents). Every package is opened
+ * with openPdpkg before the store is touched, so nothing unverified is written.
  *
- * The download fetch, the writable file sink, and the (host-only) tool deployment are
- * INJECTED, so the same logic runs in the browser (a workspace FileService) and in
- * the CLI/sidecar (Node fs) with no Node imports here. Core stays Node-free — it never
- * computes '~'; the caller passes the install `root` (the open workspace for a local
- * install, the home dir for a global one). Layout matches the CLI:
+ * The download fetch, the writable store and the (host-only) tool deployment
+ * are INJECTED, so the same logic runs in the browser, the CLI and the sidecar
+ * with no Node imports here. Layout:
  *
- *     <root>/<installDir>/<typeDir>/<@scope/name>/<version>/...   (packages/skills/workflows; default installDir '.prompd')
+ *     <root>/<installDir>/<typeDir>/<@scope/name>/<version>/...
+ *
+ * `installDir` is one dot-directory ('.prompd', '.corenel'), or '' when `root`
+ * is already the state directory. Each version directory holds the package's
+ * files, prompd.json, `.package.pdpkg` (the exact archive, so the install can be
+ * re-verified; written when the store has writeBytes) and `.prmdmeta`.
  */
-import { extractPdpkg } from './file-system';
-import { parsePackageReference, type PackageDownloader } from './package-ref';
+import semver from 'semver';
+import type { PackageDownloader } from './package-ref';
 import { joinPosix, normalizePosix } from './path-utils';
-import { getInstallDirForType, isValidPackageType, type PackageType } from '../../types';
-
-/** Max .pdpkg size accepted for install (matches the CLI). */
-const MAX_PACKAGE_SIZE = 50 * 1024 * 1024;
+import { getInstallDirForType, type PackageType } from '../../types';
+import { openPdpkg } from '../package/verify';
+import { PackageVerificationError } from '../package/errors';
+import { PACKAGE_NAME_RE, unscopedName, type PackageRequires } from '../package/manifest';
+import type { AgentRefs } from '../package/agent';
+import { ARCHIVE_COPY, META_FILE } from '../package/layout';
 
 /** Deploy an installed skill into a tool-native dir (e.g. ~/.claude/skills). Host-only
  *  (Node fs); the browser omits it. Injected so core stays Node-free. */
@@ -31,13 +36,13 @@ export type ToolDeployHook = (opts: { installedPath: string; name: string; tool:
 export interface PackageStore {
   /** Write a UTF-8 file, creating parent directories as needed. */
   writeFile(path: string, content: string): void | Promise<void>;
-  /** Write raw bytes — raw bytes. */
+  /** Write raw bytes. Required for skills and agents (their archive copy is binary). */
   writeBytes?(path: string, bytes: Uint8Array): void | Promise<void>;
   /** Remove a directory and its contents if present. */
   removeDir?(path: string): void | Promise<void>;
   /** Remove a single file if present. */
   removeFile?(path: string): void | Promise<void>;
-  /** Read a UTF-8 file, or null if absent — used to merge the workspace prompd.json. */
+  /** Read a UTF-8 file, or null if absent; used to merge the workspace prompd.json. */
   readFile?(path: string): Promise<string | null> | string | null;
   /** Read raw bytes. */
   readBytes?(path: string): Promise<Uint8Array> | Uint8Array;
@@ -46,66 +51,88 @@ export interface PackageStore {
 }
 
 export interface InstallPackageOptions {
-  /** "@scope/name@version" or "@scope/name" (defaults to latest). */
+  /** "@scope/name@version" or "@scope/name" (latest). */
   ref: string;
-  /** Type HINT. The package's own manifest `type` wins; this is the fallback. */
-  type?: PackageType;
   /** Install root: the open workspace (local) or the home dir (global). */
   root: string;
   /** Writable sink for the chosen host. */
   store: PackageStore;
-  /** Fetch the .pdpkg bytes for a (name, version). May resolve 'latest'. */
+  /** Fetch the .pdpkg bytes for (name, version spec). Resolves latest, exact and ranges. */
   download: PackageDownloader;
-  /** Global install — skips the workspace prompd.json dependency record (CLI parity). */
+  /** Global install: skips the workspace prompd.json dependency record (CLI parity). */
   global?: boolean;
   /** Deploy the installed skill to these tools (skills only), via deployTool. */
   tools?: string[];
   /** Host hook performing the per-tool deploy. Required when `tools` is set. */
   deployTool?: ToolDeployHook;
-  /** Dot-dir the install tree lives under: <root>/<installDir>/<typeDir>/... Default '.prompd' (the CLI layout). A host with its own state dir (e.g. '.corenel') passes it here. */
+  /** One dot-directory the tree lives under, or '' when root is already the state dir. Default '.prompd'. */
   installDir?: string;
+  /** Lockfile pins, "name@version" -> "sha256:<hex>". A pinned package whose archive differs is refused. */
+  pins?: ReadonlyMap<string, string>;
 }
 
 export interface InstalledPackage {
-  /** Full scoped name (manifest-authoritative when present), e.g. "@prompd/core". */
+  /** Full scoped name, from the verified manifest. */
   name: string;
-  /** Resolved version (from the package manifest when present). */
+  /** Exact version, from the verified manifest. */
   version: string;
   scope?: string;
-  /** Resolved type (from the package manifest when present). */
   type: PackageType;
-  /** Where it was written: the version dir. */
+  /** The version directory. */
   installedPath: string;
-  /** Entry-relative paths written. */
+  /** Package-relative paths of the package's own files that were written. */
   files: string[];
+  /** "sha256:<hex>" of the archive. */
+  digest: string;
+  /** The dependencies this install resolved, each with its own tree. */
+  dependencies: InstalledPackage[];
+  /** What the package needs from the machine (MCP servers, built-in skills); checked by the host. */
+  requires?: PackageRequires;
 }
 
 /** The CLI layout's install dir. Hosts with their own state dir override it. */
 const DEFAULT_INSTALL_DIR = '.prompd';
 
-/** One dot-directory segment, nothing that can climb or nest. Checked before any
- *  read or write, because this string is joined straight into every install path. */
+/** Types resolved by bare name on the host (crew/<name>, skills/<name>); their
+ * installs must be re-verifiable, so they need the archive copy. */
+const NAME_RESOLVED: ReadonlySet<PackageType> = new Set<PackageType>(['skill', 'agent']);
+
+const textDecoder = new TextDecoder('utf-8', { fatal: true });
+
+/** One dot-directory segment, or '' for "root is the state dir". Nothing that can climb or nest. */
 function checkInstallDir(dir: string | undefined): string {
   const d = dir ?? DEFAULT_INSTALL_DIR;
-  if (!/^\.[A-Za-z0-9][A-Za-z0-9._-]*$/.test(d)) {
-    throw new Error(`Invalid installDir "${d}": expected a single dot-directory name like ".prompd".`);
+  if (d !== '' && !/^\.[A-Za-z0-9][A-Za-z0-9._-]*$/.test(d)) {
+    throw new Error(`Invalid installDir "${d}": expected a single dot-directory name like ".prompd", or "" when root is the state directory.`);
   }
   return d;
 }
 
-/** A package's directory (parent of its per-version installs):
- *  <root>/<installDir>/<typeDir>/<@scope/name>/. */
 function resolvePackageDir(root: string, installDir: string, type: PackageType, name: string): string {
   return joinPosix(root, installDir, getInstallDirForType(type), name);
 }
 
-/** A specific version's install dir: <packageDir>/<version>/. */
 function resolveInstallDir(root: string, installDir: string, type: PackageType, name: string, version: string): string {
   return joinPosix(resolvePackageDir(root, installDir, type, name), version);
 }
 
-/* ---- workspace prompd.json dependency tracking (ported from @prompd/cli's
- * registry.addWorkspaceDependency / removeWorkspaceDependency). NON-FATAL. ---- */
+/** "@scope/name", "@scope/name@1.2.3" or "@scope/name@^1.2.0". parsePackageReference
+ * cannot be used here: its pattern rejects ^ and ~, so a range never parsed. */
+function splitRef(ref: string): { name: string; spec: string } {
+  const at = ref.lastIndexOf('@');
+  const name = at > 0 ? ref.slice(0, at) : ref;
+  const spec = at > 0 ? ref.slice(at + 1) : 'latest';
+  if (!PACKAGE_NAME_RE.test(name)) throw new Error(`Invalid package reference format: ${ref}`);
+  if (spec !== 'latest' && semver.validRange(spec) === null) throw new Error(`Invalid version "${spec}" in ${ref}`);
+  return { name, spec };
+}
+
+function scopeOf(name: string): string | undefined {
+  const m = /^(@[\w.-]+)\//.exec(name);
+  return m ? m[1] : undefined;
+}
+
+/* ---- workspace prompd.json dependency tracking (CLI parity). NON-FATAL. ---- */
 
 async function addWorkspaceDependency(store: PackageStore, root: string, name: string, version: string): Promise<void> {
   if (!store.readFile) return;
@@ -133,83 +160,118 @@ async function removeWorkspaceDependency(store: PackageStore, root: string, name
   } catch { /* non-fatal */ }
 }
 
-/** Parse the package manifest (manifest.json | prompd.json) from the extracted map. */
-function readManifest(files: Map<string, string>): { name?: string; version?: string; type?: string; dependencies?: Record<string, string> } {
-  const raw = files.get('manifest.json') ?? files.get('prompd.json');
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
+/** An agent's dependency must be the kind its definition uses it as. */
+function checkDependencyTypes(owner: string, refs: AgentRefs, deps: readonly InstalledPackage[]): void {
+  for (const d of deps) {
+    const short = unscopedName(d.name);
+    if (refs.skills.includes(short) && d.type !== 'skill') {
+      throw new PackageVerificationError('TYPE_INVALID', `${owner} uses ${d.name} as a skill, but it is a ${d.type}`);
+    }
+    if (refs.agents.includes(short) && d.type !== 'agent') {
+      throw new PackageVerificationError('TYPE_INVALID', `${owner} calls ${d.name} as an agent, but it is a ${d.type}`);
+    }
+  }
+}
+
+interface InstallState {
+  /** Finished installs by name: a dependency reached twice is installed once. */
+  done: Map<string, InstalledPackage>;
+  /** Names being installed right now: reaching one again is a cycle, skipped. */
+  active: Set<string>;
 }
 
 /**
- * Install a registry artifact, matching the CLI. Resolves the type from the package's
- * own manifest (the `type` option is only a fallback). Standard types extract to
- * <root>/.prompd/<typeDir>/<name>/<version>/ with a `.prmdmeta`. Installs the package's own dependencies recursively,
- * records the dependency in the workspace prompd.json (local installs only), and
- * deploys to any requested tools. Idempotent per version.
+ * Install a registry artifact. The archive is verified (integrity, requested
+ * name and version range, lockfile pin) before anything is written; its
+ * dependencies are installed first, recursively, by name and range.
  */
 export async function installPackage(opts: InstallPackageOptions): Promise<InstalledPackage> {
-  return installInternal(opts, new Set<string>());
+  const { name, spec } = splitRef(opts.ref);
+  return installInternal(opts, name, spec, { done: new Map(), active: new Set() });
 }
 
-async function installInternal(opts: InstallPackageOptions, visited: Set<string>): Promise<InstalledPackage> {
-  const { ref, root, store, download, global, tools, deployTool } = opts;
+async function installInternal(
+  opts: InstallPackageOptions,
+  wantName: string,
+  wantSpec: string,
+  state: InstallState,
+): Promise<InstalledPackage> {
+  const { root, store, download, global, tools, deployTool, pins } = opts;
   const installDir = checkInstallDir(opts.installDir);
-  const parsed = parsePackageReference(ref);
 
-  const bytes = await download(parsed.name, parsed.version);
-  if (bytes.length > MAX_PACKAGE_SIZE) {
-    throw new Error(`Package too large: ${bytes.length} bytes (max ${MAX_PACKAGE_SIZE})`);
+  const archive = await download(wantName, wantSpec);
+  const range = semver.validRange(wantSpec) !== null ? wantSpec : undefined;
+  const pkg = await openPdpkg(archive, { name: wantName, ...(range !== undefined ? { range } : {}) });
+  const { name, version, type } = pkg.manifest;
+
+  const pinned = pins?.get(`${name}@${version}`);
+  if (pinned !== undefined && pinned !== pkg.digest) {
+    throw new PackageVerificationError('DIGEST_MISMATCH', `${name}@${version} does not match the digest recorded in the lockfile (${pinned})`);
   }
-  const files = await extractPdpkg(bytes);
-  if (files.size === 0) {
-    throw new Error(`Package "${parsed.name}" contains no installable files.`);
+  if (pkg.files.size === 0) throw new Error(`Package "${name}" contains no installable files.`);
+
+  // Decide how every file will be written BEFORE anything is written.
+  if (NAME_RESOLVED.has(type) && !store.writeBytes) {
+    throw new Error(`Installing a ${type} needs a store that can write bytes; ${name}@${version} was not installed.`);
   }
-
-  // Manifest is authoritative for name/version/type (download may have resolved 'latest').
-  const m = readManifest(files);
-  const name = (typeof m.name === 'string' && m.name) ? m.name : parsed.name;
-  const version = (typeof m.version === 'string' && m.version) ? m.version : parsed.version;
-  const type: PackageType = (typeof m.type === 'string' && isValidPackageType(m.type))
-    ? m.type
-    : (opts.type && isValidPackageType(opts.type) ? opts.type : 'package');
-
-  // Install the package's own dependencies first (recursive; self-/cycle-guarded).
-  visited.add(name);
-  if (m.dependencies && typeof m.dependencies === 'object') {
-    for (const [depName, depVersion] of Object.entries(m.dependencies)) {
-      if (depName === name || visited.has(depName)) continue;
-      await installInternal({ ...opts, ref: `${depName}@${depVersion}`, type: undefined }, visited);
+  const texts = new Map<string, string>();
+  if (!store.writeBytes) {
+    for (const [p, b] of pkg.files) {
+      try { texts.set(p, textDecoder.decode(b)); }
+      catch { throw new Error(`${name}@${version} contains a binary file (${p}) and this host can only store text. Not installed.`); }
     }
   }
 
-  let installedPath: string;
-  const written: string[] = [];
+  state.active.add(name);
+  const dependencies: InstalledPackage[] = [];
+  for (const [depName, depSpec] of Object.entries(pkg.manifest.dependencies ?? {})) {
+    if (depName === name || state.active.has(depName)) continue;
+    dependencies.push(state.done.get(depName) ?? await installInternal(opts, depName, depSpec, state));
+  }
+  if (pkg.agentRefs) checkDependencyTypes(name, pkg.agentRefs, dependencies);
 
-  installedPath = resolveInstallDir(root, installDir, type, name, version);
+  const installedPath = resolveInstallDir(root, installDir, type, name, version);
   const base = normalizePosix(installedPath);
-  await store.removeDir?.(installedPath); // clean reinstall of this version
-  for (const [rel, content] of files) {
+  const destOf = (rel: string): string => {
     const dest = joinPosix(installedPath, rel); // joinPosix resolves '..', so an escape leaves `base`
     if (dest !== base && !dest.startsWith(base + '/')) {
-      throw new Error(`Security violation: extracted path escapes install directory: ${rel}`);
+      throw new PackageVerificationError('UNSAFE_PATH', `${rel} escapes the install directory`, rel);
     }
-    await store.writeFile(dest, content);
+    return dest;
+  };
+
+  await store.removeDir?.(installedPath); // clean reinstall of this version
+  const written: string[] = [];
+  for (const [rel, b] of pkg.files) {
+    const dest = destOf(rel);
+    if (store.writeBytes) await store.writeBytes(dest, b);
+    else await store.writeFile(dest, texts.get(rel) as string);
     written.push(rel);
   }
-  // Per-install metadata for cache tracking (CLI writes packageData.metadata).
-  await store.writeFile(joinPosix(installedPath, '.prmdmeta'), JSON.stringify(m, null, 2) + '\n');
+  const manifestPath = joinPosix(installedPath, 'prompd.json');
+  if (store.writeBytes) {
+    await store.writeBytes(manifestPath, pkg.manifestBytes);
+    await store.writeBytes(joinPosix(installedPath, ARCHIVE_COPY), archive);
+  } else {
+    await store.writeFile(manifestPath, textDecoder.decode(pkg.manifestBytes));
+  }
+  await store.writeFile(joinPosix(installedPath, META_FILE), JSON.stringify({ name, version, type, digest: pkg.digest }, null, 2) + '\n');
 
-  // Deploy the skill to any requested tools (skills only), via the host hook.
   if (tools && tools.length > 0) {
     if (type !== 'skill') throw new Error(`Tool deploy is only valid for skills, but '${name}' is a ${type}.`);
     if (!deployTool) throw new Error('tools were requested but no deployTool hook was provided.');
     for (const tool of tools) await deployTool({ installedPath, name, tool });
   }
 
-  // Record in the workspace prompd.json — local installs only (CLI parity).
   if (!global) await addWorkspaceDependency(store, root, name, version);
 
-  return { name, version, scope: parsed.scope, type, installedPath, files: written };
+  const result: InstalledPackage = {
+    name, version, ...(scopeOf(name) ? { scope: scopeOf(name) } : {}), type, installedPath, files: written, digest: pkg.digest, dependencies,
+    ...(pkg.manifest.requires ? { requires: pkg.manifest.requires } : {}),
+  };
+  state.active.delete(name);
+  state.done.set(name, result);
+  return result;
 }
 
 export interface UninstallPackageOptions {
@@ -219,37 +281,33 @@ export interface UninstallPackageOptions {
   root: string;
   /** Writable sink for the chosen host. */
   store: PackageStore;
-  /** Global uninstall — skips the workspace prompd.json dependency removal. */
+  /** Global uninstall: skips the workspace prompd.json dependency removal. */
   global?: boolean;
-  /** Dot-dir the install tree lives under: <root>/<installDir>/<typeDir>/... Default '.prompd' (the CLI layout). A host with its own state dir (e.g. '.corenel') passes it here. */
+  /** Same meaning as InstallPackageOptions.installDir. */
   installDir?: string;
 }
 
 export interface UninstalledPackage {
   name: string;
   scope?: string;
-  /** Dirs/files removed. */
+  /** Dirs removed. */
   removed: string[];
 }
 
-/**
- * Uninstall by name, matching the CLI: scan EVERY type dir under <root>/<installDir>/ and
- * remove the package's dir (all versions). Drops the prompd.json dependency. Idempotent.
- */
+/** Uninstall by name: remove the package's dir (all versions) under every type
+ * dir, and drop the prompd.json dependency. Idempotent. */
 export async function uninstallPackage(opts: UninstallPackageOptions): Promise<UninstalledPackage> {
   const { root, store, global } = opts;
   const installDir = checkInstallDir(opts.installDir);
   if (!store.removeDir) throw new Error('Uninstall requires a PackageStore with removeDir.');
-  const parsed = parsePackageReference(opts.ref);
-  const name = parsed.name;
+  const { name } = splitRef(opts.ref);
   const removed: string[] = [];
-
   for (const type of ['package', 'workflow', 'skill', 'agent'] as PackageType[]) {
     const dir = resolvePackageDir(root, installDir, type, name);
     await store.removeDir(dir);
     removed.push(dir);
   }
-
   if (!global) await removeWorkspaceDependency(store, root, name);
-  return { name, scope: parsed.scope, removed };
+  const scope = scopeOf(name);
+  return { name, ...(scope ? { scope } : {}), removed };
 }
