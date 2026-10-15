@@ -9,10 +9,13 @@ import { archiveDigest, sha256Hex } from './digest';
 import { PackageVerificationError } from './errors';
 import { parseManifest, type PackageIntegrity, type PackageManifest } from './manifest';
 import { checkAgentPackage, type AgentRefs } from './agent';
+import { ARCHIVE_COPY, META_FILE } from './layout';
 
 export const MAX_PACKAGE_BYTES = 50 * 1024 * 1024;
 const MANIFEST_FILE = 'prompd.json';
 const RESERVED_MANIFEST = 'manifest.json';
+/** Files an install writes beside the package's own; a package holding one would be overwritten by, or overwrite, the install. */
+const RESERVED_LAYOUT = new Set([ARCHIVE_COPY, META_FILE].map((n) => n.toLowerCase()));
 const HEX_RE = /^[0-9a-f]{64}$/;
 
 export interface OpenExpectations {
@@ -56,7 +59,10 @@ function integrityOf(raw: unknown): PackageIntegrity {
   return { algorithm: 'sha256', files: out };
 }
 
-export async function openPdpkg(bytes: Uint8Array, expect: OpenExpectations = {}): Promise<VerifiedPackage> {
+export async function openPdpkg(input: Uint8Array, expect: OpenExpectations = {}): Promise<VerifiedPackage> {
+  // A private copy: the digest and the parsed entries must come from the same bytes,
+  // even if the caller reuses its buffer while this is awaiting.
+  const bytes = input.slice();
   if (bytes.length > MAX_PACKAGE_BYTES) {
     throw new PackageVerificationError('TOO_LARGE', `the package is ${bytes.length} bytes (max ${MAX_PACKAGE_BYTES})`);
   }
@@ -70,6 +76,9 @@ export async function openPdpkg(bytes: Uint8Array, expect: OpenExpectations = {}
     const folded = name.toLowerCase();
     if (folded === RESERVED_MANIFEST || (folded === MANIFEST_FILE && name !== MANIFEST_FILE)) {
       throw new PackageVerificationError('MANIFEST_RESERVED', `the package holds a root ${name}; the manifest is prompd.json only`, name);
+    }
+    if (RESERVED_LAYOUT.has(folded)) {
+      throw new PackageVerificationError('MANIFEST_RESERVED', `the package holds a root ${name}, a name the install writes itself`, name);
     }
   }
   const manifestBytes = entries.get(MANIFEST_FILE);

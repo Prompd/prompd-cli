@@ -49,4 +49,11 @@ describe('verifyInstalled', () => {
     bytes.delete(`${res.installedPath}/.package.pdpkg`);
     expect(await codeOf(verifyInstalled(read, res.digest))).toBe('FILE_MISSING:.package.pdpkg');
   });
+
+  it('holds the install to an expected name and range when given', async () => {
+    const { res, read } = await installed();
+    expect(await codeOf(verifyInstalled(read, res.digest, { name: '@a/other' }))).toBe('NAME_MISMATCH:');
+    expect(await codeOf(verifyInstalled(read, res.digest, { range: '^2.0.0' }))).toBe('VERSION_MISMATCH:');
+    expect(await codeOf(verifyInstalled(read, res.digest, { name: '@a/s', range: '^1.0.0' }))).toBe('ok');
+  });
 });

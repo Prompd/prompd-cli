@@ -16,12 +16,16 @@ function same(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-export async function verifyInstalled(read: InstalledReader, expectedDigest: string): Promise<VerifiedPackage> {
+export async function verifyInstalled(
+  read: InstalledReader,
+  expectedDigest: string,
+  expect: { name?: string; range?: string } = {},
+): Promise<VerifiedPackage> {
   const archive = await read(ARCHIVE_COPY);
   if (!archive) {
     throw new PackageVerificationError('FILE_MISSING', `${ARCHIVE_COPY} is missing, so this install cannot be verified; reinstall the package`, ARCHIVE_COPY);
   }
-  const pkg = await openPdpkg(archive, { digest: expectedDigest });
+  const pkg = await openPdpkg(archive, { ...expect, digest: expectedDigest });
   for (const [p, b] of pkg.files) {
     const onDisk = await read(p);
     if (!onDisk) throw new PackageVerificationError('FILE_MISSING', `${p} is missing from the installed package`, p);

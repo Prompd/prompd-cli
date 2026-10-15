@@ -49,6 +49,12 @@ describe('packPdpkg + openPdpkg round trip', () => {
     }
   });
 
+  it('refuses the install layout names, in any casing', async () => {
+    for (const p of ['.package.pdpkg', '.PACKAGE.PDPKG', '.prmdmeta', '.PrmdMeta']) {
+      await expect(packPdpkg({ name: '@a/x', version: '1.0.0', type: 'package' }, new Map([[p, 'x']]))).rejects.toThrow('reserved');
+    }
+  });
+
   it('refuses a differently cased manifest name', async () => {
     for (const p of ['Manifest.json', 'PROMPD.JSON', 'Prompd.json']) {
       await expect(packPdpkg({ name: '@a/x', version: '1.0.0', type: 'package' }, new Map([[p, '{}']]))).rejects.toThrow('reserved for the manifest');
@@ -96,6 +102,24 @@ describe('openPdpkg refusals', () => {
     const files = { 'a.md': 'x' };
     const z = await rawZip({ 'prompd.json': await manifestWith(files), ...files });
     expect(await codeOf(openPdpkg(z))).toBe('ok');
+  });
+
+  it('MANIFEST_RESERVED for a root install layout file, in any casing', async () => {
+    for (const name of ['.package.pdpkg', '.Package.Pdpkg', '.prmdmeta', '.PRMDMETA']) {
+      const files = { 'a.md': 'x', [name]: 'x' };
+      const z = await rawZip({ 'prompd.json': await manifestWith(files), ...files });
+      expect(await codeOf(openPdpkg(z))).toBe('MANIFEST_RESERVED');
+    }
+  });
+
+  it('verifies a private copy, so the caller changing its buffer mid-open changes nothing', async () => {
+    const bytes = await packPdpkg({ name: '@a/x', version: '1.2.0', type: 'package' }, new Map([['a.md', 'hello']]));
+    const digest = await archiveDigest(bytes);
+    const opening = openPdpkg(bytes);
+    bytes.fill(0);
+    const pkg = await opening;
+    expect(pkg.digest).toBe(digest);
+    expect(new TextDecoder().decode(pkg.files.get('a.md'))).toBe('hello');
   });
 
   it('FILE_UNLISTED for a file the integrity block does not list', async () => {

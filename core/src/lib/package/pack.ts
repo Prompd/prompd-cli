@@ -7,8 +7,10 @@ import { entryNameProblem } from './archive';
 import { sha256Hex } from './digest';
 import type { PackageIntegrity, PackageManifest } from './manifest';
 import { openPdpkg } from './verify';
+import { ARCHIVE_COPY, META_FILE } from './layout';
 
 const RESERVED = new Set(['prompd.json', 'manifest.json']);
+const RESERVED_LAYOUT = new Set([ARCHIVE_COPY, META_FILE].map((n) => n.toLowerCase()));
 const RESERVED_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const encoder = new TextEncoder();
 
@@ -28,6 +30,7 @@ export async function packPdpkg(
   for (const [p, v] of files) {
     if (RESERVED_OBJECT_KEYS.has(p)) throw new Error(`Refusing package path "${p}": it is a reserved name`);
     if (RESERVED.has(p.toLowerCase())) throw new Error(`Refusing package path "${p}": it is reserved for the manifest`);
+    if (RESERVED_LAYOUT.has(p.toLowerCase())) throw new Error(`Refusing package path "${p}": it is reserved for the install layout`);
     const problem = entryNameProblem(p);
     if (problem) throw new Error(`Refusing package path "${p}": ${problem}`);
     bytes.set(p, typeof v === 'string' ? encoder.encode(v) : v);
