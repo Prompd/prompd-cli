@@ -2,14 +2,16 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { packPdpkg, archiveDigest } from '@prompd/core';
+import { packPdpkg, archiveDigest, isPackageVerificationError } from '@prompd/core';
 import { RegistryClient } from '../src/lib/registry';
 
 jest.setTimeout(30000);
 
 interface Pkg { name: string; version: string; bytes: Uint8Array }
 
-function serve(pkgs: Pkg[]): Promise<{ url: string; close: () => Promise<void>; hits: string[] }> {
+type Registry = { url: string; close: () => Promise<void>; hits: string[]; pkgs: Pkg[] };
+
+function serve(pkgs: Pkg[]): Promise<Registry> {
   const hits: string[] = [];
   const server = http.createServer((req, res) => {
     const url = decodeURIComponent(req.url ?? '');
@@ -41,7 +43,7 @@ function serve(pkgs: Pkg[]): Promise<{ url: string; close: () => Promise<void>; 
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const port = (server.address() as { port: number }).port;
-      resolve({ url: `http://127.0.0.1:${port}`, hits, close: () => new Promise((r) => server.close(() => r())) });
+      resolve({ url: `http://127.0.0.1:${port}`, hits, pkgs, close: () => new Promise((r) => server.close(() => r())) });
     });
   });
 }
@@ -65,6 +67,7 @@ describe('RegistryClient.install (through core)', () => {
       const dir = path.join(ws, '.prompd', 'packages', '@t', 'top', '1.0.0');
       expect(await fs.readFile(path.join(dir, 'a.md'), 'utf8')).toBe('top');
       expect(await fs.pathExists(path.join(dir, '.package.pdpkg'))).toBe(true);
+      expect(await fs.readFile(path.join(ws, '.prompd', 'packages', '@t', 'dep', '1.4.0', 'd.md'), 'utf8')).toBe('dep');
       expect((await fs.readJson(path.join(ws, 'prompd.json'))).dependencies).toEqual({ '@t/top': '1.0.0' });
     } finally {
       await reg.close();
@@ -82,7 +85,9 @@ describe('RegistryClient.install (through core)', () => {
       const ws = path.join(tmp, 'ws');
       await fs.ensureDir(ws);
       const client = new RegistryClient({ registryUrl: reg.url, cacheDir: path.join(tmp, 'cache') });
-      await expect(client.install('@t/x@1.0.0', { workspaceRoot: ws })).rejects.toThrow();
+      const err: unknown = await client.install('@t/x@1.0.0', { workspaceRoot: ws }).then(() => null, (e: unknown) => e);
+      expect(isPackageVerificationError(err)).toBe(true);
+      expect((err as { code: string }).code).toBe('ARCHIVE_INVALID');
       expect(await fs.pathExists(path.join(ws, '.prompd'))).toBe(false);
     } finally {
       await reg.close();
@@ -106,6 +111,26 @@ describe('RegistryClient.install (through core)', () => {
       await fs.writeFile(path.join(cacheDir, 'packages', '@t', 'c@1.0.0'), Buffer.from('tampered'));
       await client.install('@t/c@1.0.0', { workspaceRoot: ws });
       expect(reg.hits.filter((h) => h.includes('/download/')).length).toBe(downloadsAfterFirst + 1);
+    } finally {
+      await reg.close();
+    }
+  });
+
+  it('does not cache a download that failed verification, so a later good response installs', async () => {
+    const good = await packPdpkg({ name: '@t/r', version: '1.0.0', type: 'package' }, new Map([['a.md', 'aaaa']]));
+    const bad = Buffer.from(good);
+    bad[bad.indexOf(Buffer.from('a.md')) + 40] ^= 0xff;
+    const pkgs: Pkg[] = [{ name: '@t/r', version: '1.0.0', bytes: new Uint8Array(bad) }];
+    const reg = await serve(pkgs);
+    try {
+      const ws = path.join(tmp, 'ws');
+      await fs.ensureDir(ws);
+      const client = new RegistryClient({ registryUrl: reg.url, cacheDir: path.join(tmp, 'cache') });
+      await expect(client.install('@t/r@1.0.0', { workspaceRoot: ws })).rejects.toThrow();
+      pkgs[0] = { name: '@t/r', version: '1.0.0', bytes: good };
+      await client.install('@t/r@1.0.0', { workspaceRoot: ws });
+      expect(reg.hits.filter((h) => h.includes('/download/')).length).toBe(2);
+      expect(await fs.readFile(path.join(ws, '.prompd', 'packages', '@t', 'r', '1.0.0', 'a.md'), 'utf8')).toBe('aaaa');
     } finally {
       await reg.close();
     }

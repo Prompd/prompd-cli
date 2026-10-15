@@ -380,9 +380,11 @@ export class RegistryClient extends EventEmitter {
   /**
    * The PackageDownloader handed to core. Resolves the spec, then serves the
    * cached archive only when its digest still equals the one recorded at
-   * download; a tampered or unreadable cache entry is dropped and fetched again.
-   * Core verifies whatever this returns, so the cache can never make an install
-   * accept bytes the registry did not serve.
+   * download; a changed or unreadable cache entry is dropped and fetched again.
+   * A download is cached only after openPdpkg accepts it, so a bad response is
+   * never replayed. The digest proves the bytes are unchanged since a VERIFIED
+   * download; it does not prove registry provenance (anyone who can write the
+   * cache can rewrite .meta too). Core re-verifies whatever this returns.
    */
   private async cachedDownload(name: string, spec: string, skipCache: boolean): Promise<Uint8Array> {
     const version = await this.downloader.resolveVersion(name, spec);
@@ -401,6 +403,7 @@ export class RegistryClient extends EventEmitter {
       await fs.remove(`${file}.meta`);
     }
     const bytes = await this.downloader.download(name, version);
+    await openPdpkg(bytes, { name, range: version });
     await fs.ensureDir(path.dirname(file));
     await fs.writeFile(file, bytes);
     await fs.writeJson(`${file}.meta`, { name, version, digest: await archiveDigest(bytes) }, { spaces: 2 });
@@ -679,7 +682,7 @@ export class RegistryClient extends EventEmitter {
    */
   async downloadPackageBuffer(packageName: string, version: string): Promise<{ tarball: Buffer; metadata: PackageMetadata }> {
     const bytes = await this.cachedDownload(packageName, version, false);
-    const pkg = await openPdpkg(bytes, { name: packageName });
+    const pkg = await openPdpkg(bytes, { name: packageName, range: version });
     return { tarball: Buffer.from(bytes), metadata: pkg.manifest as unknown as PackageMetadata };
   }
 
