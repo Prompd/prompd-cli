@@ -49,3 +49,7 @@ export * from './lib/workflowRun';
 
 // Workflow packaging: trace a workflow's files, scan for secrets, write a .pdpkg.
 export * from './lib/workflowPackage';
+
+// Package verification: the one verified way to open, pack, install-check and
+// download .pdpkg archives. See src/lib/package/.
+export * from './lib/package';

@@ -197,6 +197,18 @@ anywhere in scope may still have its `getPrototypeOf` and
 property), so a Proxy is trusted to report its own shape honestly — it is not
 sandboxed against a trap that lies.
 
+## Package verification
+
+Every `.pdpkg` is opened, packed and install-checked through one verified surface:
+
+- `openPdpkg(bytes, expect?)` opens an archive and returns the verified manifest, files and `sha256:` digest.
+- `packPdpkg(manifest, files)` is the one packer; it writes the integrity block.
+- `verifyInstalled(read, digest)` re-checks an install against its stored archive copy.
+- `createRegistryDownloader({ baseUrl, fetch })` resolves `latest`, exact versions and ranges, then downloads.
+
+A package without an `integrity` block is refused. There is no override and no unverified mode.
+Failures throw `PackageVerificationError` with a stable `code`.
+
 ## What's exported
 
 - **Parser:** `PrompdParser`
