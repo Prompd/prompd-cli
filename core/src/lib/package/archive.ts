@@ -26,6 +26,8 @@ const LOCAL_LEN = 30;
 const UNICODE_PATH_FIELD = 0x7075;
 const WINDOWS_DEVICE_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
 const NOT_A_ZIP = 'the package is not a readable zip';
+/** Characters that reorder or hide how a name displays (LRM, RLM, embeddings, overrides, isolates). */
+const BIDI_RE = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
 
 interface CentralRecord { name: string; compressed: number; uncompressed: number; folder: boolean }
 
@@ -42,7 +44,7 @@ function hasControl(s: string): boolean {
 
 /** A name safe to echo in a message. */
 function shown(name: string): string {
-  if (hasControl(name)) return 'a file name in the package';
+  if (hasControl(name) || BIDI_RE.test(name)) return 'a file name in the package';
   return name.length > ARCHIVE_LIMITS.maxNameLength ? `${name.slice(0, ARCHIVE_LIMITS.maxNameLength)}...` : name;
 }
 
@@ -50,6 +52,7 @@ function shown(name: string): string {
 export function entryNameProblem(name: string): string | null {
   if (hasControl(name)) return 'a file name in the package holds a control character';
   if (!name) return 'a file in the package has no name';
+  if (BIDI_RE.test(name)) return 'a file name in the package holds a text-direction character';
   if (name.length > ARCHIVE_LIMITS.maxNameLength) return `a file name in the package is too long (over ${ARCHIVE_LIMITS.maxNameLength} characters)`;
   if (name.includes('\\')) return `${name} uses a backslash; package paths use forward slashes`;
   if (name.startsWith('/') || /^[A-Za-z]:/.test(name)) return `${name} is an absolute path`;
@@ -109,6 +112,8 @@ function scanCentralDirectory(raw: Uint8Array): CentralRecord[] {
     if (u32(raw, i) === EOCD_SIG) { eocd = i; break; }
   }
   if (eocd < 0) throw new PackageVerificationError('ARCHIVE_INVALID', NOT_A_ZIP);
+  // Nothing may follow the record and its comment: trailing bytes are a second payload two readers can disagree on.
+  if (eocd + EOCD_LEN + u16(raw, eocd + 20) !== raw.length) throw new PackageVerificationError('ARCHIVE_INVALID', NOT_A_ZIP);
   const count = u16(raw, eocd + 10);
   const size = u32(raw, eocd + 12);
   const offset = u32(raw, eocd + 16);

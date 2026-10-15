@@ -23,6 +23,10 @@ describe('entryNameProblem', () => {
     expect(entryNameProblem(name)).not.toBeNull();
   });
 
+  it.each([['\u202e'], ['\u200e'], ['\u200f'], ['\u202a'], ['\u2066'], ['\u2069']])('refuses a bidirectional or format character (%j)', (ch) => {
+    expect(entryNameProblem(`invoice${ch}dm.md`)).not.toBeNull();
+  });
+
   it('accepts ordinary nested posix names', () => {
     expect(entryNameProblem('skills/foo/SKILL.md')).toBeNull();
     expect(entryNameProblem('prompd.json')).toBeNull();
@@ -85,6 +89,21 @@ describe('readArchive', () => {
   it('refuses an entry past the per-file size cap', async () => {
     const big = new Uint8Array(ARCHIVE_LIMITS.maxFileBytes + 1);
     expect(await codeOf(readArchive(await zipOf({ 'big.bin': big })))).toBe('TOO_LARGE');
+  });
+
+  it('refuses bytes after the end-of-central-directory record', async () => {
+    const z = await zipOf({ 'a.md': 'x' });
+    const padded = new Uint8Array(z.length + 5);
+    padded.set(z, 0);
+    padded.set([1, 2, 3, 4, 5], z.length);
+    expect(await codeOf(readArchive(padded))).toBe('ARCHIVE_INVALID');
+  });
+
+  it('accepts an archive comment of exactly its declared length', async () => {
+    const zip = new JSZip();
+    zip.file('a.md', 'x');
+    const z = await zip.generateAsync({ type: 'uint8array', comment: 'x' });
+    expect([...(await readArchive(z)).keys()]).toEqual(['a.md']);
   });
 
   it('refuses a compression ratio over the cap', async () => {
