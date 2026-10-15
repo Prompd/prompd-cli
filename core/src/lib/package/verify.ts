@@ -60,12 +60,12 @@ function integrityOf(raw: unknown): PackageIntegrity {
 }
 
 export async function openPdpkg(input: Uint8Array, expect: OpenExpectations = {}): Promise<VerifiedPackage> {
+  if (input.length > MAX_PACKAGE_BYTES) {
+    throw new PackageVerificationError('TOO_LARGE', `the package is ${input.length} bytes (max ${MAX_PACKAGE_BYTES})`);
+  }
   // A private copy: the digest and the parsed entries must come from the same bytes,
   // even if the caller reuses its buffer while this is awaiting.
   const bytes = input.slice();
-  if (bytes.length > MAX_PACKAGE_BYTES) {
-    throw new PackageVerificationError('TOO_LARGE', `the package is ${bytes.length} bytes (max ${MAX_PACKAGE_BYTES})`);
-  }
   const digest = await archiveDigest(bytes);
   if (expect.digest !== undefined && expect.digest !== digest) {
     throw new PackageVerificationError('DIGEST_MISMATCH', `the package is ${digest}, expected ${expect.digest}`);

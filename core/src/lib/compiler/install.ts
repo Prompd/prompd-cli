@@ -358,7 +358,6 @@ async function writeNode(
     for (const tool of tools) await deployTool({ installedPath, name, tool });
   }
 
-
   const result: InstalledPackage = {
     name, version, ...(scopeOf(name) ? { scope: scopeOf(name) } : {}), type, installedPath, files, digest: pkg.digest, dependencies,
     ...(pkg.manifest.requires ? { requires: pkg.manifest.requires } : {}),
