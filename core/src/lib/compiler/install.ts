@@ -93,6 +93,16 @@ export interface InstalledPackage {
   requires?: PackageRequires;
 }
 
+/** Caps on one install tree, checked while resolving, before anything is written. */
+export const INSTALL_LIMITS = {
+  /** Dependencies one manifest may declare. */
+  maxDependencies: 100,
+  /** Packages in one install tree, the requested package included. */
+  maxPackages: 500,
+  /** Unpacked bytes across the whole tree (1 GiB). */
+  maxTotalBytes: 1024 * 1024 * 1024,
+} as const;
+
 /** The CLI layout's install dir. Hosts with their own state dir override it. */
 const DEFAULT_INSTALL_DIR = '.prompd';
 
@@ -189,6 +199,28 @@ interface ResolveState {
   done: Map<string, ResolvedNode>;
   /** Names being resolved right now, with their version: reaching one again is a cycle. */
   active: Map<string, string>;
+  /** Packages opened so far and their unpacked bytes, against INSTALL_LIMITS. */
+  packages: number;
+  bytes: number;
+}
+
+/** The highest pinned version of `name` that `spec` accepts, with its pinned digest. */
+function pinFor(pins: ReadonlyMap<string, string> | undefined, name: string, spec: string): { version: string; digest: string } | null {
+  if (!pins) return null;
+  const prefix = `${name}@`;
+  const versions: string[] = [];
+  for (const key of pins.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    const v = key.slice(prefix.length);
+    if (semver.valid(v) !== null) versions.push(v);
+  }
+  const best = spec === 'latest' ? (semver.rsort(versions)[0] ?? null) : semver.maxSatisfying(versions, spec);
+  if (best === null) return null;
+  return { version: best, digest: pins.get(`${prefix}${best}`) as string };
+}
+
+function treeTooLarge(message: string): PackageVerificationError {
+  return new PackageVerificationError('TOO_LARGE', message);
 }
 
 /** A name already in this install must be a version the new requirer accepts. */
@@ -206,8 +238,11 @@ function checkSharedVersion(depName: string, owner: string, spec: string, resolv
 export async function installPackage(opts: InstallPackageOptions): Promise<InstalledPackage> {
   const { name, spec } = splitRef(opts.ref);
   checkInstallDir(opts.installDir);
-  const root = await resolveNode(opts, name, spec, { done: new Map(), active: new Map() });
-  return writeNode(opts, root, new Map());
+  const root = await resolveNode(opts, name, spec, { done: new Map(), active: new Map(), packages: 0, bytes: 0 });
+  const result = await writeNode(opts, root, new Map());
+  // Only the requested package is the workspace's dependency; its own dependencies are its business.
+  if (!opts.global) await addWorkspaceDependency(opts.store, opts.root, result.name, result.version);
+  return result;
 }
 
 async function resolveNode(
@@ -218,10 +253,21 @@ async function resolveNode(
 ): Promise<ResolvedNode> {
   const { store, download, pins } = opts;
 
-  const archive = await download(wantName, wantSpec);
-  const range = semver.validRange(wantSpec) !== null ? wantSpec : undefined;
-  const pkg = await openPdpkg(archive, { name: wantName, ...(range !== undefined ? { range } : {}) });
+  // A lockfile pin the spec accepts holds the version: fetch exactly that one and
+  // require its bytes to be the pinned bytes, instead of whatever is newest.
+  const pin = pinFor(pins, wantName, wantSpec);
+  const archive = await download(wantName, pin ? pin.version : wantSpec);
+  const range = pin ? pin.version : semver.validRange(wantSpec) !== null ? wantSpec : undefined;
+  const pkg = await openPdpkg(archive, { name: wantName, ...(range !== undefined ? { range } : {}), ...(pin ? { digest: pin.digest } : {}) });
   const { name, version, type } = pkg.manifest;
+
+  state.packages += 1;
+  if (state.packages > INSTALL_LIMITS.maxPackages) throw treeTooLarge(`the install tree holds more than ${INSTALL_LIMITS.maxPackages} packages`);
+  state.bytes += pkg.manifestBytes.length;
+  for (const b of pkg.files.values()) state.bytes += b.length;
+  if (state.bytes > INSTALL_LIMITS.maxTotalBytes) throw treeTooLarge(`the install tree is over ${INSTALL_LIMITS.maxTotalBytes} bytes unpacked`);
+  const declared = Object.keys(pkg.manifest.dependencies ?? {}).length;
+  if (declared > INSTALL_LIMITS.maxDependencies) throw treeTooLarge(`${name}@${version} declares ${declared} dependencies (max ${INSTALL_LIMITS.maxDependencies})`);
 
   const pinned = pins?.get(`${name}@${version}`);
   if (pinned !== undefined && pinned !== pkg.digest) {
@@ -271,7 +317,7 @@ async function writeNode(
 ): Promise<InstalledPackage> {
   const prior = written.get(node);
   if (prior) return prior;
-  const { root, store, global, tools, deployTool } = opts;
+  const { root, store, tools, deployTool } = opts;
   const installDir = checkInstallDir(opts.installDir);
   const { pkg, archive, texts } = node;
   const { name, version, type } = pkg.manifest;
@@ -312,7 +358,6 @@ async function writeNode(
     for (const tool of tools) await deployTool({ installedPath, name, tool });
   }
 
-  if (!global) await addWorkspaceDependency(store, root, name, version);
 
   const result: InstalledPackage = {
     name, version, ...(scopeOf(name) ? { scope: scopeOf(name) } : {}), type, installedPath, files, digest: pkg.digest, dependencies,

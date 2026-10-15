@@ -1,6 +1,6 @@
 // tests/install.test.ts
 import semver from 'semver';
-import { installPackage, uninstallPackage, type PackageStore } from '../src/lib/compiler/install';
+import { installPackage, uninstallPackage, INSTALL_LIMITS, type PackageStore } from '../src/lib/compiler/install';
 import { packPdpkg } from '../src/lib/package/pack';
 import { archiveDigest } from '../src/lib/package/digest';
 import { PackageVerificationError } from '../src/lib/package/errors';
@@ -144,6 +144,36 @@ describe('installPackage', () => {
     expect(await codeOf(installPackage({ ref: '@a/top@1.0.0', root: 'ws', store: memStore().store, download: reg, pins: badDep }))).toBe('DIGEST_MISMATCH');
   });
 
+  it('holds a range-resolved dependency to the version the lockfile pins, not the newest', async () => {
+    const top = await makePkg('@x/top', '1.0.0', { 'a.md': 'x' }, { dependencies: { '@x/dep': '^1.2.0' } });
+    const dep120 = await makePkg('@x/dep', '1.2.0', { 'd.md': '1.2.0' });
+    const dep130 = await makePkg('@x/dep', '1.3.0', { 'd.md': '1.3.0' });
+    const reg = registry([{ name: '@x/top', version: '1.0.0', bytes: top }, { name: '@x/dep', version: '1.2.0', bytes: dep120 }, { name: '@x/dep', version: '1.3.0', bytes: dep130 }]);
+    const pins = new Map([['@x/dep@1.2.0', await archiveDigest(dep120)]]);
+    const res = await installPackage({ ref: '@x/top@1.0.0', root: 'ws', store: memStore().store, download: reg, pins });
+    expect(res.dependencies.map((d) => `${d.name}@${d.version}`)).toEqual(['@x/dep@1.2.0']);
+
+    const rebuilt = await makePkg('@x/dep', '1.2.0', { 'd.md': 'not what was locked' });
+    const s = memStore();
+    const badPins = new Map([['@x/dep@1.2.0', await archiveDigest(rebuilt)]]);
+    expect(await codeOf(installPackage({ ref: '@x/top@1.0.0', root: 'ws', store: s.store, download: reg, pins: badPins }))).toBe('DIGEST_MISMATCH');
+    expect(s.written()).toEqual([]);
+    expect(s.removed).toEqual([]);
+  });
+
+  it('refuses a manifest declaring more dependencies than the cap, before downloading them or writing anything', async () => {
+    const deps: Record<string, string> = {};
+    for (let i = 0; i <= INSTALL_LIMITS.maxDependencies; i++) deps[`@a/d${i}`] = '1.0.0';
+    const top = await makePkg('@a/top', '1.0.0', { 'a.md': 'x' }, { dependencies: deps });
+    const asked: string[] = [];
+    const s = memStore();
+    const download = async (name: string): Promise<Uint8Array> => { asked.push(name); if (name === '@a/top') return top; throw new Error(`no ${name}`); };
+    expect(await codeOf(installPackage({ ref: '@a/top@1.0.0', root: 'ws', store: s.store, download }))).toBe('TOO_LARGE');
+    expect(asked).toEqual(['@a/top']);
+    expect(s.written()).toEqual([]);
+    expect(INSTALL_LIMITS).toEqual({ maxDependencies: 100, maxPackages: 500, maxTotalBytes: 1073741824 });
+  });
+
   it('refuses an agent whose canCall dependency turns out to be a skill', async () => {
     const helperSkill = await makePkg('@a/helper', '1.0.0', { 'SKILL.md': '# h' }, { type: 'skill' });
     const agent = await makePkg('@a/boss', '1.0.0', {
@@ -244,6 +274,16 @@ describe('installPackage', () => {
     const global = memStore();
     await installPackage({ ref: '@a/x@1.0.0', root: 'home', store: global.store, download: reg, global: true });
     expect(global.files.has('home/prompd.json')).toBe(false);
+  });
+
+  it('records only the requested package in the workspace prompd.json, not its dependencies', async () => {
+    const reg = registry([
+      { name: '@a/top', version: '1.0.0', bytes: await makePkg('@a/top', '1.0.0', { 'a.md': 'x' }, { dependencies: { '@a/dep': '1.0.0' } }) },
+      { name: '@a/dep', version: '1.0.0', bytes: await makePkg('@a/dep', '1.0.0', { 'd.md': 'd' }) },
+    ]);
+    const s = memStore();
+    await installPackage({ ref: '@a/top@1.0.0', root: 'ws', store: s.store, download: reg });
+    expect(JSON.parse(s.files.get('ws/prompd.json') as string)).toEqual({ dependencies: { '@a/top': '1.0.0' } });
   });
 });
 
