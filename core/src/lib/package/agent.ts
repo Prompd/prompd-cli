@@ -45,6 +45,8 @@ function unique(xs: string[]): string[] {
 }
 
 const MCP_PREFIX = 'mcp:';
+/** MCP tools' wire names are mcp__<server>__<tool>, and the guardrail also matches allow entries against them. */
+const MCP_WIRE_PREFIX = 'mcp_';
 const GLOB_RE = /[*?]/;
 const NAMED_MCP_RE = /^mcp:([^*?/]+)\//;
 
@@ -52,13 +54,21 @@ function unnamedMcp(addr: string): PackageVerificationError {
   return invalid(`POLICY.yaml allows "${addr}", which can reach MCP servers it does not name; MCP access in a package must name each server (mcp:<server>/<tool> or mcp:<server>/*)`, 'POLICY.yaml');
 }
 
+function mcpWireName(addr: string): PackageVerificationError {
+  return invalid(`POLICY.yaml allows "${addr}", an MCP wire name; in a package, allow MCP tools as mcp:<server>/<tool> or mcp:<server>/*`, 'POLICY.yaml');
+}
+
 /** The MCP server one tools.allow entry grants, or null when it grants none. The crew
- * matcher lets a glob cross "/" and ":", so any glob that could match "mcp:" is refused. */
+ * matcher lets a glob cross "/" and ":", and also matches entries against MCP wire
+ * names (mcp__<server>__<tool>), so any entry that could match "mcp:" or "mcp_" without
+ * naming its server in mcp:<server>/ form is refused. */
 function mcpServerOf(addr: string): string | null {
+  if (addr.startsWith(MCP_WIRE_PREFIX)) throw mcpWireName(addr);
   const glob = addr.search(GLOB_RE);
   if (glob >= 0) {
     const literal = addr.slice(0, glob);
     if (MCP_PREFIX.startsWith(literal)) throw unnamedMcp(addr);
+    if (MCP_WIRE_PREFIX.startsWith(literal)) throw mcpWireName(addr);
     if (literal.startsWith(MCP_PREFIX)) {
       const slash = addr.indexOf('/', MCP_PREFIX.length);
       const server = addr.slice(MCP_PREFIX.length, slash < 0 ? undefined : slash);

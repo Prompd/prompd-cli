@@ -74,10 +74,15 @@ describe('checkAgentPackage', () => {
     expect(codeOf(() => checkAgentPackage(manifest({ requires: { mcp: ['github'] } }), files))).toBe('MANIFEST_INVALID:POLICY.yaml');
   });
 
-  it('accepts a named MCP server and a non-MCP glob', () => {
+  it.each([['mcp_*'], ['mcp__*'], ['mcp__jira__search'], ['mcp__github__*'], ['mcp_x']])('refuses the MCP wire-name form %j', (entry) => {
+    const files = agentFiles({ policy: ['tools:', `  allow: [${JSON.stringify(entry)}]`, ''].join('\n') });
+    expect(codeOf(() => checkAgentPackage(manifest({ requires: { mcp: ['github', 'jira'] } }), files))).toBe('MANIFEST_INVALID:POLICY.yaml');
+  });
+
+  it('accepts a named MCP server and non-MCP globs', () => {
     const refs = checkAgentPackage(
       manifest({ requires: { mcp: ['github'] } }),
-      agentFiles({ policy: ['tools:', '  allow: ["mcp:github/*", "fs:read_*"]', ''].join('\n') }),
+      agentFiles({ policy: ['tools:', '  allow: ["mcp:github/*", "fs:read_*", "fs:*", "shell:*"]', ''].join('\n') }),
     );
     expect(refs.mcp).toEqual(['github']);
   });

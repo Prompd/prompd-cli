@@ -64,8 +64,9 @@ export async function openPdpkg(input: Uint8Array, expect: OpenExpectations = {}
     throw new PackageVerificationError('TOO_LARGE', `the package is ${input.length} bytes (max ${MAX_PACKAGE_BYTES})`);
   }
   // A private copy: the digest and the parsed entries must come from the same bytes,
-  // even if the caller reuses its buffer while this is awaiting.
-  const bytes = input.slice();
+  // even if the caller reuses its buffer while this is awaiting. Not input.slice():
+  // on a Node Buffer that returns a view over the same memory.
+  const bytes = new Uint8Array(input);
   const digest = await archiveDigest(bytes);
   if (expect.digest !== undefined && expect.digest !== digest) {
     throw new PackageVerificationError('DIGEST_MISMATCH', `the package is ${digest}, expected ${expect.digest}`);

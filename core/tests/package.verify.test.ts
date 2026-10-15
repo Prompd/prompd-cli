@@ -122,6 +122,17 @@ describe('openPdpkg refusals', () => {
     expect(new TextDecoder().decode(pkg.files.get('a.md'))).toBe('hello');
   });
 
+  it('copies a Node Buffer too (Buffer.prototype.slice shares memory)', async () => {
+    const bytes = await packPdpkg({ name: '@a/x', version: '1.2.0', type: 'package' }, new Map([['a.md', 'hello']]));
+    const digest = await archiveDigest(bytes);
+    const buf = Buffer.from(bytes);
+    const opening = openPdpkg(buf);
+    buf.fill(0);
+    const pkg = await opening;
+    expect(pkg.digest).toBe(digest);
+    expect(new TextDecoder().decode(pkg.files.get('a.md'))).toBe('hello');
+  });
+
   it('FILE_UNLISTED for a file the integrity block does not list', async () => {
     const z = await rawZip({ 'prompd.json': await manifestWith({ 'a.md': 'x' }), 'a.md': 'x', 'extra.md': 'y' });
     expect(await codeOf(openPdpkg(z))).toBe('FILE_UNLISTED');
