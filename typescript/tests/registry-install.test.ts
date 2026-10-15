@@ -1,0 +1,130 @@
+import * as http from 'http';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs-extra';
+import { packPdpkg, archiveDigest } from '@prompd/core';
+import { RegistryClient } from '../src/lib/registry';
+
+jest.setTimeout(30000);
+
+interface Pkg { name: string; version: string; bytes: Uint8Array }
+
+function serve(pkgs: Pkg[]): Promise<{ url: string; close: () => Promise<void>; hits: string[] }> {
+  const hits: string[] = [];
+  const server = http.createServer((req, res) => {
+    const url = decodeURIComponent(req.url ?? '');
+    hits.push(url);
+    const versions = /^\/packages\/(@[^/]+\/[^/]+)\/versions$/.exec(url);
+    const download = /^\/packages\/(@[^/]+\/[^/]+)\/download\/([^/]+)$/.exec(url);
+    const info = /^\/packages\/(@[^/]+\/[^/]+)$/.exec(url);
+    if (versions) {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(pkgs.filter((p) => p.name === versions[1]).map((p) => ({ version: p.version }))));
+      return;
+    }
+    if (download) {
+      const p = pkgs.find((x) => x.name === download[1] && x.version === download[2]);
+      if (!p) { res.statusCode = 404; res.end(); return; }
+      res.setHeader('content-type', 'application/zip');
+      res.end(Buffer.from(p.bytes));
+      return;
+    }
+    if (info) {
+      const mine = pkgs.filter((p) => p.name === info[1]);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ name: info[1], version: mine[mine.length - 1]?.version }));
+      return;
+    }
+    res.statusCode = 404;
+    res.end();
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as { port: number }).port;
+      resolve({ url: `http://127.0.0.1:${port}`, hits, close: () => new Promise((r) => server.close(() => r())) });
+    });
+  });
+}
+
+describe('RegistryClient.install (through core)', () => {
+  let tmp: string;
+  beforeEach(async () => { tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'prompd-install-')); });
+  afterEach(async () => { await fs.remove(tmp); });
+
+  it('installs a verified package with its range dependency, writing the archive copy and prompd.json', async () => {
+    const dep = await packPdpkg({ name: '@t/dep', version: '1.4.0', type: 'package' }, new Map([['d.md', 'dep']]));
+    const top = await packPdpkg({ name: '@t/top', version: '1.0.0', type: 'package', dependencies: { '@t/dep': '^1.0.0' } }, new Map([['a.md', 'top']]));
+    const reg = await serve([{ name: '@t/top', version: '1.0.0', bytes: top }, { name: '@t/dep', version: '1.4.0', bytes: dep }]);
+    try {
+      const ws = path.join(tmp, 'ws');
+      await fs.ensureDir(ws);
+      const client = new RegistryClient({ registryUrl: reg.url, cacheDir: path.join(tmp, 'cache') });
+      const res = await client.install('@t/top@1.0.0', { workspaceRoot: ws });
+      expect(res.digest).toBe(await archiveDigest(top));
+      expect(res.dependencies.map((d) => `${d.name}@${d.version}`)).toEqual(['@t/dep@1.4.0']);
+      const dir = path.join(ws, '.prompd', 'packages', '@t', 'top', '1.0.0');
+      expect(await fs.readFile(path.join(dir, 'a.md'), 'utf8')).toBe('top');
+      expect(await fs.pathExists(path.join(dir, '.package.pdpkg'))).toBe(true);
+      expect((await fs.readJson(path.join(ws, 'prompd.json'))).dependencies).toEqual({ '@t/top': '1.0.0' });
+    } finally {
+      await reg.close();
+    }
+  });
+
+  it('refuses a tampered package and writes nothing', async () => {
+    const good = await packPdpkg({ name: '@t/x', version: '1.0.0', type: 'package' }, new Map([['a.md', 'aaaa']]));
+    const bad = Buffer.from(good);
+    // Flip a byte inside the a.md entry: either the CRC or the integrity hash fails, both refusals.
+    const at = bad.indexOf(Buffer.from('a.md')) + 40;
+    bad[at] = bad[at] ^ 0xff;
+    const reg = await serve([{ name: '@t/x', version: '1.0.0', bytes: new Uint8Array(bad) }]);
+    try {
+      const ws = path.join(tmp, 'ws');
+      await fs.ensureDir(ws);
+      const client = new RegistryClient({ registryUrl: reg.url, cacheDir: path.join(tmp, 'cache') });
+      await expect(client.install('@t/x@1.0.0', { workspaceRoot: ws })).rejects.toThrow();
+      expect(await fs.pathExists(path.join(ws, '.prompd'))).toBe(false);
+    } finally {
+      await reg.close();
+    }
+  });
+
+  it('serves a cache hit only when its digest matches, and re-downloads a tampered cache entry', async () => {
+    const pkg = await packPdpkg({ name: '@t/c', version: '1.0.0', type: 'package' }, new Map([['a.md', 'c']]));
+    const reg = await serve([{ name: '@t/c', version: '1.0.0', bytes: pkg }]);
+    try {
+      const ws = path.join(tmp, 'ws');
+      await fs.ensureDir(ws);
+      const cacheDir = path.join(tmp, 'cache');
+      const client = new RegistryClient({ registryUrl: reg.url, cacheDir });
+      await client.install('@t/c@1.0.0', { workspaceRoot: ws });
+      const downloadsAfterFirst = reg.hits.filter((h) => h.includes('/download/')).length;
+
+      await client.install('@t/c@1.0.0', { workspaceRoot: ws });
+      expect(reg.hits.filter((h) => h.includes('/download/')).length).toBe(downloadsAfterFirst);
+
+      await fs.writeFile(path.join(cacheDir, 'packages', '@t', 'c@1.0.0'), Buffer.from('tampered'));
+      await client.install('@t/c@1.0.0', { workspaceRoot: ws });
+      expect(reg.hits.filter((h) => h.includes('/download/')).length).toBe(downloadsAfterFirst + 1);
+    } finally {
+      await reg.close();
+    }
+  });
+
+  it('uninstalls through core and drops the workspace dependency', async () => {
+    const pkg = await packPdpkg({ name: '@t/u', version: '1.0.0', type: 'package' }, new Map([['a.md', 'u']]));
+    const reg = await serve([{ name: '@t/u', version: '1.0.0', bytes: pkg }]);
+    try {
+      const ws = path.join(tmp, 'ws');
+      await fs.ensureDir(ws);
+      const client = new RegistryClient({ registryUrl: reg.url, cacheDir: path.join(tmp, 'cache') });
+      await client.install('@t/u@1.0.0', { workspaceRoot: ws });
+      await client.uninstall('@t/u', { workspaceRoot: ws });
+      expect(await fs.pathExists(path.join(ws, '.prompd', 'packages', '@t', 'u'))).toBe(false);
+      expect((await fs.readJson(path.join(ws, 'prompd.json'))).dependencies).toEqual({});
+      await expect(client.uninstall('@t/u', { workspaceRoot: ws })).rejects.toThrow(/is not installed/);
+    } finally {
+      await reg.close();
+    }
+  });
+});

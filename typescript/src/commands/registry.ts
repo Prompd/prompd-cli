@@ -166,7 +166,7 @@ export function createSearchCommand(): Command {
     .description('Search for packages in the registry')
     .argument('<query>', 'Search query')
     .option('-l, --limit <limit>', 'Maximum number of results', '20')
-    .option('-t, --type <types>', 'Filter by package type (comma-separated: package,workflow,skill,node-template)')
+    .option('-t, --type <types>', 'Filter by package type (comma-separated: package,workflow,skill,agent)')
     .option('-r, --registry <registry>', 'Search specific registry')
     .action(async (query: string, options) => {
       try {

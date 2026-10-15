@@ -5,15 +5,20 @@
 
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import * as crypto from 'crypto';
+import * as os from 'os';
 import * as semver from 'semver';
 import * as tar from 'tar';
 import { EventEmitter } from 'events';
 import { SecurityManager } from './security';
 import { ConfigManager } from './config';
-import { Config, RegistryConfig, PackageType, PACKAGE_TYPE_DIRS, TOOL_DEPLOY_DIRS, getInstallDirForType, resolveToolDeployDir, isValidPackageType } from '../types';
+import { Config, RegistryConfig, PACKAGE_TYPE_DIRS, TOOL_DEPLOY_DIRS, resolveToolDeployDir } from '../types';
 import { IFileSystem, MemoryFileSystem, NodeFileSystem } from './compiler/file-system';
 import { findProjectRoot } from './compiler/package-resolver';
+import {
+  installPackage, uninstallPackage, createRegistryDownloader, openPdpkg, archiveDigest,
+  type InstalledPackage, type RegistryDownloader, type RegistryFetch,
+} from '@prompd/core';
+import { NodePackageStore } from './node-package-store';
 import { validateRegistryUrl } from './validation';
 
 // Legacy interface for backward compatibility
@@ -40,7 +45,7 @@ export interface PackageMetadata {
   prompdVersion: string;
   files: string[];
   main?: string;
-  type: 'package' | 'node-template' | 'workflow' | 'skill';
+  type: 'package' | 'workflow' | 'skill' | 'agent';
   category: string;
   tags: string[];
   createdAt: string;
@@ -84,14 +89,10 @@ export interface SearchResult {
 
 export interface InstallOptions {
   version?: string;
-  saveDev?: boolean;
   global?: boolean;
-  force?: boolean;
   skipCache?: boolean;
   workspaceRoot?: string;
   tools?: string[];
-  /** Package type hint from registry. Used as fallback when the package manifest lacks a type field. */
-  type?: PackageType;
 }
 
 /**
@@ -102,6 +103,8 @@ export interface RegistryClientOptions {
   registryName?: string;
   /** Direct registry URL - overrides config lookup */
   registryUrl?: string;
+  /** Where downloaded archives are cached. Default `~/.prompd/cache`. */
+  cacheDir?: string;
 }
 
 /**
@@ -111,7 +114,8 @@ export class RegistryClient extends EventEmitter {
   private config: Config;
   private registryName: string;
   private registryConfig: RegistryConfig;
-  private cache: Map<string, { tarball: Buffer; metadata: PackageMetadata }> = new Map();
+  private readonly cacheRoot: string;
+  private downloaderInstance: RegistryDownloader | null = null;
 
   constructor(options?: string | RegistryClientOptions) {
     super();
@@ -141,6 +145,7 @@ export class RegistryClient extends EventEmitter {
       this.registryConfig = { ...this.registryConfig, url: opts.registryUrl };
     }
 
+    this.cacheRoot = opts.cacheDir ?? path.join(os.homedir(), '.prompd', 'cache');
     this.ensureCacheDir();
   }
 
@@ -169,7 +174,7 @@ export class RegistryClient extends EventEmitter {
   }
 
   get cacheDir(): string {
-    return path.join(require('os').homedir(), '.prompd', 'cache');
+    return this.cacheRoot;
   }
 
   get maxPackageSize(): number {
@@ -354,88 +359,85 @@ export class RegistryClient extends EventEmitter {
     }
   }
 
-  /**
-   * Install a package from the registry
-   * Accepts both formats:
-   * - @namespace/package (with options.version)
-   * - @namespace/package@version (embedded version)
-   */
-  async install(packageName: string, options: InstallOptions = {}): Promise<void> {
-    this.emit('installStart', { packageName, options });
-
-    try {
-      // Parse package reference if it includes @version
-      // Format: @namespace/package@version
-      // Find last @ to split name from version (scoped packages start with @)
-      let name = packageName;
-      let versionSpec = options.version || 'latest';
-
-      const lastAtIndex = packageName.lastIndexOf('@');
-      if (lastAtIndex > 0) {
-        // Has embedded version: @namespace/package@0.1.5
-        name = packageName.substring(0, lastAtIndex);
-        versionSpec = packageName.substring(lastAtIndex + 1);
-      }
-
-      // Resolve version
-      const resolvedVersion = await this.resolveVersion(name, versionSpec);
-
-      // Check cache first
-      const cacheKey = `${name}@${resolvedVersion}`;
-      if (!options.skipCache && !options.force) {
-        const cachedPath = await this.getCachedPackage(cacheKey);
-        if (cachedPath) {
-          await this.installFromCache(cachedPath, name, resolvedVersion, options);
-          if (!options.global) {
-            await this.addWorkspaceDependency(name, resolvedVersion, options.workspaceRoot);
-          }
-          this.emit('installComplete', { name, version: resolvedVersion });
-          return;
-        }
-      }
-
-      // Download package
-      const packageData = await this.downloadPackage(name, resolvedVersion);
-
-      // Install dependencies (skip self-referential dependencies)
-      const metadata = packageData.metadata;
-      if (metadata.dependencies && Object.keys(metadata.dependencies).length > 0) {
-        // Filter out self-referential dependencies to avoid circular resolution
-        const filteredDeps: Record<string, string> = {};
-        for (const [depName, depVersion] of Object.entries(metadata.dependencies as Record<string, string>)) {
-          if (depName === name) {
-            // Skip self-referential dependency (package depends on itself)
-            continue;
-          }
-          filteredDeps[depName] = depVersion;
-        }
-        if (Object.keys(filteredDeps).length > 0) {
-          await this.installDependencies(filteredDeps, options);
-        }
-      }
-
-      // Extract and install package
-      await this.extractAndInstallPackage(packageData, name, resolvedVersion, options);
-
-      // Cache package
-      await this.cachePackage(cacheKey, packageData);
-
-      // Update workspace prompd.json dependencies (skip for global installs)
-      if (!options.global) {
-        await this.addWorkspaceDependency(name, resolvedVersion, options.workspaceRoot);
-      }
-
-      this.emit('installComplete', {
-        name: name,
-        version: resolvedVersion
+  /** Core's downloader over this client's URL and auth. One version-resolution path for every host. */
+  private get downloader(): RegistryDownloader {
+    if (!this.downloaderInstance) {
+      const fetchImpl: RegistryFetch = (url, init) => fetch(url, init);
+      this.downloaderInstance = createRegistryDownloader({
+        baseUrl: this.registryUrl,
+        fetch: fetchImpl,
+        headers: () => this.getAuthHeaders(),
       });
+    }
+    return this.downloaderInstance;
+  }
 
+  /** Cache path for an exact name@version: <cacheDir>/packages/@scope/name@version (+ .meta). */
+  private cachePathFor(name: string, version: string): string {
+    return path.join(this.cacheDir, 'packages', `${name}@${version}`);
+  }
+
+  /**
+   * The PackageDownloader handed to core. Resolves the spec, then serves the
+   * cached archive only when its digest still equals the one recorded at
+   * download; a tampered or unreadable cache entry is dropped and fetched again.
+   * Core verifies whatever this returns, so the cache can never make an install
+   * accept bytes the registry did not serve.
+   */
+  private async cachedDownload(name: string, spec: string, skipCache: boolean): Promise<Uint8Array> {
+    const version = await this.downloader.resolveVersion(name, spec);
+    const file = this.cachePathFor(name, version);
+    if (!skipCache && await fs.pathExists(file)) {
+      try {
+        const bytes = new Uint8Array(await fs.readFile(file));
+        const meta = await fs.readJson(`${file}.meta`) as { digest?: unknown };
+        if (typeof meta.digest === 'string' && meta.digest === await archiveDigest(bytes)) {
+          this.emit('installingFromCache', { name, version });
+          return bytes;
+        }
+      } catch { /* unreadable entry: refetch below */ }
+      this.emit('cacheEntryInvalid', { name, version });
+      await fs.remove(file);
+      await fs.remove(`${file}.meta`);
+    }
+    const bytes = await this.downloader.download(name, version);
+    await fs.ensureDir(path.dirname(file));
+    await fs.writeFile(file, bytes);
+    await fs.writeJson(`${file}.meta`, { name, version, digest: await archiveDigest(bytes) }, { spaces: 2 });
+    return bytes;
+  }
+
+  /**
+   * Install a package (and its dependencies) through @prompd/core: every
+   * archive is verified before anything is written. Accepts
+   * "@scope/name", "@scope/name@1.2.3" or "@scope/name@^1.2.0"; options.version
+   * applies when the ref has no version.
+   */
+  async install(packageName: string, options: InstallOptions = {}): Promise<InstalledPackage> {
+    this.emit('installStart', { packageName, options });
+    try {
+      const hasVersion = packageName.lastIndexOf('@') > 0;
+      const ref = hasVersion || !options.version ? packageName : `${packageName}@${options.version}`;
+      const root = (options.global ? os.homedir() : (options.workspaceRoot || findProjectRoot())).split(path.sep).join('/');
+      const installed = await installPackage({
+        ref,
+        root,
+        installDir: '.prompd',
+        store: new NodePackageStore(),
+        download: (name, spec) => this.cachedDownload(name, spec, options.skipCache === true),
+        ...(options.global ? { global: true } : {}),
+        ...(options.tools && options.tools.length > 0 ? {
+          tools: options.tools,
+          deployTool: async ({ installedPath, name, tool }) => { await this.deploySkillToTool(installedPath, name, tool); },
+        } : {}),
+      });
+      this.emit('installComplete', { name: installed.name, version: installed.version });
+      return installed;
     } catch (error) {
       this.emit('installError', { packageName, error });
       throw error;
     }
   }
-
   /**
    * Search packages in the registry
    */
@@ -667,230 +669,18 @@ export class RegistryClient extends EventEmitter {
     }
   }
 
-  private async resolveVersion(packageName: string, versionSpec: string): Promise<string> {
-    if (versionSpec === 'latest') {
-      const packageInfo = await this.getPackageInfo(packageName);
-      return packageInfo.version;
-    }
-
-    const cleaned = semver.valid(versionSpec);
-    if (cleaned) {
-      return cleaned;
-    }
-
-    // Resolve version range
-    const versions = await this.getPackageVersions(packageName);
-    const resolved = semver.maxSatisfying(versions, versionSpec);
-    
-    if (!resolved) {
-      throw new Error(`No version found matching: ${versionSpec}`);
-    }
-
-    return resolved;
-  }
-
   /**
-   * Download a package without installing it to disk.
+   * Download a package without installing it to disk, verified through core.
    * Useful for in-memory package loading.
    *
    * @param packageName - Package name (e.g., "@namespace/package-name")
    * @param version - Package version (e.g., "1.0.0")
-   * @returns Object with tarball Buffer and package metadata
+   * @returns Object with archive Buffer and package metadata
    */
   async downloadPackageBuffer(packageName: string, version: string): Promise<{ tarball: Buffer; metadata: PackageMetadata }> {
-    return this.downloadPackage(packageName, version);
-  }
-
-  private async downloadPackage(packageName: string, version: string): Promise<{ tarball: Buffer; metadata: PackageMetadata }> {
-    // Registry endpoint format: /packages/@scope/name/download/version
-    const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(packageName)}/download/${encodeURIComponent(version)}`, {
-      headers: this.getAuthHeaders()
-    });
-
-    if (!response.ok) {
-      throw new Error(`Download failed: ${response.status} ${response.statusText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const tarballBuffer = Buffer.from(arrayBuffer);
-
-    // Extract metadata from the .pdpkg (ZIP) file instead of calling getPackageInfo
-    // Try prompd.json first, fall back to manifest.json for older packages
-    let AdmZip: { new(buffer: Buffer): InstanceType<typeof import('adm-zip')> };
-    try {
-      AdmZip = (await import('adm-zip')).default;
-    } catch {
-      throw new Error('adm-zip package is required for package installation. Run: npm install adm-zip');
-    }
-    const zip = new AdmZip(tarballBuffer);
-
-    // Check for prompd.json first (newer format), then manifest.json (legacy)
-    let manifestEntry = zip.getEntry('prompd.json');
-    if (!manifestEntry) {
-      manifestEntry = zip.getEntry('manifest.json');
-    }
-
-    if (!manifestEntry) {
-      throw new Error(`Invalid package: neither prompd.json nor manifest.json found in ${packageName}@${version}`);
-    }
-
-    const manifestContent = manifestEntry.getData().toString('utf8');
-    const metadata = JSON.parse(manifestContent) as PackageMetadata;
-
-    // Prevent prototype pollution from untrusted package manifests
-    const metadataObj = metadata as unknown as Record<string, unknown>;
-    delete metadataObj['__proto__'];
-    delete metadataObj['constructor'];
-    delete metadataObj['prototype'];
-
-    return {
-      tarball: tarballBuffer,
-      metadata
-    };
-  }
-
-  private async installDependencies(dependencies: Record<string, string>, options: InstallOptions): Promise<void> {
-    for (const [name, versionSpec] of Object.entries(dependencies)) {
-      this.emit('installingDependency', { name, version: versionSpec });
-      await this.install(name, { ...options, version: versionSpec });
-    }
-  }
-
-  private static readonly MAX_FILE_SIZE_IN_ZIP = 10 * 1024 * 1024; // 10MB per file
-  private static readonly MAX_TOTAL_EXTRACTED_SIZE = 500 * 1024 * 1024; // 500MB total
-  private static readonly MAX_COMPRESSION_RATIO = 100; // 100:1 max ratio per file
-
-  private async extractAndInstallPackage(
-    packageData: { tarball: Buffer; metadata: Partial<PackageMetadata> },
-    packageName: string,
-    version: string,
-    options: InstallOptions
-  ): Promise<void> {
-    const workspaceRoot = options.workspaceRoot || findProjectRoot();
-
-    // Determine and validate package type: manifest > options hint > default 'package'
-    const rawType = packageData.metadata?.type || options.type || 'package';
-    if (!isValidPackageType(rawType)) {
-      throw new Error(`Invalid package type '${rawType}' in ${packageName}@${version}. Valid types: package, workflow, skill, node-template`);
-    }
-    const packageType: PackageType = rawType;
-    const typeDir = getInstallDirForType(packageType);
-
-    // Load adm-zip for archive operations
-    let AdmZip: { new(buffer: Buffer): InstanceType<typeof import('adm-zip')> };
-    try {
-      AdmZip = (await import('adm-zip')).default;
-    } catch {
-      throw new Error('adm-zip package is required for package installation. Run: npm install adm-zip');
-    }
-    const zip = new AdmZip(packageData.tarball);
-
-    // Validate ZIP entries: file sizes, decompression bomb, path traversal, null bytes, symlinks
-    const zipEntries = zip.getEntries();
-    let cumulativeDecompressedSize = 0;
-
-    for (const entry of zipEntries) {
-      // Individual file size limit
-      if (entry.header.size > RegistryClient.MAX_FILE_SIZE_IN_ZIP) {
-        throw new Error(
-          `File too large in package: ${entry.entryName} (${entry.header.size} bytes, max: ${RegistryClient.MAX_FILE_SIZE_IN_ZIP})`
-        );
-      }
-
-      // Cumulative decompressed size limit (decompression bomb protection)
-      cumulativeDecompressedSize += entry.header.size;
-      if (cumulativeDecompressedSize > RegistryClient.MAX_TOTAL_EXTRACTED_SIZE) {
-        throw new Error(
-          `Package total decompressed size exceeds limit (${RegistryClient.MAX_TOTAL_EXTRACTED_SIZE} bytes). Possible decompression bomb.`
-        );
-      }
-
-      // Compression ratio check per file (decompression bomb detection)
-      const compressedSize = entry.header.compressedSize || 1;
-      if (compressedSize > 0 && entry.header.size / compressedSize > RegistryClient.MAX_COMPRESSION_RATIO) {
-        throw new Error(
-          `Suspicious compression ratio for ${entry.entryName}: ${Math.round(entry.header.size / compressedSize)}:1 (max: ${RegistryClient.MAX_COMPRESSION_RATIO}:1)`
-        );
-      }
-
-      // Null byte check in entry names
-      if (entry.entryName.includes('\0')) {
-        throw new Error(`Security violation: null byte in entry name: ${entry.entryName}`);
-      }
-
-      // Symlink check - reject symlink entries
-      // In ZIP, external attributes can indicate symlinks (Unix mode with S_IFLNK = 0xA000)
-      const externalAttrs = entry.header.attr;
-      if (externalAttrs) {
-        const unixMode = (externalAttrs >>> 16) & 0xFFFF;
-        if ((unixMode & 0xF000) === 0xA000) {
-          throw new Error(`Security violation: symlink detected in archive: ${entry.entryName}`);
-        }
-      }
-
-      // ZIP slip protection: reject path traversal
-      const normalized = path.normalize(entry.entryName);
-      if (normalized.includes('..') || path.isAbsolute(entry.entryName)) {
-        throw new Error(`Security violation: path traversal detected in ${entry.entryName}`);
-      }
-    }
-
-    const os = require('os');
-
-    // Node-templates: install as .pdpkg archive (not extracted) so template
-    // handlers can scan uniformly for .pdpkg files in the templates directory.
-    if (packageType === 'node-template') {
-      const templatesDir = options.global
-        ? path.join(os.homedir(), '.prompd', typeDir)
-        : path.join(workspaceRoot, '.prompd', typeDir);
-
-      await fs.ensureDir(templatesDir);
-
-      // Slugify package name for filename: @scope/name -> scope-name
-      const slugName = packageName
-        .toLowerCase()
-        .replace(/[@/]+/g, '-')
-        .replace(/[^a-z0-9-]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-      const pdpkgFileName = `${slugName}-${version}.pdpkg`;
-
-      await fs.writeFile(path.join(templatesDir, pdpkgFileName), packageData.tarball);
-      return;
-    }
-
-    const installDir = options.global
-      ? path.join(os.homedir(), '.prompd', typeDir, packageName, version)
-      : path.join(workspaceRoot, '.prompd', typeDir, packageName, version);
-
-    await fs.ensureDir(installDir);
-
-    zip.extractAllTo(installDir, true);
-
-    // Write package metadata for cache tracking
-    const metadataPath = path.join(installDir, '.prmdmeta');
-    await fs.writeJson(metadataPath, packageData.metadata, { spaces: 2 });
-
-    // Deploy to tool-native directories if --tools was specified
-    if (options.tools && options.tools.length > 0) {
-      if (packageType !== 'skill') {
-        throw new Error(`--tools flag is only valid for skills, but package type is '${packageType}'`);
-      }
-
-      // Track successful deployments for rollback on failure
-      const deployedDirs: string[] = [];
-      try {
-        for (const toolName of options.tools) {
-          const deployedDir = await this.deploySkillToTool(installDir, packageName, toolName);
-          deployedDirs.push(deployedDir);
-        }
-      } catch (deployError) {
-        // Rollback successful deployments
-        for (const dir of deployedDirs) {
-          await fs.remove(dir).catch(() => {});
-        }
-        throw deployError;
-      }
-    }
+    const bytes = await this.cachedDownload(packageName, version, false);
+    const pkg = await openPdpkg(bytes, { name: packageName });
+    return { tarball: Buffer.from(bytes), metadata: pkg.manifest as unknown as PackageMetadata };
   }
 
   /**
@@ -1022,177 +812,19 @@ export class RegistryClient extends EventEmitter {
     return false;
   }
 
-  private async getCachedPackage(cacheKey: string): Promise<string | null> {
-    const cachePath = path.join(this.cacheDir, 'packages', cacheKey);
-    return await fs.pathExists(cachePath) ? cachePath : null;
-  }
-
-  private async installFromCache(cachePath: string, packageName: string, version: string, options: InstallOptions): Promise<void> {
-    this.emit('installingFromCache', { name: packageName, version });
-
-    const tarballBuffer = await fs.readFile(cachePath);
-
-    // Try to read full metadata from the cached .meta sidecar file
-    const metadataPath = cachePath + '.meta';
-    let metadata: Partial<PackageMetadata> = { name: packageName, version };
-    if (await fs.pathExists(metadataPath)) {
-      try {
-        metadata = await fs.readJson(metadataPath);
-      } catch {
-        // Fall back to minimal metadata if .meta file is corrupt
-      }
-    }
-
-    // If metadata lacks type (old cache entry), extract it from the ZIP's prompd.json/manifest.json
-    if (!metadata.type) {
-      try {
-        let AdmZip: { new(buffer: Buffer): InstanceType<typeof import('adm-zip')> };
-        AdmZip = (await import('adm-zip')).default;
-        const zip = new AdmZip(tarballBuffer);
-        const manifestEntry = zip.getEntry('prompd.json') || zip.getEntry('manifest.json');
-        if (manifestEntry) {
-          const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
-          if (manifest.type) {
-            metadata.type = manifest.type;
-          }
-          // Backfill the .meta sidecar so future installs don't need to re-extract
-          await fs.writeJson(metadataPath, { ...metadata, ...manifest }, { spaces: 2 }).catch(() => {});
-        }
-      } catch {
-        // Non-fatal: type will fall back to options.type or 'package'
-      }
-    }
-
-    const packageData = { tarball: tarballBuffer, metadata };
-    await this.extractAndInstallPackage(packageData, packageName, version, options);
-  }
-
-  private async cachePackage(cacheKey: string, packageData: { tarball: Buffer; metadata: Partial<PackageMetadata> }): Promise<void> {
-    const cachePath = path.join(this.cacheDir, 'packages', cacheKey);
-    await fs.ensureDir(path.dirname(cachePath));
-    await fs.writeFile(cachePath, packageData.tarball);
-    // Save full metadata alongside the tarball so cache installs preserve package type
-    await fs.writeJson(cachePath + '.meta', packageData.metadata, { spaces: 2 });
-  }
-
   /**
-   * Add a dependency to the workspace prompd.json file.
-   */
-  private async addWorkspaceDependency(name: string, version: string, workspaceRoot?: string): Promise<void> {
-    const root = workspaceRoot || findProjectRoot();
-    const prompdJsonPath = path.join(root, 'prompd.json');
-
-    try {
-      let prompdJson: Record<string, unknown> = {};
-      if (await fs.pathExists(prompdJsonPath)) {
-        const content = await fs.readFile(prompdJsonPath, 'utf8');
-        if (content && content.trim() !== '') {
-          prompdJson = JSON.parse(content);
-        }
-      }
-
-      if (!prompdJson.dependencies || typeof prompdJson.dependencies !== 'object') {
-        prompdJson.dependencies = {};
-      }
-
-      (prompdJson.dependencies as Record<string, string>)[name] = version;
-      await fs.writeFile(prompdJsonPath, JSON.stringify(prompdJson, null, 2) + '\n');
-    } catch {
-      // Non-fatal: dependency tracking failure shouldn't block install
-    }
-  }
-
-  /**
-   * Remove a dependency from the workspace prompd.json file.
-   */
-  private async removeWorkspaceDependency(name: string, workspaceRoot?: string): Promise<void> {
-    const root = workspaceRoot || findProjectRoot();
-    const prompdJsonPath = path.join(root, 'prompd.json');
-
-    try {
-      if (!await fs.pathExists(prompdJsonPath)) return;
-
-      const content = await fs.readFile(prompdJsonPath, 'utf8');
-      if (!content || content.trim() === '') return;
-
-      const prompdJson = JSON.parse(content);
-      if (!prompdJson.dependencies || typeof prompdJson.dependencies !== 'object') return;
-
-      delete prompdJson.dependencies[name];
-      await fs.writeFile(prompdJsonPath, JSON.stringify(prompdJson, null, 2) + '\n');
-    } catch {
-      // Non-fatal
-    }
-  }
-
-  /**
-   * Uninstall a package by name, removing installed files and the prompd.json dependency entry.
-   * Scans type directories to find the installed location.
+   * Uninstall a package by name through @prompd/core, removing installed files
+   * and the prompd.json dependency entry.
    */
   async uninstall(packageName: string, options: InstallOptions = {}): Promise<void> {
-    const workspaceRoot = options.workspaceRoot || findProjectRoot();
-    const os = require('os');
-    const installBase = options.global
-      ? path.join(os.homedir(), '.prompd')
-      : path.join(workspaceRoot, '.prompd');
-
-    // Parse embedded version from ref (e.g. @scope/name@1.0.0)
-    let name = packageName;
-    const lastAtIndex = packageName.lastIndexOf('@');
-    if (lastAtIndex > 0) {
-      name = packageName.substring(0, lastAtIndex);
-    }
-
-    let removed = false;
-
-    // Scan all type directories for this package
-    for (const [type, dir] of Object.entries(PACKAGE_TYPE_DIRS)) {
-      if (type === 'node-template') {
-        // Node-templates are stored as .pdpkg files at the type root
-        const templatesDir = path.join(installBase, dir);
-        if (!await fs.pathExists(templatesDir)) continue;
-
-        const entries = await fs.readdir(templatesDir);
-        for (const entry of entries) {
-          if (!entry.endsWith('.pdpkg')) continue;
-
-          // Read manifest from archive to match by name
-          const pkgPath = path.join(templatesDir, entry);
-          try {
-            let AdmZip: { new(filePath: string): InstanceType<typeof import('adm-zip')> };
-            AdmZip = (await import('adm-zip')).default;
-            const zip = new AdmZip(pkgPath);
-            const manifestEntry = zip.getEntry('prompd.json') || zip.getEntry('manifest.json');
-            if (!manifestEntry) continue;
-
-            const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
-            if (manifest.name === name) {
-              await fs.remove(pkgPath);
-              removed = true;
-            }
-          } catch {
-            // Skip unreadable archives
-          }
-        }
-      } else {
-        // Standard packages: stored in @scope/name/ or name/ directories
-        const pkgDir = path.join(installBase, dir, name);
-        if (await fs.pathExists(pkgDir)) {
-          await fs.remove(pkgDir);
-          removed = true;
-        }
-      }
-    }
-
-    if (!removed) {
-      throw new Error(`Package '${name}' is not installed`);
-    }
-
-    // Remove from workspace prompd.json dependencies
-    if (!options.global) {
-      await this.removeWorkspaceDependency(name, workspaceRoot);
-    }
-
+    const root = (options.global ? os.homedir() : (options.workspaceRoot || findProjectRoot())).split(path.sep).join('/');
+    const at = packageName.lastIndexOf('@');
+    const name = at > 0 ? packageName.slice(0, at) : packageName;
+    const present = await Promise.all(
+      Object.values(PACKAGE_TYPE_DIRS).map((dir) => fs.pathExists(path.join(root, '.prompd', dir, name))),
+    );
+    if (!present.some(Boolean)) throw new Error(`Package '${name}' is not installed`);
+    await uninstallPackage({ ref: name, root, installDir: '.prompd', store: new NodePackageStore(), ...(options.global ? { global: true } : {}) });
     this.emit('uninstallComplete', { name });
   }
 
