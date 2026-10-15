@@ -68,4 +68,25 @@ describe('checkAgentPackage', () => {
   it('refuses unparseable POLICY.yaml', () => {
     expect(codeOf(() => checkAgentPackage(manifest(), agentFiles({ policy: 'skills: [unclosed\n' })))).toBe('MANIFEST_INVALID:POLICY.yaml');
   });
+
+  it.each([['*'], ['**'], ['mcp:*'], ['m*'], ['mcp:gi*/x'], ['?cp:github/x'], ['mcp:github']])('refuses the allow entry %j, which could reach an unnamed MCP server', (entry) => {
+    const files = agentFiles({ policy: ['tools:', `  allow: [${JSON.stringify(entry)}]`, ''].join('\n') });
+    expect(codeOf(() => checkAgentPackage(manifest({ requires: { mcp: ['github'] } }), files))).toBe('MANIFEST_INVALID:POLICY.yaml');
+  });
+
+  it('accepts a named MCP server and a non-MCP glob', () => {
+    const refs = checkAgentPackage(
+      manifest({ requires: { mcp: ['github'] } }),
+      agentFiles({ policy: ['tools:', '  allow: ["mcp:github/*", "fs:read_*"]', ''].join('\n') }),
+    );
+    expect(refs.mcp).toEqual(['github']);
+  });
+
+  it('trims names and drops empty ones, as the crew policy loader does', () => {
+    const refs = checkAgentPackage(
+      manifest({ dependencies: { '@a/pr-review': '1.0.0' } }),
+      agentFiles({ policy: ['skills: [" pr-review ", "  "]', ''].join('\n') }),
+    );
+    expect(refs.skills).toEqual(['pr-review']);
+  });
 });

@@ -25,8 +25,10 @@ function record(v: unknown): Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 
+/** String entries, trimmed, empties dropped (the crew policy loader trims names the same way). */
 function strings(v: unknown): string[] {
-  return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s.length > 0) : [];
+  if (!Array.isArray(v)) return [];
+  return v.filter((s): s is string => typeof s === 'string').map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 function yamlOf(src: string, path: string): unknown {
@@ -40,6 +42,33 @@ function frontmatter(src: string): Record<string, unknown> {
 
 function unique(xs: string[]): string[] {
   return [...new Set(xs)];
+}
+
+const MCP_PREFIX = 'mcp:';
+const GLOB_RE = /[*?]/;
+const NAMED_MCP_RE = /^mcp:([^*?/]+)\//;
+
+function unnamedMcp(addr: string): PackageVerificationError {
+  return invalid(`POLICY.yaml allows "${addr}", which can reach MCP servers it does not name; MCP access in a package must name each server (mcp:<server>/<tool> or mcp:<server>/*)`, 'POLICY.yaml');
+}
+
+/** The MCP server one tools.allow entry grants, or null when it grants none. The crew
+ * matcher lets a glob cross "/" and ":", so any glob that could match "mcp:" is refused. */
+function mcpServerOf(addr: string): string | null {
+  const glob = addr.search(GLOB_RE);
+  if (glob >= 0) {
+    const literal = addr.slice(0, glob);
+    if (MCP_PREFIX.startsWith(literal)) throw unnamedMcp(addr);
+    if (literal.startsWith(MCP_PREFIX)) {
+      const slash = addr.indexOf('/', MCP_PREFIX.length);
+      const server = addr.slice(MCP_PREFIX.length, slash < 0 ? undefined : slash);
+      if (GLOB_RE.test(server)) throw unnamedMcp(addr);
+    }
+  }
+  if (!addr.startsWith(MCP_PREFIX)) return null;
+  const m = NAMED_MCP_RE.exec(addr);
+  if (!m) throw unnamedMcp(addr);
+  return m[1];
 }
 
 export function checkAgentPackage(manifest: PackageManifest, files: ReadonlyMap<string, Uint8Array>): AgentRefs {
@@ -76,8 +105,8 @@ export function checkAgentPackage(manifest: PackageManifest, files: ReadonlyMap<
 
   const mcp: string[] = [];
   for (const addr of strings(record(policy.tools).allow)) {
-    const m = /^mcp:([^/]+)\//.exec(addr);
-    if (m) mcp.push(m[1]);
+    const server = mcpServerOf(addr);
+    if (server !== null) mcp.push(server);
   }
   const servers = unique(mcp);
   for (const s of servers) {
