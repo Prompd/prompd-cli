@@ -23,6 +23,8 @@ describe('parseManifest', () => {
     ['not json', '{', 'MANIFEST_INVALID'],
     ['not an object', [], 'MANIFEST_INVALID'],
     ['unscoped name', { name: 'x', version: '1.0.0' }, 'MANIFEST_INVALID'],
+    ['dot-only name', { name: '@a/..', version: '1.0.0' }, 'MANIFEST_INVALID'],
+    ['dot-only scope', { name: '@./x', version: '1.0.0' }, 'MANIFEST_INVALID'],
     ['range as version', { name: '@a/x', version: '^1.0.0' }, 'MANIFEST_INVALID'],
     ['removed type', { name: '@a/x', version: '1.0.0', type: 'node-template' }, 'TYPE_INVALID'],
     ['unknown type', { name: '@a/x', version: '1.0.0', type: 'plugin' }, 'TYPE_INVALID'],

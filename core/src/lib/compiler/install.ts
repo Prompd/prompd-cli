@@ -2,7 +2,9 @@
 /**
  * Package installation: the single, host-agnostic installer for every Prompd
  * artifact type (packages, workflows, skills, agents). Every package is opened
- * with openPdpkg before the store is touched, so nothing unverified is written.
+ * with openPdpkg, and the WHOLE dependency tree is resolved and verified before
+ * the store is touched, so nothing unverified (and nothing from a tree that fails
+ * verification) is written.
  *
  * The download fetch, the writable store and the (host-only) tool deployment
  * are INJECTED, so the same logic runs in the browser, the CLI and the sidecar
@@ -21,6 +23,7 @@ import { joinPosix, normalizePosix } from './path-utils';
 import { getInstallDirForType, type PackageType } from '../../types';
 import { openPdpkg } from '../package/verify';
 import { PackageVerificationError } from '../package/errors';
+import type { VerifiedPackage } from '../package/verify';
 import { PACKAGE_NAME_RE, unscopedName, type PackageRequires } from '../package/manifest';
 import type { AgentRefs } from '../package/agent';
 import { ARCHIVE_COPY, META_FILE } from '../package/layout';
@@ -161,7 +164,7 @@ async function removeWorkspaceDependency(store: PackageStore, root: string, name
 }
 
 /** An agent's dependency must be the kind its definition uses it as. */
-function checkDependencyTypes(owner: string, refs: AgentRefs, deps: readonly InstalledPackage[]): void {
+function checkDependencyTypes(owner: string, refs: AgentRefs, deps: readonly { name: string; type: PackageType }[]): void {
   for (const d of deps) {
     const short = unscopedName(d.name);
     if (refs.skills.includes(short) && d.type !== 'skill') {
@@ -173,31 +176,47 @@ function checkDependencyTypes(owner: string, refs: AgentRefs, deps: readonly Ins
   }
 }
 
-interface InstallState {
-  /** Finished installs by name: a dependency reached twice is installed once. */
-  done: Map<string, InstalledPackage>;
-  /** Names being installed right now: reaching one again is a cycle, skipped. */
-  active: Set<string>;
+/** A package that passed every check, ready to write. */
+interface ResolvedNode {
+  pkg: VerifiedPackage;
+  archive: Uint8Array;
+  texts: Map<string, string>;
+  dependencies: ResolvedNode[];
+}
+
+interface ResolveState {
+  /** Resolved nodes by name: a dependency reached twice is installed once. */
+  done: Map<string, ResolvedNode>;
+  /** Names being resolved right now, with their version: reaching one again is a cycle. */
+  active: Map<string, string>;
+}
+
+/** A name already in this install must be a version the new requirer accepts. */
+function checkSharedVersion(depName: string, owner: string, spec: string, resolved: string): void {
+  if (spec === 'latest' || semver.satisfies(resolved, spec)) return;
+  throw new Error(`${depName}: ${owner} needs ${spec}, but ${resolved} is already part of this install`);
 }
 
 /**
- * Install a registry artifact. The archive is verified (integrity, requested
- * name and version range, lockfile pin) before anything is written; its
- * dependencies are installed first, recursively, by name and range.
+ * Install a registry artifact. Phase 1 downloads and verifies the whole tree
+ * (integrity, requested name and version range, lockfile pin, store capability,
+ * agent dependency types) without touching the store. Phase 2 writes it,
+ * dependencies before dependents.
  */
 export async function installPackage(opts: InstallPackageOptions): Promise<InstalledPackage> {
   const { name, spec } = splitRef(opts.ref);
-  return installInternal(opts, name, spec, { done: new Map(), active: new Set() });
+  checkInstallDir(opts.installDir);
+  const root = await resolveNode(opts, name, spec, { done: new Map(), active: new Map() });
+  return writeNode(opts, root, new Map());
 }
 
-async function installInternal(
+async function resolveNode(
   opts: InstallPackageOptions,
   wantName: string,
   wantSpec: string,
-  state: InstallState,
-): Promise<InstalledPackage> {
-  const { root, store, download, global, tools, deployTool, pins } = opts;
-  const installDir = checkInstallDir(opts.installDir);
+  state: ResolveState,
+): Promise<ResolvedNode> {
+  const { store, download, pins } = opts;
 
   const archive = await download(wantName, wantSpec);
   const range = semver.validRange(wantSpec) !== null ? wantSpec : undefined;
@@ -210,7 +229,6 @@ async function installInternal(
   }
   if (pkg.files.size === 0) throw new Error(`Package "${name}" contains no installable files.`);
 
-  // Decide how every file will be written BEFORE anything is written.
   if (NAME_RESOLVED.has(type) && !store.writeBytes) {
     throw new Error(`Installing a ${type} needs a store that can write bytes; ${name}@${version} was not installed.`);
   }
@@ -222,13 +240,44 @@ async function installInternal(
     }
   }
 
-  state.active.add(name);
-  const dependencies: InstalledPackage[] = [];
+  const node: ResolvedNode = { pkg, archive, texts, dependencies: [] };
+  state.active.set(name, version);
   for (const [depName, depSpec] of Object.entries(pkg.manifest.dependencies ?? {})) {
-    if (depName === name || state.active.has(depName)) continue;
-    dependencies.push(state.done.get(depName) ?? await installInternal(opts, depName, depSpec, state));
+    if (depName === name) continue;
+    const activeVersion = state.active.get(depName);
+    if (activeVersion !== undefined) { // a cycle: the ancestor is already being installed
+      checkSharedVersion(depName, name, depSpec, activeVersion);
+      continue;
+    }
+    const done = state.done.get(depName);
+    if (done) {
+      checkSharedVersion(depName, name, depSpec, done.pkg.manifest.version);
+      node.dependencies.push(done);
+      continue;
+    }
+    node.dependencies.push(await resolveNode(opts, depName, depSpec, state));
   }
-  if (pkg.agentRefs) checkDependencyTypes(name, pkg.agentRefs, dependencies);
+  if (pkg.agentRefs) checkDependencyTypes(name, pkg.agentRefs, node.dependencies.map((d) => d.pkg.manifest));
+
+  state.active.delete(name);
+  state.done.set(name, node);
+  return node;
+}
+
+async function writeNode(
+  opts: InstallPackageOptions,
+  node: ResolvedNode,
+  written: Map<ResolvedNode, InstalledPackage>,
+): Promise<InstalledPackage> {
+  const prior = written.get(node);
+  if (prior) return prior;
+  const { root, store, global, tools, deployTool } = opts;
+  const installDir = checkInstallDir(opts.installDir);
+  const { pkg, archive, texts } = node;
+  const { name, version, type } = pkg.manifest;
+
+  const dependencies: InstalledPackage[] = [];
+  for (const dep of node.dependencies) dependencies.push(await writeNode(opts, dep, written));
 
   const installedPath = resolveInstallDir(root, installDir, type, name, version);
   const base = normalizePosix(installedPath);
@@ -241,12 +290,12 @@ async function installInternal(
   };
 
   await store.removeDir?.(installedPath); // clean reinstall of this version
-  const written: string[] = [];
+  const files: string[] = [];
   for (const [rel, b] of pkg.files) {
     const dest = destOf(rel);
     if (store.writeBytes) await store.writeBytes(dest, b);
     else await store.writeFile(dest, texts.get(rel) as string);
-    written.push(rel);
+    files.push(rel);
   }
   const manifestPath = joinPosix(installedPath, 'prompd.json');
   if (store.writeBytes) {
@@ -266,11 +315,10 @@ async function installInternal(
   if (!global) await addWorkspaceDependency(store, root, name, version);
 
   const result: InstalledPackage = {
-    name, version, ...(scopeOf(name) ? { scope: scopeOf(name) } : {}), type, installedPath, files: written, digest: pkg.digest, dependencies,
+    name, version, ...(scopeOf(name) ? { scope: scopeOf(name) } : {}), type, installedPath, files, digest: pkg.digest, dependencies,
     ...(pkg.manifest.requires ? { requires: pkg.manifest.requires } : {}),
   };
-  state.active.delete(name);
-  state.done.set(name, result);
+  written.set(node, result);
   return result;
 }
 

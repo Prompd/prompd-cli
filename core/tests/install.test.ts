@@ -150,7 +150,70 @@ describe('installPackage', () => {
       'AGENT.md': '---\nname: boss\ncanCall: [helper]\n---\nLead.', 'SOUL.md': 's', 'PERSONA.md': 'p', 'POLICY.yaml': 'defaultPermission: ask\n',
     }, { type: 'agent', dependencies: { '@a/helper': '1.0.0' } });
     const reg = registry([{ name: '@a/boss', version: '1.0.0', bytes: agent }, { name: '@a/helper', version: '1.0.0', bytes: helperSkill }]);
-    expect(await codeOf(installPackage({ ref: '@a/boss@1.0.0', root: 'ws', store: memStore().store, download: reg }))).toBe('TYPE_INVALID');
+    const s = memStore();
+    expect(await codeOf(installPackage({ ref: '@a/boss@1.0.0', root: 'ws', store: s.store, download: reg }))).toBe('TYPE_INVALID');
+    expect(s.written()).toEqual([]);
+    expect(s.removed).toEqual([]);
+  });
+
+  it('writes nothing when a second dependency fails verification', async () => {
+    const good = await makePkg('@a/good', '1.0.0', { 'g.md': 'g' });
+    const bad = await makePkg('@a/bad', '1.0.0', { 'b.md': 'b' });
+    const top = await makePkg('@a/top', '1.0.0', { 'a.md': 'x' }, { dependencies: { '@a/good': '1.0.0', '@a/bad': '1.0.0' } });
+    const reg = registry([{ name: '@a/top', version: '1.0.0', bytes: top }, { name: '@a/good', version: '1.0.0', bytes: good }, { name: '@a/bad', version: '1.0.0', bytes: bad }]);
+    const pins = new Map([['@a/bad@1.0.0', `sha256:${'0'.repeat(64)}`]]);
+    const s = memStore();
+    s.files.set('ws/prompd.json', '{}');
+    expect(await codeOf(installPackage({ ref: '@a/top@1.0.0', root: 'ws', store: s.store, download: reg, pins }))).toBe('DIGEST_MISMATCH');
+    expect(s.written()).toEqual(['ws/prompd.json']);
+    expect(s.removed).toEqual([]);
+  });
+
+  it('reuses one install for a compatible diamond', async () => {
+    const reg = registry([
+      { name: '@a/top', version: '1.0.0', bytes: await makePkg('@a/top', '1.0.0', { 't.md': 't' }, { dependencies: { '@a/left': '1.0.0', '@a/right': '1.0.0' } }) },
+      { name: '@a/left', version: '1.0.0', bytes: await makePkg('@a/left', '1.0.0', { 'l.md': 'l' }, { dependencies: { '@a/shared': '^1.0.0' } }) },
+      { name: '@a/right', version: '1.0.0', bytes: await makePkg('@a/right', '1.0.0', { 'r.md': 'r' }, { dependencies: { '@a/shared': '>=1.1.0' } }) },
+      { name: '@a/shared', version: '1.2.0', bytes: await makePkg('@a/shared', '1.2.0', { 's.md': 's' }) },
+    ]);
+    const res = await installPackage({ ref: '@a/top@1.0.0', root: 'ws', store: memStore().store, download: reg });
+    const [left, right] = res.dependencies;
+    expect(left.dependencies[0]).toBe(right.dependencies[0]);
+    expect(left.dependencies[0].version).toBe('1.2.0');
+  });
+
+  it('refuses an incompatible diamond and writes nothing', async () => {
+    const reg = registry([
+      { name: '@a/top', version: '1.0.0', bytes: await makePkg('@a/top', '1.0.0', { 't.md': 't' }, { dependencies: { '@a/left': '1.0.0', '@a/right': '1.0.0' } }) },
+      { name: '@a/left', version: '1.0.0', bytes: await makePkg('@a/left', '1.0.0', { 'l.md': 'l' }, { dependencies: { '@a/shared': '^1.0.0' } }) },
+      { name: '@a/right', version: '1.0.0', bytes: await makePkg('@a/right', '1.0.0', { 'r.md': 'r' }, { dependencies: { '@a/shared': '^2.0.0' } }) },
+      { name: '@a/shared', version: '1.2.0', bytes: await makePkg('@a/shared', '1.2.0', { 's.md': 's' }) },
+      { name: '@a/shared', version: '2.0.0', bytes: await makePkg('@a/shared', '2.0.0', { 's.md': 's2' }) },
+    ]);
+    const s = memStore();
+    await expect(installPackage({ ref: '@a/top@1.0.0', root: 'ws', store: s.store, download: reg }))
+      .rejects.toThrow('@a/shared: @a/right needs ^2.0.0, but 1.2.0 is already part of this install');
+    expect(s.written()).toEqual([]);
+    expect(s.removed).toEqual([]);
+  });
+
+  it('refuses a cycle back to an ancestor at an incompatible version', async () => {
+    const reg = registry([
+      { name: '@a/one', version: '1.0.0', bytes: await makePkg('@a/one', '1.0.0', { 'a.md': '1' }, { dependencies: { '@a/two': '1.0.0' } }) },
+      { name: '@a/two', version: '1.0.0', bytes: await makePkg('@a/two', '1.0.0', { 'b.md': '2' }, { dependencies: { '@a/one': '^2.0.0' } }) },
+    ]);
+    const s = memStore();
+    await expect(installPackage({ ref: '@a/one@1.0.0', root: 'ws', store: s.store, download: reg })).rejects.toThrow(/@a\/one: @a\/two needs \^2\.0\.0, but 1\.0\.0/);
+    expect(s.written()).toEqual([]);
+  });
+
+  it('refuses a dot-only package name before touching the store', async () => {
+    const s = memStore();
+    const reg = registry([]);
+    await expect(installPackage({ ref: '@a/.', root: 'ws', store: s.store, download: reg })).rejects.toThrow(/Invalid package reference/);
+    await expect(installPackage({ ref: '@a/..', root: 'ws', store: s.store, download: reg })).rejects.toThrow(/Invalid package reference/);
+    expect(s.written()).toEqual([]);
+    expect(s.removed).toEqual([]);
   });
 
   it('terminates on a dependency cycle', async () => {
@@ -185,6 +248,12 @@ describe('installPackage', () => {
 });
 
 describe('uninstallPackage', () => {
+  it('refuses a dot-only name and removes nothing', async () => {
+    const s = memStore();
+    await expect(uninstallPackage({ ref: '@a/..', root: 'ws', store: s.store })).rejects.toThrow(/Invalid package reference/);
+    expect(s.removed).toEqual([]);
+  });
+
   it('removes the package from every type dir, agents included', async () => {
     const s = memStore();
     await uninstallPackage({ ref: '@a/x', root: 'ws', store: s.store });
