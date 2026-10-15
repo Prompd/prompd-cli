@@ -21,6 +21,9 @@ const EOCD_SIG = 0x06054b50;
 const CENTRAL_SIG = 0x02014b50;
 const EOCD_LEN = 22;
 const CENTRAL_LEN = 46;
+const LOCAL_SIG = 0x04034b50;
+const LOCAL_LEN = 30;
+const UNICODE_PATH_FIELD = 0x7075;
 const WINDOWS_DEVICE_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
 const NOT_A_ZIP = 'the package is not a readable zip';
 
@@ -70,6 +73,33 @@ function u32(b: Uint8Array, at: number): number {
   return u16(b, at) + u16(b, at + 2) * 0x10000;
 }
 
+/** Refuses an extra-field block that carries a Unicode Path field (0x7075), which makes JSZip rename the entry. */
+function refuseUnicodePathField(raw: Uint8Array, start: number, end: number, name: string): void {
+  let at = start;
+  while (at < end) {
+    if (at + 4 > end) throw new PackageVerificationError('ARCHIVE_INVALID', NOT_A_ZIP);
+    const id = u16(raw, at);
+    const len = u16(raw, at + 2);
+    if (at + 4 + len > end) throw new PackageVerificationError('ARCHIVE_INVALID', NOT_A_ZIP);
+    if (id === UNICODE_PATH_FIELD) throw new PackageVerificationError('UNSAFE_PATH', `${shown(name)} carries an alternate path field`, name);
+    at += 4 + len;
+  }
+}
+
+/** The local header must name the same bytes as the central record, or two readers see two packages. */
+function checkLocalHeader(raw: Uint8Array, centralName: Uint8Array, name: string, localAt: number, centralStart: number): void {
+  if (localAt + LOCAL_LEN > centralStart || u32(raw, localAt) !== LOCAL_SIG) throw new PackageVerificationError('ARCHIVE_INVALID', NOT_A_ZIP, name);
+  const nameLen = u16(raw, localAt + 26);
+  const extraLen = u16(raw, localAt + 28);
+  const nameEnd = localAt + LOCAL_LEN + nameLen;
+  if (nameEnd + extraLen > centralStart) throw new PackageVerificationError('ARCHIVE_INVALID', NOT_A_ZIP, name);
+  const localName = raw.subarray(localAt + LOCAL_LEN, nameEnd);
+  if (localName.length !== centralName.length || !localName.every((b, i) => b === centralName[i])) {
+    throw new PackageVerificationError('ARCHIVE_INVALID', `${shown(name)} is named differently in its local header`, name);
+  }
+  refuseUnicodePathField(raw, nameEnd, nameEnd + extraLen, name);
+}
+
 const nameDecoder = new TextDecoder('utf-8', { fatal: true });
 
 function scanCentralDirectory(raw: Uint8Array): CentralRecord[] {
@@ -105,6 +135,10 @@ function scanCentralDirectory(raw: Uint8Array): CentralRecord[] {
     let name: string;
     try { name = nameDecoder.decode(raw.subarray(at + CENTRAL_LEN, at + CENTRAL_LEN + nameLen)); }
     catch { throw new PackageVerificationError('ARCHIVE_INVALID', 'a file name in the package is not UTF-8'); }
+    const centralName = raw.subarray(at + CENTRAL_LEN, at + CENTRAL_LEN + nameLen);
+    const extraStart = at + CENTRAL_LEN + nameLen;
+    refuseUnicodePathField(raw, extraStart, extraStart + u16(raw, at + 30), name);
+    checkLocalHeader(raw, centralName, name, u32(raw, at + 42), offset);
     const external = u32(raw, at + 38);
     if (((Math.floor(external / 0x10000)) & 0xf000) === 0xa000) {
       throw new PackageVerificationError('UNSAFE_PATH', `${shown(name)} is a link`, name);
@@ -186,7 +220,10 @@ export async function readArchive(raw: Uint8Array): Promise<Map<string, Uint8Arr
   const declared = new Map(records.map((r) => [r.name, r.uncompressed]));
   const out = new Map<string, Uint8Array>();
   const state = { total: 0 };
-  for (const entry of all) {
+  for (const [i, entry] of all.entries()) {
+    if (entry.name !== records[i]?.name) {
+      throw new PackageVerificationError('ARCHIVE_INVALID', `${shown(entry.name)} does not match the package's central directory`, entry.name);
+    }
     const original = (entry as JSZip.JSZipObject & { unsafeOriginalName?: string }).unsafeOriginalName ?? entry.name;
     if (original !== entry.name || !declared.has(original)) {
       throw new PackageVerificationError('UNSAFE_PATH', `${shown(original)} is not a plain path inside the package`, original);
