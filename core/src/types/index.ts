@@ -146,17 +146,17 @@ export function getContentType(filePath: string): string {
  * Package types supported by the prompd ecosystem.
  * Defined in prompd.json under the "type" field.
  */
-export type PackageType = 'package' | 'workflow' | 'skill' | 'node-template';
+export type PackageType = 'package' | 'workflow' | 'skill' | 'agent';
 
 /**
  * Maps each PackageType to its install directory name.
- * e.g., .prompd/packages/, .prompd/workflows/, .prompd/skills/, .prompd/templates/
+ * e.g., .prompd/packages/, .prompd/workflows/, .prompd/skills/, .prompd/agents/
  */
 export const PACKAGE_TYPE_DIRS: Record<PackageType, string> = {
   'package': 'packages',
   'workflow': 'workflows',
   'skill': 'skills',
-  'node-template': 'templates',
+  'agent': 'agents',
 };
 
 /**

@@ -1,6 +1,6 @@
 /**
  * Package installation — the single, host-agnostic installer for every Prompd
- * artifact type (packages, skills, workflows, node-templates). Ported to match
+ * artifact type (packages, skills, workflows, agents). Ported to match
  * @prompd/cli's RegistryClient.extractAndInstallPackage / uninstall so the browser,
  * desktop app, and CLI install identically.
  *
@@ -11,7 +11,6 @@
  * install, the home dir for a global one). Layout matches the CLI:
  *
  *     <root>/<installDir>/<typeDir>/<@scope/name>/<version>/...   (packages/skills/workflows; default installDir '.prompd')
- *     <root>/<installDir>/templates/<slug>-<version>.pdpkg        (node-templates: raw archive)
  */
 import { extractPdpkg } from './file-system';
 import { parsePackageReference, type PackageDownloader } from './package-ref';
@@ -32,17 +31,17 @@ export type ToolDeployHook = (opts: { installedPath: string; name: string; tool:
 export interface PackageStore {
   /** Write a UTF-8 file, creating parent directories as needed. */
   writeFile(path: string, content: string): void | Promise<void>;
-  /** Write raw bytes — required for node-templates (stored as the raw .pdpkg). */
+  /** Write raw bytes — raw bytes. */
   writeBytes?(path: string, bytes: Uint8Array): void | Promise<void>;
   /** Remove a directory and its contents if present. */
   removeDir?(path: string): void | Promise<void>;
-  /** Remove a single file if present (node-template .pdpkg uninstall). */
+  /** Remove a single file if present. */
   removeFile?(path: string): void | Promise<void>;
   /** Read a UTF-8 file, or null if absent — used to merge the workspace prompd.json. */
   readFile?(path: string): Promise<string | null> | string | null;
-  /** Read raw bytes — used to match a node-template .pdpkg by its manifest on uninstall. */
+  /** Read raw bytes. */
   readBytes?(path: string): Promise<Uint8Array> | Uint8Array;
-  /** List a directory's entry names — used to find a node-template .pdpkg to uninstall. */
+  /** List a directory's entry names. */
   readdir?(path: string): Promise<string[]> | string[];
 }
 
@@ -75,15 +74,10 @@ export interface InstalledPackage {
   scope?: string;
   /** Resolved type (from the package manifest when present). */
   type: PackageType;
-  /** Where it was written: the version dir, or the .pdpkg path for node-templates. */
+  /** Where it was written: the version dir. */
   installedPath: string;
-  /** Entry-relative paths written (empty for node-templates). */
+  /** Entry-relative paths written. */
   files: string[];
-}
-
-/** Slugify a package name for a filename: @scope/name -> scope-name (CLI parity). */
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[@/]+/g, '-').replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 /** The CLI layout's install dir. Hosts with their own state dir override it. */
@@ -149,8 +143,7 @@ function readManifest(files: Map<string, string>): { name?: string; version?: st
 /**
  * Install a registry artifact, matching the CLI. Resolves the type from the package's
  * own manifest (the `type` option is only a fallback). Standard types extract to
- * <root>/.prompd/<typeDir>/<name>/<version>/ with a `.prmdmeta`; node-templates are
- * stored as the raw .pdpkg. Installs the package's own dependencies recursively,
+ * <root>/.prompd/<typeDir>/<name>/<version>/ with a `.prmdmeta`. Installs the package's own dependencies recursively,
  * records the dependency in the workspace prompd.json (local installs only), and
  * deploys to any requested tools. Idempotent per version.
  */
@@ -192,36 +185,25 @@ async function installInternal(opts: InstallPackageOptions, visited: Set<string>
   let installedPath: string;
   const written: string[] = [];
 
-  if (type === 'node-template') {
-    // Node-templates are stored as the raw .pdpkg (not extracted) so template handlers
-    // can scan the templates dir uniformly.
-    if (!store.writeBytes) {
-      throw new Error('Installing a node-template requires a PackageStore with writeBytes (binary). This host does not support it.');
+  installedPath = resolveInstallDir(root, installDir, type, name, version);
+  const base = normalizePosix(installedPath);
+  await store.removeDir?.(installedPath); // clean reinstall of this version
+  for (const [rel, content] of files) {
+    const dest = joinPosix(installedPath, rel); // joinPosix resolves '..', so an escape leaves `base`
+    if (dest !== base && !dest.startsWith(base + '/')) {
+      throw new Error(`Security violation: extracted path escapes install directory: ${rel}`);
     }
-    const dir = joinPosix(root, installDir, getInstallDirForType('node-template'));
-    installedPath = joinPosix(dir, `${slugify(name)}-${version}.pdpkg`);
-    await store.writeBytes(installedPath, bytes);
-  } else {
-    installedPath = resolveInstallDir(root, installDir, type, name, version);
-    const base = normalizePosix(installedPath);
-    await store.removeDir?.(installedPath); // clean reinstall of this version
-    for (const [rel, content] of files) {
-      const dest = joinPosix(installedPath, rel); // joinPosix resolves '..', so an escape leaves `base`
-      if (dest !== base && !dest.startsWith(base + '/')) {
-        throw new Error(`Security violation: extracted path escapes install directory: ${rel}`);
-      }
-      await store.writeFile(dest, content);
-      written.push(rel);
-    }
-    // Per-install metadata for cache tracking (CLI writes packageData.metadata).
-    await store.writeFile(joinPosix(installedPath, '.prmdmeta'), JSON.stringify(m, null, 2) + '\n');
+    await store.writeFile(dest, content);
+    written.push(rel);
+  }
+  // Per-install metadata for cache tracking (CLI writes packageData.metadata).
+  await store.writeFile(joinPosix(installedPath, '.prmdmeta'), JSON.stringify(m, null, 2) + '\n');
 
-    // Deploy the skill to any requested tools (skills only), via the host hook.
-    if (tools && tools.length > 0) {
-      if (type !== 'skill') throw new Error(`Tool deploy is only valid for skills, but '${name}' is a ${type}.`);
-      if (!deployTool) throw new Error('tools were requested but no deployTool hook was provided.');
-      for (const tool of tools) await deployTool({ installedPath, name, tool });
-    }
+  // Deploy the skill to any requested tools (skills only), via the host hook.
+  if (tools && tools.length > 0) {
+    if (type !== 'skill') throw new Error(`Tool deploy is only valid for skills, but '${name}' is a ${type}.`);
+    if (!deployTool) throw new Error('tools were requested but no deployTool hook was provided.');
+    for (const tool of tools) await deployTool({ installedPath, name, tool });
   }
 
   // Record in the workspace prompd.json — local installs only (CLI parity).
@@ -252,8 +234,7 @@ export interface UninstalledPackage {
 
 /**
  * Uninstall by name, matching the CLI: scan EVERY type dir under <root>/<installDir>/ and
- * remove the package's dir (all versions); for node-templates, find the .pdpkg whose
- * manifest name matches and remove it. Drops the prompd.json dependency. Idempotent.
+ * remove the package's dir (all versions). Drops the prompd.json dependency. Idempotent.
  */
 export async function uninstallPackage(opts: UninstallPackageOptions): Promise<UninstalledPackage> {
   const { root, store, global } = opts;
@@ -263,28 +244,10 @@ export async function uninstallPackage(opts: UninstallPackageOptions): Promise<U
   const name = parsed.name;
   const removed: string[] = [];
 
-  for (const type of ['package', 'workflow', 'skill', 'node-template'] as PackageType[]) {
-    if (type === 'node-template') {
-      // Stored as <slug>-<version>.pdpkg at the templates root. Match by reading each
-      // archive's manifest name EXACTLY (CLI parity) — a slug prefix would collide,
-      // e.g. '@scope/foo' (prefix 'scope-foo-') would also match '@scope/foo-bar'.
-      const dir = joinPosix(root, installDir, getInstallDirForType('node-template'));
-      if (!store.readdir || !store.removeFile || !store.readBytes) continue;
-      try {
-        for (const entry of await store.readdir(dir)) {
-          if (!entry.endsWith('.pdpkg')) continue;
-          const p = joinPosix(dir, entry);
-          try {
-            const m = readManifest(await extractPdpkg(await store.readBytes(p)));
-            if (m.name === name) { await store.removeFile(p); removed.push(p); }
-          } catch { /* unreadable archive — skip */ }
-        }
-      } catch { /* templates dir absent */ }
-    } else {
-      const dir = resolvePackageDir(root, installDir, type, name);
-      await store.removeDir(dir);
-      removed.push(dir);
-    }
+  for (const type of ['package', 'workflow', 'skill', 'agent'] as PackageType[]) {
+    const dir = resolvePackageDir(root, installDir, type, name);
+    await store.removeDir(dir);
+    removed.push(dir);
   }
 
   if (!global) await removeWorkspaceDependency(store, root, name);

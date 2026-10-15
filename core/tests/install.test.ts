@@ -74,18 +74,6 @@ describe('installPackage', () => {
     expect(meta.name).toBe('@acme/widget');
   });
 
-  it('stores a node-template as the raw .pdpkg (not extracted)', async () => {
-    const buf = await makePkg({ 'manifest.json': JSON.stringify({ name: '@x/tmpl', version: '1.0.0', type: 'node-template' }), 'node.md': 'n' });
-    const { store, bytes, files } = memStore();
-
-    const res = await installPackage({ ref: '@x/tmpl', root: 'ws', store, download: async () => buf });
-
-    expect(res.type).toBe('node-template');
-    expect(res.installedPath).toBe('ws/.prompd/templates/x-tmpl-1.0.0.pdpkg');
-    expect(bytes.has('ws/.prompd/templates/x-tmpl-1.0.0.pdpkg')).toBe(true);
-    expect([...files.keys()].some((k) => k.startsWith('ws/.prompd/templates/'))).toBe(false); // not extracted
-  });
-
   it('installs the package\'s own dependencies recursively', async () => {
     const widget = await makePkg({ 'manifest.json': JSON.stringify({ name: '@a/widget', version: '1.0.0', dependencies: { '@a/dep': '2.0.0' } }), 'w.md': 'w' });
     const dep = await makePkg({ 'manifest.json': JSON.stringify({ name: '@a/dep', version: '2.0.0' }), 'd.md': 'd' });
@@ -125,12 +113,6 @@ describe('installPackage', () => {
     await expect(installPackage({ ref: '@x/y', root: 'r', store, download: async () => buf })).rejects.toThrow(/no installable files/);
   });
 
-  it('throws installing a node-template without writeBytes support', async () => {
-    const buf = await makePkg({ 'manifest.json': JSON.stringify({ name: '@x/t', version: '1.0.0', type: 'node-template' }), 'n.md': 'n' });
-    const store: PackageStore = { writeFile: () => {} }; // no writeBytes
-
-    await expect(installPackage({ ref: '@x/t', root: 'r', store, download: async () => buf })).rejects.toThrow(/writeBytes/);
-  });
 });
 
 describe('uninstallPackage', () => {
@@ -144,31 +126,6 @@ describe('uninstallPackage', () => {
     expect(res.name).toBe('@acme/widget');
     expect(res.removed).toContain('ws/.prompd/skills/@acme/widget');
     expect([...files.keys()].some((k) => k.startsWith('ws/.prompd/skills/@acme/widget/'))).toBe(false);
-  });
-
-  it('removes a node-template .pdpkg by matching its manifest name (exact)', async () => {
-    const buf = await makePkg({ 'manifest.json': JSON.stringify({ name: '@x/tmpl', version: '1.0.0', type: 'node-template' }), 'n.md': 'n' });
-    const { store, bytes } = memStore();
-    await installPackage({ ref: '@x/tmpl', root: 'ws', store, download: async () => buf });
-    expect(bytes.has('ws/.prompd/templates/x-tmpl-1.0.0.pdpkg')).toBe(true);
-
-    const res = await uninstallPackage({ ref: '@x/tmpl', root: 'ws', store });
-
-    expect(res.removed).toContain('ws/.prompd/templates/x-tmpl-1.0.0.pdpkg');
-    expect(bytes.has('ws/.prompd/templates/x-tmpl-1.0.0.pdpkg')).toBe(false);
-  });
-
-  it('does NOT delete a slug-prefix sibling node-template', async () => {
-    const foo = await makePkg({ 'manifest.json': JSON.stringify({ name: '@s/foo', version: '1.0.0', type: 'node-template' }), 'n.md': 'foo' });
-    const bar = await makePkg({ 'manifest.json': JSON.stringify({ name: '@s/foo-bar', version: '1.0.0', type: 'node-template' }), 'n.md': 'bar' });
-    const { store, bytes } = memStore();
-    await installPackage({ ref: '@s/foo', root: 'ws', store, download: async () => foo });
-    await installPackage({ ref: '@s/foo-bar', root: 'ws', store, download: async () => bar });
-
-    await uninstallPackage({ ref: '@s/foo', root: 'ws', store }); // slug prefix 's-foo-' also prefixes 's-foo-bar-'
-
-    expect(bytes.has('ws/.prompd/templates/s-foo-1.0.0.pdpkg')).toBe(false);
-    expect(bytes.has('ws/.prompd/templates/s-foo-bar-1.0.0.pdpkg')).toBe(true); // sibling survives
   });
 
   it('throws when the store cannot remove directories', async () => {
@@ -222,14 +179,6 @@ describe('installDir', () => {
     const res = await installPackage({ ref: '@acme/widget', root: 'ws', installDir: '.corenel', store, download: async () => buf });
     expect(res.installedPath).toBe('ws/.corenel/packages/@acme/widget/1.2.3');
     expect([...files.keys()].filter((k) => k.includes('/.prompd/'))).toEqual([]);
-  });
-
-  it('puts a node-template archive under installDir too', async () => {
-    const buf = await makePkg({ 'manifest.json': JSON.stringify({ name: '@acme/tpl', version: '0.1.0', type: 'node-template' }) });
-    const { store, bytes } = memStore();
-    const res = await installPackage({ ref: '@acme/tpl', root: 'ws', installDir: '.corenel', store, download: async () => buf });
-    expect(res.installedPath).toBe('ws/.corenel/templates/acme-tpl-0.1.0.pdpkg');
-    expect(bytes.has('ws/.corenel/templates/acme-tpl-0.1.0.pdpkg')).toBe(true);
   });
 
   it('defaults to .prompd so the CLI layout is unchanged', async () => {
