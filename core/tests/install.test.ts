@@ -242,6 +242,7 @@ describe('installPackage', () => {
     const reg = registry([]);
     await expect(installPackage({ ref: '@a/.', root: 'ws', store: s.store, download: reg })).rejects.toThrow(/Invalid package reference/);
     await expect(installPackage({ ref: '@a/..', root: 'ws', store: s.store, download: reg })).rejects.toThrow(/Invalid package reference/);
+    await expect(installPackage({ ref: '@a/X@1.0.0', root: 'ws', store: s.store, download: reg })).rejects.toThrow(/Invalid package reference/);
     expect(s.written()).toEqual([]);
     expect(s.removed).toEqual([]);
   });

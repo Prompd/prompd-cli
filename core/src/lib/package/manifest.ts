@@ -2,9 +2,9 @@ import semver from 'semver';
 import { isValidPackageType, type PackageType } from '../../types';
 import { PackageVerificationError } from './errors';
 
-/** Every registry package is scoped. Same character class parsePackageReference accepts. */
-/** Scoped name. A scope or name made only of dots ('.', '..') is refused: it would resolve outside its package dir. */
-export const PACKAGE_NAME_RE = /^@(?!\.+\/)[\w.-]+\/(?!\.+$)[\w.-]+$/;
+/** Every registry package is scoped, and names are lower case only (a-z, 0-9, ".", "_", "-").
+ * A scope or name made only of dots ('.', '..') is refused: it would resolve outside its package dir. */
+export const PACKAGE_NAME_RE = /^@(?!\.+\/)[a-z0-9._-]+\/(?!\.+$)[a-z0-9._-]+$/;
 
 export interface PackageIntegrity { algorithm: 'sha256'; files: Record<string, string> }
 export interface PackageRequires { mcp?: string[]; skills?: string[] }

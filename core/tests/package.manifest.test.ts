@@ -29,10 +29,17 @@ describe('parseManifest', () => {
     ['removed type', { name: '@a/x', version: '1.0.0', type: 'node-template' }, 'TYPE_INVALID'],
     ['unknown type', { name: '@a/x', version: '1.0.0', type: 'plugin' }, 'TYPE_INVALID'],
     ['bad dependency name', { name: '@a/x', version: '1.0.0', dependencies: { 'y': '1.0.0' } }, 'MANIFEST_INVALID'],
+    ['an upper-case scope', { name: '@A/x', version: '1.0.0' }, 'MANIFEST_INVALID'],
+    ['an upper-case name', { name: '@a/X', version: '1.0.0' }, 'MANIFEST_INVALID'],
+    ['an upper-case dependency name', { name: '@a/x', version: '1.0.0', dependencies: { '@a/X': '1.0.0' } }, 'MANIFEST_INVALID'],
     ['bad dependency range', { name: '@a/x', version: '1.0.0', dependencies: { '@a/y': 'nope nope' } }, 'MANIFEST_INVALID'],
     ['requires.mcp not strings', { name: '@a/x', version: '1.0.0', requires: { mcp: [1] } }, 'MANIFEST_INVALID'],
   ])('refuses %s', (_label, input, code) => {
     expect(codeOf(() => parseManifest(enc(input)))).toBe(code);
+  });
+
+  it('accepts lower-case names with dots, dashes and underscores', () => {
+    expect(parseManifest(enc({ name: '@a-b/c_d.e', version: '1.0.0', dependencies: { '@a-b/c_d.f': '1.0.0' } })).name).toBe('@a-b/c_d.e');
   });
 
   it('refuses invalid UTF-8', () => {

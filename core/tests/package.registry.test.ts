@@ -26,6 +26,8 @@ describe('createRegistryDownloader', () => {
     expect(() => encodePackageName('@a/..')).toThrow('@a/..');
     expect(() => encodePackageName('plain')).toThrow('plain');
     expect(() => encodePackageName('@a b/c d')).toThrow('@a b/c d');
+    expect(() => encodePackageName('@a/X')).toThrow('@a/X');
+    expect(() => encodePackageName('@A/x')).toThrow('@A/x');
   });
 
   it('returns the normalized version for latest and downloads that one', async () => {
