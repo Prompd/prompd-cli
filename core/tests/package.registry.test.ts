@@ -19,7 +19,31 @@ const BASE = 'https://reg.test';
 describe('createRegistryDownloader', () => {
   it('encodes scoped names segment by segment', () => {
     expect(encodePackageName('@acme/pr-review')).toBe('@acme/pr-review');
-    expect(encodePackageName('@a b/c d')).toBe('@a%20b/c%20d');
+    expect(encodePackageName('@a.b/c-d')).toBe('@a.b/c-d');
+  });
+
+  it('refuses a name that is not a scoped package name', () => {
+    expect(() => encodePackageName('@a/..')).toThrow('@a/..');
+    expect(() => encodePackageName('plain')).toThrow('plain');
+    expect(() => encodePackageName('@a b/c d')).toThrow('@a b/c d');
+  });
+
+  it('returns the normalized version for latest and downloads that one', async () => {
+    const calls: string[] = [];
+    const d = createRegistryDownloader({ baseUrl: BASE, fetch: fakeFetch({ [`${BASE}/packages/@a/x`]: { version: 'v1.4.0' }, [`${BASE}/packages/@a/x/download/1.4.0`]: 'zip' }, calls) });
+    expect(await d.resolveVersion('@a/x', 'latest')).toBe('1.4.0');
+    await d.download('@a/x', 'latest');
+    expect(calls).toContain(`${BASE}/packages/@a/x/download/1.4.0`);
+  });
+
+  it('normalizes list entries and ignores junk ones', async () => {
+    const d = createRegistryDownloader({ baseUrl: BASE, fetch: fakeFetch({ [`${BASE}/packages/@a/x/versions`]: ['junk', 'v1.2.0', { version: 'nope' }, 7, null, '1.1.0'] }) });
+    expect(await d.resolveVersion('@a/x', '^1.0.0')).toBe('1.2.0');
+  });
+
+  it('throws No version when the list holds only junk', async () => {
+    const d = createRegistryDownloader({ baseUrl: BASE, fetch: fakeFetch({ [`${BASE}/packages/@a/x/versions`]: ['junk', 'latest', 3] }) });
+    await expect(d.resolveVersion('@a/x', '^1.0.0')).rejects.toThrow('No version');
   });
 
   it('resolves latest through package info (either response shape)', async () => {

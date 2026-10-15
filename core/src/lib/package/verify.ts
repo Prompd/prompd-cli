@@ -66,8 +66,11 @@ export async function openPdpkg(bytes: Uint8Array, expect: OpenExpectations = {}
   }
 
   const entries = await readArchive(bytes);
-  if (entries.has(RESERVED_MANIFEST)) {
-    throw new PackageVerificationError('MANIFEST_RESERVED', 'the package holds a root manifest.json; the manifest is prompd.json only', RESERVED_MANIFEST);
+  for (const name of entries.keys()) {
+    const folded = name.toLowerCase();
+    if (folded === RESERVED_MANIFEST || (folded === MANIFEST_FILE && name !== MANIFEST_FILE)) {
+      throw new PackageVerificationError('MANIFEST_RESERVED', `the package holds a root ${name}; the manifest is prompd.json only`, name);
+    }
   }
   const manifestBytes = entries.get(MANIFEST_FILE);
   if (!manifestBytes) throw new PackageVerificationError('MANIFEST_MISSING', 'the package has no prompd.json', MANIFEST_FILE);

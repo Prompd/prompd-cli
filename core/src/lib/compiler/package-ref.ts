@@ -148,6 +148,11 @@ function isPackageCapable(fs: unknown): fs is PackageCapableFileSystem {
   return !!f && typeof f.getPackagePath === 'function' && typeof f.addPackage === 'function' && typeof f.isDirectory === 'function';
 }
 
+export interface MemoryPackageResolverOptions {
+  /** Lockfile pins, "name@version" -> "sha256:<hex>". */
+  pins?: ReadonlyMap<string, string>;
+}
+
 /**
  * The environment-agnostic package resolver: loads `using:`/`inherits:` packages
  * into an in-memory FS via an injected registry download. This is the ONE resolver
@@ -157,11 +162,6 @@ function isPackageCapable(fs: unknown): fs is PackageCapableFileSystem {
  * `resolvePackage` returns the in-memory directory path; the compiler then reads
  * the referenced file from `options.fileSystem` via resolvePackageFile.
  */
-export interface MemoryPackageResolverOptions {
-  /** Lockfile pins, "name@version" -> "sha256:<hex>". */
-  pins?: ReadonlyMap<string, string>;
-}
-
 export class MemoryPackageResolver implements IPackageResolver {
   constructor(private readonly download: PackageDownloader, private readonly opts: MemoryPackageResolverOptions = {}) {}
 

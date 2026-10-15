@@ -4,6 +4,7 @@
  * bytes go to openPdpkg. */
 import semver from 'semver';
 import type { PackageDownloader } from '../compiler/package-ref';
+import { PACKAGE_NAME_RE } from './manifest';
 
 export interface RegistryResponse {
   ok: boolean;
@@ -28,11 +29,9 @@ export interface RegistryDownloader {
 }
 
 export function encodePackageName(name: string): string {
-  if (name.startsWith('@') && name.includes('/')) {
-    const slash = name.indexOf('/');
-    return `@${encodeURIComponent(name.slice(1, slash))}/${encodeURIComponent(name.slice(slash + 1))}`;
-  }
-  return encodeURIComponent(name);
+  if (!PACKAGE_NAME_RE.test(name)) throw new Error(`"${name}" is not a valid scoped package name`);
+  const slash = name.indexOf('/');
+  return `@${encodeURIComponent(name.slice(1, slash))}/${encodeURIComponent(name.slice(slash + 1))}`;
 }
 
 function record(v: unknown): Record<string, unknown> {
@@ -59,8 +58,9 @@ export function createRegistryDownloader(opts: RegistryDownloaderOptions): Regis
       const j = record(await getJson(`/packages/${enc}`, `lookup of ${name}`));
       const info = record(j.package ?? j);
       const v = info.version;
-      if (typeof v !== 'string' || semver.valid(v) === null) throw new Error(`the registry returned no version for ${name}`);
-      return v;
+      const normalized = typeof v === 'string' ? semver.valid(v) : null;
+      if (normalized === null) throw new Error(`the registry returned no version for ${name}`);
+      return normalized;
     }
     const exact = semver.valid(spec);
     if (exact !== null) return exact;
@@ -69,7 +69,8 @@ export function createRegistryDownloader(opts: RegistryDownloaderOptions): Regis
     const list = Array.isArray(data) ? data : record(data).versions;
     const versions = (Array.isArray(list) ? list : [])
       .map((v) => (typeof v === 'string' ? v : record(v).version))
-      .filter((v): v is string => typeof v === 'string' && semver.valid(v) !== null);
+      .map((v) => (typeof v === 'string' ? semver.valid(v) : null))
+      .filter((v): v is string => v !== null);
     const best = semver.maxSatisfying(versions, spec);
     if (!best) throw new Error(`No version of ${name} matches ${spec}`);
     return best;

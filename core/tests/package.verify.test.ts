@@ -40,6 +40,20 @@ describe('packPdpkg + openPdpkg round trip', () => {
     await expect(packPdpkg({ name: '@a/x', version: '1.0.0', type: 'package' }, new Map([['prompd.json', '{}']]))).rejects.toThrow(/reserved/);
     await expect(packPdpkg({ name: '@a/x', version: '1.0.0', type: 'package' }, new Map([['../x.md', 'x']]))).rejects.toThrow();
   });
+
+  it('refuses root names that would poison an object map', async () => {
+    for (const p of ['__proto__', 'constructor', 'prototype']) {
+      await expect(packPdpkg({ name: '@a/x', version: '1.0.0', type: 'package' }, new Map([[p, 'x']]))).rejects.toThrow(
+        'Refusing package path "' + p + '": it is a reserved name',
+      );
+    }
+  });
+
+  it('refuses a differently cased manifest name', async () => {
+    for (const p of ['Manifest.json', 'PROMPD.JSON', 'Prompd.json']) {
+      await expect(packPdpkg({ name: '@a/x', version: '1.0.0', type: 'package' }, new Map([[p, '{}']]))).rejects.toThrow('reserved for the manifest');
+    }
+  });
 });
 
 describe('openPdpkg refusals', () => {
@@ -61,6 +75,27 @@ describe('openPdpkg refusals', () => {
     const files = { 'a.md': 'x' };
     const z = await rawZip({ 'prompd.json': await manifestWith(files), 'manifest.json': '{}', ...files });
     expect(await codeOf(openPdpkg(z))).toBe('MANIFEST_RESERVED');
+  });
+
+  it('MANIFEST_RESERVED for another casing of manifest.json', async () => {
+    for (const name of ['Manifest.json', 'MANIFEST.JSON']) {
+      const files = { 'a.md': 'x', [name]: '{}' };
+      const z = await rawZip({ 'prompd.json': await manifestWith(files), ...files });
+      expect(await codeOf(openPdpkg(z))).toBe('MANIFEST_RESERVED');
+    }
+  });
+
+  it('MANIFEST_RESERVED when the manifest is not exactly lowercase prompd.json', async () => {
+    for (const name of ['PROMPD.JSON', 'Prompd.json']) {
+      const z = await rawZip({ [name]: await manifestWith({ 'a.md': 'x' }), 'a.md': 'x' });
+      expect(await codeOf(openPdpkg(z))).toBe('MANIFEST_RESERVED');
+    }
+  });
+
+  it('still reads exact lowercase prompd.json as the manifest', async () => {
+    const files = { 'a.md': 'x' };
+    const z = await rawZip({ 'prompd.json': await manifestWith(files), ...files });
+    expect(await codeOf(openPdpkg(z))).toBe('ok');
   });
 
   it('FILE_UNLISTED for a file the integrity block does not list', async () => {

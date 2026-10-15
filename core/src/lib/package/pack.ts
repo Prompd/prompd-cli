@@ -9,6 +9,7 @@ import type { PackageIntegrity, PackageManifest } from './manifest';
 import { openPdpkg } from './verify';
 
 const RESERVED = new Set(['prompd.json', 'manifest.json']);
+const RESERVED_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const encoder = new TextEncoder();
 
 export async function computeIntegrity(files: ReadonlyMap<string, Uint8Array>): Promise<PackageIntegrity> {
@@ -25,7 +26,8 @@ export async function packPdpkg(
 ): Promise<Uint8Array> {
   const bytes = new Map<string, Uint8Array>();
   for (const [p, v] of files) {
-    if (RESERVED.has(p)) throw new Error(`Refusing package path "${p}": it is reserved for the manifest`);
+    if (RESERVED_OBJECT_KEYS.has(p)) throw new Error(`Refusing package path "${p}": it is a reserved name`);
+    if (RESERVED.has(p.toLowerCase())) throw new Error(`Refusing package path "${p}": it is reserved for the manifest`);
     const problem = entryNameProblem(p);
     if (problem) throw new Error(`Refusing package path "${p}": ${problem}`);
     bytes.set(p, typeof v === 'string' ? encoder.encode(v) : v);

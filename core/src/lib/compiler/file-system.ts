@@ -196,9 +196,9 @@ export class MemoryFileSystem implements IFileSystem {
   /**
    * Extract a `.pdpkg` (ZIP) buffer into memory under getPackagePath(name, ver).
    *
-   * Uses JSZip — isomorphic (browser + Node) — so this is the SINGLE package-ingest
-   * path for every host (replacing the CLI's Node-only adm-zip subclass and the
-   * skill installer's ad-hoc unzip). Text files only: binary assets aren't
+   * Verifies the archive through openPdpkg (isomorphic, browser + Node), so this is
+   * the SINGLE package-ingest path for every host (replacing the CLI's Node-only
+   * adm-zip subclass and the skill installer's ad-hoc unzip). Text files only: binary assets aren't
    * representable in the string-backed FS, so they're skipped (a `using:` package's
    * .prmd/.md/.json/.yaml is what matters for compilation). Validates entry paths
    * can't escape the package directory.
