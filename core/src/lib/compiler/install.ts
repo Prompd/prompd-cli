@@ -449,8 +449,9 @@ async function listInstallCandidates(store: PackageStore, root: string, installD
   for (const typeDir of Object.values(PACKAGE_TYPE_DIRS)) {
     const typeRel = joinPosix(installDir, typeDir);
     for (const scope of await listDir(store, joinPosix(root, typeRel))) {
-      if (!scope.startsWith('@')) continue;
+      if (!scope.startsWith('@') || scope.startsWith('@.')) continue;
       for (const short of await listDir(store, joinPosix(root, typeRel, scope))) {
+        if (short.startsWith('.')) continue;
         const name = `${scope}/${short}`;
         if (!PACKAGE_NAME_RE.test(name)) continue;
         for (const version of await listDir(store, joinPosix(root, typeRel, name))) {
@@ -475,7 +476,9 @@ function specAccepts(spec: string, version: string): boolean {
  * present on disk is re-verified against the digest the caller trusts; if any
  * fails, nothing is removed. A dependency a kept install lists keeps every
  * install that satisfies it, in any type folder. Name entries, dot folders,
- * loose files and prompd.json are never candidates. Idempotent.
+ * loose files and prompd.json are never candidates. Idempotent. Do not run it
+ * concurrently with installPackage on the same root: an install in flight can
+ * look unused.
  */
 export async function pruneInstalls(opts: PruneInstallsOptions): Promise<PrunedInstalls> {
   const { root, store, keep } = opts;
@@ -498,18 +501,20 @@ export async function pruneInstalls(opts: PruneInstallsOptions): Promise<PrunedI
   const pending: InstallCandidate[] = [];
 
   const accept = (c: InstallCandidate, deps: Record<string, string> | undefined): void => {
+    if (kept.has(c.rel) || failed.has(c.rel)) return;
     kept.add(c.rel);
     dependencies.set(c.rel, deps ?? {});
     pending.push(c);
   };
   const reject = (c: InstallCandidate, e: unknown): void => {
     failed.add(c.rel);
+    kept.delete(c.rel);
     unverified.push({ ref: `${c.name}@${c.version}`, reason: e instanceof Error ? e.message : String(e) });
   };
 
   for (const k of keep) {
     for (const c of candidates.filter((x) => x.name === k.name && x.version === k.version)) {
-      if (kept.has(c.rel) || failed.has(c.rel)) continue;
+      // Every keep entry is checked against its own digest, even for a folder an earlier entry already kept.
       try { accept(c, (await verifyInstalled(readerFor(c), k.digest, { name: k.name })).manifest.dependencies); }
       catch (e) { reject(c, e); }
     }
@@ -546,7 +551,10 @@ export async function pruneInstalls(opts: PruneInstallsOptions): Promise<PrunedI
     for (const dir of [joinPosix(c.dir, '..'), joinPosix(c.dir, '..', '..')]) {
       if (checked.has(dir)) continue;
       checked.add(dir);
-      if ((await listDir(store, dir)).length > 0) break;
+      // Read directly: a failed read must skip the folder, never read as empty (removeDir is recursive).
+      let children: string[];
+      try { children = (await store.readdir?.(dir)) ?? []; } catch { break; }
+      if (children.length > 0) break;
       await store.removeDir(dir);
     }
   }

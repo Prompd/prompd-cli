@@ -186,6 +186,93 @@ describe('pruneInstalls', () => {
     expect(second.kept).toEqual(['@a/k@1.0.0']);
   });
 
+  it('keeps a dependency chain of depth two', async () => {
+    const m = memStore();
+    const specs: Spec[] = [
+      { name: '@a/a', version: '1.0.0', dependencies: { '@a/b': '1.0.0' } },
+      { name: '@a/b', version: '1.0.0', dependencies: { '@a/c': '1.0.0' } },
+      { name: '@a/c', version: '1.0.0' },
+      { name: '@a/x', version: '1.0.0' },
+    ];
+    const a = await installAll(m.store, specs, '@a/a@1.0.0');
+    await installAll(m.store, specs, '@a/x@1.0.0');
+    const res = await pruneInstalls({ root: ROOT, store: m.store, installDir: '', keep: [keepOf(a)] });
+    expect(res.kept).toEqual(['@a/a@1.0.0', '@a/b@1.0.0', '@a/c@1.0.0']);
+    expect(res.removed).toEqual(['packages/@a/x/1.0.0']);
+  });
+
+  it('a dependency cycle terminates and keeps both', async () => {
+    const m = memStore();
+    const specs: Spec[] = [
+      { name: '@a/a', version: '1.0.0', dependencies: { '@a/b': '1.0.0' } },
+      { name: '@a/b', version: '1.0.0', dependencies: { '@a/a': '1.0.0' } },
+      { name: '@a/x', version: '1.0.0' },
+    ];
+    const a = await installAll(m.store, specs, '@a/a@1.0.0');
+    await installAll(m.store, specs, '@a/x@1.0.0');
+    const res = await pruneInstalls({ root: ROOT, store: m.store, installDir: '', keep: [keepOf(a)] });
+    expect(res.kept).toEqual(['@a/a@1.0.0', '@a/b@1.0.0']);
+    expect(res.removed).toEqual(['packages/@a/x/1.0.0']);
+  });
+
+  it('a reached dependency that fails verification blocks every removal and is reported', async () => {
+    const m = memStore();
+    const specs: Spec[] = [
+      { name: '@a/w', version: '1.0.0', type: 'workflow', dependencies: { '@a/s': '1.0.0' } },
+      { name: '@a/s', version: '1.0.0', type: 'skill' },
+      { name: '@a/x', version: '1.0.0' },
+    ];
+    const w = await installAll(m.store, specs, '@a/w@1.0.0');
+    await installAll(m.store, specs, '@a/x@1.0.0');
+    m.bytes.set('fleet/skills/@a/s/1.0.0/README.md', enc.encode('tampered'));
+    const res = await pruneInstalls({ root: ROOT, store: m.store, installDir: '', keep: [keepOf(w)] });
+    expect(res.removed).toEqual([]);
+    expect(res.unverified.map((u) => u.ref)).toEqual(['@a/s@1.0.0']);
+    expect(m.has('fleet/packages/@a/x/1.0.0')).toBe(true);
+  });
+
+  it('a readdir failure during cleanup leaves the folder and its kept version intact', async () => {
+    const m = memStore();
+    const specs: Spec[] = [{ name: '@a/p', version: '1.0.0' }, { name: '@a/p', version: '2.0.0' }];
+    await installAll(m.store, specs, '@a/p@1.0.0');
+    const v2 = await installAll(m.store, specs, '@a/p@2.0.0');
+    let calls = 0;
+    const flaky: PackageStore = {
+      ...m.store,
+      readdir(p) {
+        if (p === 'fleet/packages/@a/p' && ++calls > 1) throw new Error('EBUSY');
+        return m.store.readdir?.(p) ?? [];
+      },
+    };
+    const res = await pruneInstalls({ root: ROOT, store: flaky, installDir: '', keep: [keepOf(v2)] });
+    expect(res.removed).toEqual(['packages/@a/p/1.0.0']);
+    expect(m.has('fleet/packages/@a/p/2.0.0')).toBe(true);
+  });
+
+  it('never treats a dot-named name or scope folder as a candidate', async () => {
+    const m = memStore();
+    const paths = ['fleet/skills/@a/.tmp/1.0.0/x', 'fleet/skills/@.x/n/1.0.0/y'];
+    for (const p of paths) m.bytes.set(p, enc.encode('x'));
+    const res = await pruneInstalls({ root: ROOT, store: m.store, installDir: '', keep: [] });
+    expect(res.removed).toEqual([]);
+    for (const p of paths) expect(m.bytes.has(p)).toBe(true);
+  });
+
+  it('verifies every keep entry against its own digest', async () => {
+    const m = memStore();
+    const specs: Spec[] = [{ name: '@a/k', version: '1.0.0' }, { name: '@a/u', version: '1.0.0' }];
+    const k = await installAll(m.store, specs, '@a/k@1.0.0');
+    await installAll(m.store, specs, '@a/u@1.0.0');
+    const wrong = { name: k.name, version: k.version, digest: `sha256:${'1'.repeat(64)}` };
+    const res = await pruneInstalls({ root: ROOT, store: m.store, installDir: '', keep: [keepOf(k), wrong] });
+    expect(res.unverified).toHaveLength(1);
+    expect(res.removed).toEqual([]);
+    const reversed = await pruneInstalls({ root: ROOT, store: m.store, installDir: '', keep: [wrong, keepOf(k)] });
+    expect(reversed.unverified).toHaveLength(1);
+    expect(reversed.removed).toEqual([]);
+    expect(m.has('fleet/packages/@a/u/1.0.0')).toBe(true);
+  });
+
   it('requires a store with readdir, readBytes and removeDir', async () => {
     const store: PackageStore = { writeFile() { /* unused */ } };
     await expect(pruneInstalls({ root: ROOT, store, keep: [] })).rejects.toThrow(

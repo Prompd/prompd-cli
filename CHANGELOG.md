@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`@prompd/core` 0.8.0**: `pruneInstalls` removes every install under a root that no kept install
+  reaches. A kept install on disk is re-verified against the digest the caller trusts, and the
+  dependencies it lists (by range, in any type folder) are kept and followed in turn. If any kept
+  install fails verification nothing is removed and the failures are reported. `dryRun` reports the
+  same removal list without removing. Name entries, dot folders, loose files and `prompd.json` are
+  never touched. Do not run it while `installPackage` is writing to the same root.
 - **`@prompd/core` 0.6.0**: The `.pdflow` workflow engine, `runWorkflow`, runs over an injected
   `WorkflowHost` (model turns, tools, prompt compile, fetch, model and price lookup, the redaction
   prompt, user input), so the app and the sidecar run the same engine. Also exported: the run
