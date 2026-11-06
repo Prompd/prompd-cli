@@ -20,8 +20,10 @@
 import semver from 'semver';
 import type { PackageDownloader } from './package-ref';
 import { joinPosix, normalizePosix } from './path-utils';
-import { getInstallDirForType, type PackageType } from '../../types';
+import { getInstallDirForType, PACKAGE_TYPE_DIRS, type PackageType } from '../../types';
 import { openPdpkg } from '../package/verify';
+import { verifyInstalled } from '../package/installed';
+import { archiveDigest } from '../package/digest';
 import { PackageVerificationError } from '../package/errors';
 import type { VerifiedPackage } from '../package/verify';
 import { PACKAGE_NAME_RE, unscopedName, type PackageRequires } from '../package/manifest';
@@ -402,4 +404,151 @@ export async function uninstallPackage(opts: UninstallPackageOptions): Promise<U
   if (!global) await removeWorkspaceDependency(store, root, name);
   const scope = scopeOf(name);
   return { name, ...(scope ? { scope } : {}), removed };
+}
+
+export interface PruneInstallsOptions {
+  /** Install root, as given to installPackage. */
+  root: string;
+  /** Needs readdir, readBytes and removeDir. */
+  store: PackageStore;
+  /** Same meaning as InstallPackageOptions.installDir. */
+  installDir?: string;
+  /** The installs the caller holds in force, each with the digest it trusts (a pin or a name entry). */
+  keep: ReadonlyArray<{ name: string; version: string; digest: string }>;
+  /** Report what would be removed, remove nothing. */
+  dryRun?: boolean;
+}
+
+export interface PrunedInstalls {
+  /** Version folders removed (or that would be, with dryRun), root-relative. */
+  removed: string[];
+  /** "name@version" of every install kept: `keep` plus everything a kept install depends on. */
+  kept: string[];
+  /** Kept installs present on disk that failed verification. When non-empty, NOTHING was removed. */
+  unverified: Array<{ ref: string; reason: string }>;
+}
+
+/** One version folder under a type folder. */
+interface InstallCandidate {
+  name: string;
+  version: string;
+  /** Root-relative: <installDir>/<typeDir>/<name>/<version>. */
+  rel: string;
+  /** Store path of the version folder. */
+  dir: string;
+}
+
+async function listDir(store: PackageStore, dir: string): Promise<string[]> {
+  try { return (await store.readdir?.(dir)) ?? []; }
+  catch { return []; } // a folder that is not there has no children
+}
+
+/** Every <type>/<@scope>/<name>/<semver> folder; nothing else on disk is a candidate. */
+async function listInstallCandidates(store: PackageStore, root: string, installDir: string): Promise<InstallCandidate[]> {
+  const out: InstallCandidate[] = [];
+  for (const typeDir of Object.values(PACKAGE_TYPE_DIRS)) {
+    const typeRel = joinPosix(installDir, typeDir);
+    for (const scope of await listDir(store, joinPosix(root, typeRel))) {
+      if (!scope.startsWith('@')) continue;
+      for (const short of await listDir(store, joinPosix(root, typeRel, scope))) {
+        const name = `${scope}/${short}`;
+        if (!PACKAGE_NAME_RE.test(name)) continue;
+        for (const version of await listDir(store, joinPosix(root, typeRel, name))) {
+          if (semver.valid(version) !== version) continue;
+          const rel = joinPosix(typeRel, name, version);
+          out.push({ name, version, rel, dir: joinPosix(root, rel) });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Does `version` satisfy a declared dependency spec? An unreadable spec keeps every version. */
+function specAccepts(spec: string, version: string): boolean {
+  if (spec === 'latest' || semver.validRange(spec) === null) return true;
+  return semver.satisfies(version, spec);
+}
+
+/**
+ * Remove every install under `root` that no kept install reaches. A kept install
+ * present on disk is re-verified against the digest the caller trusts; if any
+ * fails, nothing is removed. A dependency a kept install lists keeps every
+ * install that satisfies it, in any type folder. Name entries, dot folders,
+ * loose files and prompd.json are never candidates. Idempotent.
+ */
+export async function pruneInstalls(opts: PruneInstallsOptions): Promise<PrunedInstalls> {
+  const { root, store, keep } = opts;
+  if (!store.readdir || !store.readBytes || !store.removeDir) {
+    throw new Error('pruneInstalls requires a PackageStore with readdir, readBytes and removeDir.');
+  }
+  const readBytes = store.readBytes.bind(store);
+  const installDir = checkInstallDir(opts.installDir);
+  const candidates = await listInstallCandidates(store, root, installDir);
+
+  const readerFor = (c: InstallCandidate) => async (rel: string): Promise<Uint8Array | null> => {
+    try { return (await readBytes(joinPosix(c.dir, rel))) ?? null; }
+    catch { return null; }
+  };
+
+  const kept = new Set<string>(); // candidate rel paths
+  const failed = new Set<string>();
+  const unverified: Array<{ ref: string; reason: string }> = [];
+  const dependencies = new Map<string, Record<string, string>>();
+  const pending: InstallCandidate[] = [];
+
+  const accept = (c: InstallCandidate, deps: Record<string, string> | undefined): void => {
+    kept.add(c.rel);
+    dependencies.set(c.rel, deps ?? {});
+    pending.push(c);
+  };
+  const reject = (c: InstallCandidate, e: unknown): void => {
+    failed.add(c.rel);
+    unverified.push({ ref: `${c.name}@${c.version}`, reason: e instanceof Error ? e.message : String(e) });
+  };
+
+  for (const k of keep) {
+    for (const c of candidates.filter((x) => x.name === k.name && x.version === k.version)) {
+      if (kept.has(c.rel) || failed.has(c.rel)) continue;
+      try { accept(c, (await verifyInstalled(readerFor(c), k.digest, { name: k.name })).manifest.dependencies); }
+      catch (e) { reject(c, e); }
+    }
+  }
+
+  while (pending.length > 0) {
+    const cur = pending.pop() as InstallCandidate;
+    for (const [depName, depSpec] of Object.entries(dependencies.get(cur.rel) ?? {})) {
+      for (const d of candidates.filter((x) => x.name === depName && specAccepts(depSpec, x.version))) {
+        if (kept.has(d.rel) || failed.has(d.rel)) continue;
+        // No caller digest for a dependency: its own stored archive stands in, which proves the files match it.
+        try {
+          const read = readerFor(d);
+          const archive = await read(ARCHIVE_COPY);
+          const digest = archive ? await archiveDigest(archive) : '';
+          accept(d, (await verifyInstalled(read, digest, { name: d.name })).manifest.dependencies);
+        } catch (e) { reject(d, e); }
+      }
+    }
+  }
+
+  const keptRefs = candidates.filter((c) => kept.has(c.rel)).map((c) => `${c.name}@${c.version}`);
+  const result: PrunedInstalls = { removed: [], kept: [...new Set(keptRefs)].sort(), unverified };
+  if (unverified.length > 0) return result;
+
+  const doomed = candidates.filter((c) => !kept.has(c.rel));
+  result.removed = doomed.map((c) => c.rel);
+  if (opts.dryRun) return result;
+
+  for (const c of doomed) await store.removeDir(c.dir);
+  // Tidy the name and scope folders the removals left empty.
+  const checked = new Set<string>();
+  for (const c of doomed) {
+    for (const dir of [joinPosix(c.dir, '..'), joinPosix(c.dir, '..', '..')]) {
+      if (checked.has(dir)) continue;
+      checked.add(dir);
+      if ((await listDir(store, dir)).length > 0) break;
+      await store.removeDir(dir);
+    }
+  }
+  return result;
 }
