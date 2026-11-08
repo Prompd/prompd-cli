@@ -1,0 +1,34 @@
+{
+  "name": "prompd",
+  "version": "0.8.0",
+  "description": "Prompd command line: install, compile and run versioned AI prompt packages",
+  "author": "Prompd LLC",
+  "license": "Elastic-2.0",
+  "homepage": "https://prompd.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Prompd/prompd-cli.git",
+    "directory": "prompd"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "prompts",
+    "cli",
+    "prompt-engineering"
+  ],
+  "bin": {
+    "prompd": "bin/prompd.js"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@prompd/cli": "0.8.0"
+  }
+}

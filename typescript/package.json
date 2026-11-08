@@ -1,6 +1,6 @@
 {
   "name": "@prompd/cli",
-  "version": "0.5.0-beta.10",
+  "version": "0.8.0",
   "description": "Node.js CLI for structured prompt definitions with universal LLM provider support. Also usable as a library in TypeScript/React apps.",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
@@ -60,11 +60,11 @@
   "author": "Prompd LLC",
   "license": "Elastic-2.0",
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
-    "@prompd/core": "file:../core",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@prompd/core": "0.8.0",
     "@types/nunjucks": "^3.2.6",
     "adm-zip": "^0.5.16",
     "archiver": "^6.0.1",
