@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs-extra';
+import AdmZip from 'adm-zip';
 import { packPdpkg, archiveDigest, isPackageVerificationError } from '@prompd/core';
 import { RegistryClient } from '../src/lib/registry';
 
@@ -89,6 +90,34 @@ describe('RegistryClient.install (through core)', () => {
       expect(isPackageVerificationError(err)).toBe(true);
       expect((err as { code: string }).code).toBe('ARCHIVE_INVALID');
       expect(await fs.pathExists(path.join(ws, '.prompd'))).toBe(false);
+    } finally {
+      await reg.close();
+    }
+  });
+
+  // A well-formed archive passes the ZIP checks, so only the integrity record can catch these.
+  it.each([
+    ['a changed file', 'HASH_MISMATCH', (zip: AdmZip) => { zip.updateFile('a.md', Buffer.from('changed')); }],
+    ['an added file', 'FILE_UNLISTED', (zip: AdmZip) => { zip.addFile('b.md', Buffer.from('added')); }],
+    ['a removed file', 'FILE_MISSING', (zip: AdmZip) => { zip.deleteFile('a.md'); }],
+    ['a different package name', 'NAME_MISMATCH', (zip: AdmZip) => {
+      const manifest = JSON.parse(zip.readAsText('prompd.json')) as Record<string, unknown>;
+      zip.updateFile('prompd.json', Buffer.from(JSON.stringify({ ...manifest, name: '@attacker/other' })));
+    }],
+  ])('refuses a well-formed archive with %s and writes nothing', async (_label, code, tamper) => {
+    const zip = new AdmZip(Buffer.from(await packPdpkg({ name: '@t/w', version: '1.0.0', type: 'package' }, new Map([['a.md', 'aaaa']]))));
+    tamper(zip);
+    const reg = await serve([{ name: '@t/w', version: '1.0.0', bytes: new Uint8Array(zip.toBuffer()) }]);
+    try {
+      const ws = path.join(tmp, 'ws');
+      await fs.ensureDir(ws);
+      const cacheDir = path.join(tmp, 'cache');
+      const client = new RegistryClient({ registryUrl: reg.url, cacheDir });
+      const err: unknown = await client.install('@t/w@1.0.0', { workspaceRoot: ws }).then(() => null, (e: unknown) => e);
+      expect(isPackageVerificationError(err)).toBe(true);
+      expect((err as { code: string }).code).toBe(code);
+      expect(await fs.pathExists(path.join(ws, '.prompd'))).toBe(false);
+      expect(await fs.pathExists(path.join(cacheDir, 'packages', '@t', 'w@1.0.0'))).toBe(false);
     } finally {
       await reg.close();
     }

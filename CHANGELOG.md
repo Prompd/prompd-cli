@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`@prompd/cli` 0.8.0**: The first published CLI built on `@prompd/core`, and its version now
+  matches core. Installs are verified against the package's integrity record before anything is
+  written. Depends on the published `@prompd/core` 0.8.0 instead of a local path, and now requires
+  Node.js 20 or later.
 - **`@prompd/core` 0.8.0**: `pruneInstalls` removes every install under a root that no kept install
   reaches. A kept install on disk is re-verified against the digest the caller trusts, and the
   dependencies it lists (by range, in any type folder) are kept and followed in turn. If any kept
