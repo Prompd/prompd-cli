@@ -8,8 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **`prompd`**: A short package name that runs `@prompd/cli` at an exact pinned version, so
-  `npx prompd install @scope/package@1.0.0` works. It contains no other logic.
 - **`@prompd/cli` 0.8.0**: The first published CLI built on `@prompd/core`, and its version now
   matches core. Installs are verified against the package's integrity record before anything is
   written. Depends on the published `@prompd/core` 0.8.0 instead of a local path, and now requires
