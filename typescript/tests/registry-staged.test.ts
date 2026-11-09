@@ -4,6 +4,8 @@ import * as path from 'path';
 import * as fs from 'fs-extra';
 import { packPdpkg, archiveDigest } from '@prompd/core';
 import { RegistryClient, StagedNotSupportedError, archiveIntegrityHeader, type PublishOptions } from '../src/lib/registry';
+import { ConfigManager } from '../src/lib/config';
+import { createPublishCommand } from '../src/commands/registry';
 import { serve, type RecordedRequest, type Registry } from './helpers/fake-registry';
 
 jest.setTimeout(30000);
@@ -126,6 +128,78 @@ describe('publish --stage and the integrity header', () => {
     expect(uploaded.length).toBeGreaterThan(0);
     expect(sent).toBe(`sha256-${crypto.createHash('sha256').update(uploaded).digest('base64')}`);
     expect(sent).toMatch(/^sha256-[A-Za-z0-9+/]{43}=$/);
+  });
+});
+
+describe('prompd publish command', () => {
+  let tmp: string;
+  let pkgDir: string;
+  let reg: Registry;
+  let exitSpy: jest.SpyInstance;
+  let savedConfig: ConfigManager['config'];
+
+  // The command builds its own client from the loaded config: point the registry at the fake one.
+  const useRegistry = (url: string): void => {
+    ConfigManager.getInstance().config = {
+      apiKeys: {}, customProviders: {}, scopes: {}, maxRetries: 3, timeout: 30, verbose: false,
+      registry: { registries: { prompdhub: { url } }, default: 'prompdhub' },
+    };
+  };
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'prompd-staged-cmd-'));
+    pkgDir = path.join(tmp, 'pkg');
+    await fs.ensureDir(pkgDir);
+    await fs.writeJson(path.join(pkgDir, 'prompd.json'), {
+      name: NAME, version: VERSION, description: 'staged test', author: 'tester', files: ['**/*.prmd'],
+    });
+    await fs.writeFile(path.join(pkgDir, 'hello.prmd'), '---\nname: hello\n---\nHello\n');
+    reg = await serve([], { onPut: () => ({ status: 201, body: STAGED_REPLY }) });
+    savedConfig = ConfigManager.getInstance().config;
+    useRegistry(reg.url);
+    // The command calls process.exit inside its try block, so the mock must stop execution like the real one.
+    exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => { throw new Error(`exit ${code}`); }) as never);
+    jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(async () => {
+    jest.restoreAllMocks();
+    ConfigManager.getInstance().config = savedConfig;
+    await reg.close();
+    await fs.remove(tmp);
+  });
+
+  const run = (...args: string[]): Promise<unknown> =>
+    createPublishCommand().parseAsync(['node', 'x', pkgDir, ...args]).then(() => null, (e: unknown) => e);
+
+  it('--stage sends exactly one PUT, to /staged, and nothing to the live URL', async () => {
+    expect(await run('--stage')).toBeNull();
+    expect(reg.requests.map((r) => `${r.method} ${r.url}`)).toEqual([`PUT /packages/${NAME}/staged`]);
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('without --stage publishes live (guards the test above from passing vacuously)', async () => {
+    expect(await run()).toBeNull();
+    expect(reg.requests.filter((r) => r.method === 'PUT').map((r) => r.url)).toEqual([`/packages/${NAME}`]);
+  });
+
+  it.each([
+    ['--tag', ['--stage', '--tag', 'beta']],
+    ['--force', ['--stage', '--force']],
+  ])('--stage with %s exits 1 and sends no request', async (_flag, args) => {
+    await run(...args);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(exitSpy.mock.calls.every((c) => c[0] === 1)).toBe(true);
+    expect(reg.requests).toHaveLength(0);
+  });
+
+  it('--stage against a registry without the route exits 1 after one request and never publishes live', async () => {
+    await reg.close();
+    reg = await serve([], { onPut: () => ({ status: 404, body: { error: 'Not Found' } }) });
+    useRegistry(reg.url);
+    await run('--stage');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(reg.requests.map((r) => `${r.method} ${r.url}`)).toEqual([`PUT /packages/${NAME}/staged`]);
   });
 });
 
