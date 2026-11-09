@@ -14,7 +14,7 @@ import { Config, RegistryConfig, PACKAGE_TYPE_DIRS, TOOL_DEPLOY_DIRS, resolveToo
 import { IFileSystem, MemoryFileSystem, NodeFileSystem } from './compiler/file-system';
 import { findProjectRoot } from './compiler/package-resolver';
 import {
-  installPackage, uninstallPackage, createRegistryDownloader, openPdpkg, archiveDigest,
+  installPackage, uninstallPackage, createRegistryDownloader, openPdpkg, archiveDigest, PACKAGE_NAME_RE,
   type InstalledPackage, type RegistryDownloader, type RegistryFetch,
 } from '@prompd/core';
 import { NodePackageStore } from './node-package-store';
@@ -58,6 +58,80 @@ export interface PublishOptions {
   force: boolean;
   fileSystem?: IFileSystem;  // Optional file system for in-memory publishing
   authToken?: string;        // Override auth token (used by IPC handler when token is passed directly)
+  /** Upload to the staged endpoint instead of publishing live. Not combinable with `tag` or `force`. */
+  stage?: boolean;
+}
+
+/** The registry's 201 answer to a staged upload. */
+export interface StagedPublishResult {
+  success: boolean;
+  fullName: string;
+  version: string;
+  status: string;
+  integrity: string;
+  expiresAt: string;
+}
+
+/**
+ * The registry answered 404 to a staged upload: it has no staged publishing, or the
+ * namespace is not visible to the caller (the two look the same on purpose).
+ * Staging never falls back to a live publish.
+ */
+export class StagedNotSupportedError extends Error {
+  constructor() {
+    super('this registry does not support staged publishing, or the namespace was not found');
+    this.name = 'StagedNotSupportedError';
+  }
+}
+
+/**
+ * `X-Package-Integrity` value for an archive: core's `sha256:<hex>` digest as the
+ * registry's `sha256-<base64>` form.
+ */
+export async function archiveIntegrityHeader(bytes: Uint8Array): Promise<string> {
+  const digest = await archiveDigest(bytes);
+  const match = /^sha256:([0-9a-f]{64})$/.exec(digest);
+  if (!match) {
+    throw new Error(`Unexpected archive digest format: ${digest}`);
+  }
+  return `sha256-${Buffer.from(match[1], 'hex').toString('base64')}`;
+}
+
+function parseStagedPublishResult(body: string): StagedPublishResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error('Staged publish succeeded but the registry response was not valid JSON');
+  }
+  const r = parsed as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object'
+    || typeof r.fullName !== 'string' || typeof r.version !== 'string' || typeof r.status !== 'string'
+    || typeof r.integrity !== 'string' || typeof r.expiresAt !== 'string') {
+    throw new Error('Staged publish succeeded but the registry response was missing fields');
+  }
+  return {
+    success: r.success === true,
+    fullName: r.fullName,
+    version: r.version,
+    status: r.status,
+    integrity: r.integrity,
+    expiresAt: r.expiresAt,
+  };
+}
+
+/** Message for a 409 on stage: the server's error, plus the integrity when the caller may read it. */
+function stagedConflictMessage(body: string): string {
+  let error = 'Version already exists';
+  let integrity: string | undefined;
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown> | null;
+    if (parsed && typeof parsed.error === 'string') error = parsed.error;
+    if (parsed && typeof parsed.integrity === 'string') integrity = parsed.integrity;
+  } catch {
+    if (body.trim()) error = body.trim();
+  }
+  return integrity ? `${error} (integrity: ${integrity})` : error;
 }
 
 export interface SearchQuery {
@@ -313,10 +387,18 @@ export class RegistryClient extends EventEmitter {
     tag: 'latest',
     dryRun: false,
     force: false
-  }): Promise<void> {
+  }): Promise<StagedPublishResult | undefined> {
     this.emit('publishStart', { packagePath, options });
 
     try {
+      // Refuse before anything is read or sent: staged versions are never tagged and cannot be overwritten.
+      if (options.stage && options.force) {
+        throw new Error('--stage cannot be combined with --force');
+      }
+      if (options.stage && options.tag !== 'latest') {
+        throw new Error('--stage cannot be combined with --tag');
+      }
+
       // Resolve file system (same pattern as compile)
       const fileSystem = options.fileSystem || new NodeFileSystem();
 
@@ -326,8 +408,8 @@ export class RegistryClient extends EventEmitter {
       // Security validation using file system abstraction
       await this.validatePackageForPublishFS(packagePath, metadata, fileSystem);
 
-      // Check version conflicts
-      if (!options.force) {
+      // Check version conflicts. Staging skips this: the server's 409 is the check.
+      if (!options.force && !options.stage) {
         const existingVersions = await this.getPackageVersions(metadata.name);
         if (existingVersions.includes(metadata.version)) {
           throw new Error(`Version ${metadata.version} already exists. Use --force to overwrite.`);
@@ -337,20 +419,26 @@ export class RegistryClient extends EventEmitter {
       if (options.dryRun) {
         console.log('Dry run - package would be published:');
         console.log(JSON.stringify(metadata, null, 2));
-        return;
+        return undefined;
       }
 
       // Create package tarball Buffer (memory or disk)
       const tarballBuffer = await this.createPackageTarballBuffer(packagePath, metadata, fileSystem);
 
       // Upload to registry
-      await this.uploadPackageBuffer(tarballBuffer, metadata, options);
+      const staged = await this.uploadPackageBuffer(tarballBuffer, metadata, options);
+
+      if (staged) {
+        this.emit('publishStaged', { name: metadata.name, ...staged });
+        return staged;
+      }
 
       this.emit('publishComplete', {
         name: metadata.name,
         version: metadata.version,
         access: options.access
       });
+      return undefined;
 
     } catch (error) {
       this.emit('publishError', { packagePath, error });
@@ -869,9 +957,8 @@ export class RegistryClient extends EventEmitter {
       );
     }
 
-    // Validate package name (use existing security manager)
-    const sanitizedName = SecurityManager.sanitizeToolName(metadata.name);
-    if (sanitizedName !== metadata.name) {
+    // Registry package names are always scoped (@scope/name); the tool-name sanitizer rejects the '@' and '/'.
+    if (!PACKAGE_NAME_RE.test(metadata.name)) {
       throw new Error(`Invalid package name: ${metadata.name}`);
     }
 
@@ -912,12 +999,14 @@ export class RegistryClient extends EventEmitter {
   /**
    * Upload package Buffer to registry.
    * Uses form-data's submit() which handles Content-Length, transport, and piping.
+   * Sends X-Package-Integrity computed from the exact bytes uploaded. With
+   * `options.stage` it PUTs to the staged endpoint and returns the registry's answer.
    */
   async uploadPackageBuffer(
     tarballBuffer: Buffer,
     metadata: PackageMetadata,
     options: PublishOptions
-  ): Promise<void> {
+  ): Promise<StagedPublishResult | undefined> {
     const FormData = require('form-data');
     const formData = new FormData();
 
@@ -934,7 +1023,9 @@ export class RegistryClient extends EventEmitter {
     formData.append('tag', options.tag);
 
     const token = options.authToken || this.authToken;
-    const url = new URL(`${this.registryUrl}/packages/${this.encodePackageName(metadata.name)}`);
+    const stagedSuffix = options.stage ? '/staged' : '';
+    const url = new URL(`${this.registryUrl}/packages/${this.encodePackageName(metadata.name)}${stagedSuffix}`);
+    const integrity = await archiveIntegrityHeader(tarballBuffer);
 
     const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
       formData.submit(
@@ -946,6 +1037,7 @@ export class RegistryClient extends EventEmitter {
           method: 'PUT',
           headers: {
             ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            'X-Package-Integrity': integrity,
             'User-Agent': 'prompd-cli/0.5.0'
           }
         },
@@ -961,9 +1053,23 @@ export class RegistryClient extends EventEmitter {
       );
     });
 
+    if (options.stage) {
+      if (response.statusCode === 404) {
+        throw new StagedNotSupportedError();
+      }
+      if (response.statusCode === 409) {
+        throw new Error(`Staged publish failed: ${stagedConflictMessage(response.body)}`);
+      }
+      if (response.statusCode !== 201) {
+        throw new Error(`Staged publish failed: ${response.statusCode} - ${response.body}`);
+      }
+      return parseStagedPublishResult(response.body);
+    }
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(`Publish failed: ${response.statusCode} - ${response.body}`);
     }
+    return undefined;
   }
 }
 

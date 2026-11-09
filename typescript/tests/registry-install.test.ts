@@ -1,53 +1,12 @@
-import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import AdmZip from 'adm-zip';
 import { packPdpkg, archiveDigest, isPackageVerificationError } from '@prompd/core';
 import { RegistryClient } from '../src/lib/registry';
+import { serve, type Pkg } from './helpers/fake-registry';
 
 jest.setTimeout(30000);
-
-interface Pkg { name: string; version: string; bytes: Uint8Array }
-
-type Registry = { url: string; close: () => Promise<void>; hits: string[]; pkgs: Pkg[] };
-
-function serve(pkgs: Pkg[]): Promise<Registry> {
-  const hits: string[] = [];
-  const server = http.createServer((req, res) => {
-    const url = decodeURIComponent(req.url ?? '');
-    hits.push(url);
-    const versions = /^\/packages\/(@[^/]+\/[^/]+)\/versions$/.exec(url);
-    const download = /^\/packages\/(@[^/]+\/[^/]+)\/download\/([^/]+)$/.exec(url);
-    const info = /^\/packages\/(@[^/]+\/[^/]+)$/.exec(url);
-    if (versions) {
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(pkgs.filter((p) => p.name === versions[1]).map((p) => ({ version: p.version }))));
-      return;
-    }
-    if (download) {
-      const p = pkgs.find((x) => x.name === download[1] && x.version === download[2]);
-      if (!p) { res.statusCode = 404; res.end(); return; }
-      res.setHeader('content-type', 'application/zip');
-      res.end(Buffer.from(p.bytes));
-      return;
-    }
-    if (info) {
-      const mine = pkgs.filter((p) => p.name === info[1]);
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ name: info[1], version: mine[mine.length - 1]?.version }));
-      return;
-    }
-    res.statusCode = 404;
-    res.end();
-  });
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      resolve({ url: `http://127.0.0.1:${port}`, hits, pkgs, close: () => new Promise((r) => server.close(() => r())) });
-    });
-  });
-}
 
 describe('RegistryClient.install (through core)', () => {
   let tmp: string;

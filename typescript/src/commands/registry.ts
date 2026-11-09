@@ -119,18 +119,25 @@ export function createPublishCommand(): Command {
     .option('--tag <tag>', 'Package tag', 'latest')
     .option('--dry-run', 'Show what would be published without actually publishing')
     .option('--force', 'Force publish even if version exists')
+    .option('--stage', 'Upload as a staged version that is not installable by the public until promoted')
     .option('--registry <registry>', 'Registry name to publish to')
     .action(async (directory: string, options) => {
+      let reported = false;
       try {
-        console.log(chalk.cyan(`📦 Publishing package from ${directory}...`));
+        if (options.stage && (options.force || publishCommand.getOptionValueSource('tag') === 'cli')) {
+          console.error(chalk.red(`--stage cannot be combined with ${options.force ? '--force' : '--tag'}`));
+          process.exit(1);
+        }
+
+        console.log(chalk.cyan(`${options.stage ? 'Staging' : 'Publishing'} package from ${directory}...`));
         
         // Resolve registry
         const registryName = options.registry;
         const client = new RegistryClient(registryName);
 
         // Event listeners for progress
-        client.on('publishStart', ({ packageDir, options }) => {
-          console.log(chalk.blue(`🚀 Starting publish from ${packageDir}`));
+        client.on('publishStart', ({ packagePath }: { packagePath: string }) => {
+          console.log(chalk.blue(`Starting publish from ${packagePath}`));
         });
         
         client.on('publishComplete', ({ name, version, access }) => {
@@ -139,19 +146,30 @@ export function createPublishCommand(): Command {
           console.log(chalk.gray(`   Install: prompd install ${name}@${version}`));
         });
         
-        client.on('publishError', ({ packageDir, error }) => {
-          console.error(chalk.red(`❌ Publish failed: ${error.message}`));
+        client.on('publishStaged', ({ name, version, expiresAt, integrity }: { name: string; version: string; expiresAt: string; integrity: string }) => {
+          console.log(chalk.green(`Staged ${name}@${version}`));
+          console.log(chalk.gray(`   Expires: ${expiresAt}`));
+          console.log(chalk.gray(`   Integrity: ${integrity}`));
+          console.log(chalk.gray(`   Install: npx @prompd/cli install ${name}@${version}`));
+        });
+
+        client.on('publishError', ({ error }: { error: Error }) => {
+          reported = true;
+          console.error(chalk.red(`Publish failed: ${error.message}`));
         });
 
         await client.publish(path.resolve(directory), {
           access: options.access as 'public' | 'private',
           tag: options.tag,
           dryRun: options.dryRun,
-          force: options.force
+          force: options.force,
+          stage: options.stage === true
         });
 
       } catch (error) {
-        console.error(chalk.red(`Publish failed: ${error}`));
+        if (!reported) {
+          console.error(chalk.red(`Publish failed: ${error}`));
+        }
         process.exit(1);
       }
     });
