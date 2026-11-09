@@ -84,6 +84,84 @@ export class StagedNotSupportedError extends Error {
   }
 }
 
+/** One staged version as the registry lists it. */
+export interface StagedVersionInfo {
+  fullName: string;
+  version: string;
+  /** `promoting` means a promotion started and did not finish: promote again to complete it. */
+  status: 'staged' | 'promoting';
+  integrity: string;
+  fileCount: number;
+  stagedAt: string;
+  expiresAt: string;
+  pullCount: number;
+  stagedBy: string;
+}
+
+/** The registry's answer to a promote. Only `success` is relied on. */
+export interface PromoteOutcome {
+  success: boolean;
+  fullName?: string;
+  version?: string;
+  status?: string;
+  integrity?: string;
+}
+
+/**
+ * The registry answered 404 to a staged request. The package may not exist, the caller may
+ * not be allowed to see it, or the registry may have no staged support: these look the same
+ * on purpose, so the message does not claim which.
+ */
+export class StagedUnavailableError extends Error {
+  constructor() {
+    super('package not found, you do not have access to it, or this registry does not support staged versions');
+    this.name = 'StagedUnavailableError';
+  }
+}
+
+/** The staged list has no entry for the requested version. */
+export class StagedVersionNotFoundError extends Error {
+  constructor(name: string, version: string) {
+    super(`No staged version ${version} found for ${name}`);
+    this.name = 'StagedVersionNotFoundError';
+  }
+}
+
+const STAGED_NAME_RE = /^@(?!\.+\/)[a-z0-9._-]+\/(?!\.+$)[a-z0-9._-]+$/;
+const STAGED_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+/** Split `@scope/name@1.0.0`; null when the name or the version is missing or malformed. */
+export function parseStagedRef(ref: string): { name: string; version: string } | null {
+  const at = ref.lastIndexOf('@');
+  if (at <= 0) return null;
+  const name = ref.slice(0, at);
+  const version = ref.slice(at + 1);
+  if (!STAGED_NAME_RE.test(name) || !STAGED_VERSION_RE.test(version)) return null;
+  return { name, version };
+}
+
+function isStagedVersionInfo(value: unknown): value is StagedVersionInfo {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.fullName === 'string' && typeof v.version === 'string'
+    && (v.status === 'staged' || v.status === 'promoting')
+    && typeof v.integrity === 'string' && typeof v.fileCount === 'number'
+    && typeof v.stagedAt === 'string' && typeof v.expiresAt === 'string'
+    && typeof v.pullCount === 'number' && typeof v.stagedBy === 'string';
+}
+
+/** The server's `error` (and `message`) from a refusal body, or the raw text when it is not JSON. */
+function refusalText(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown> | null;
+    const parts = [parsed?.error, parsed?.message].filter((p): p is string => typeof p === 'string' && p !== '');
+    if (parts.length > 0) return parts.join(': ');
+  } catch {
+    // not JSON: fall through to the raw text
+  }
+  return body.trim();
+}
+
 /**
  * `X-Package-Integrity` value for an archive: core's `sha256:<hex>` digest as the
  * registry's `sha256-<base64>` form.
@@ -593,6 +671,90 @@ export class RegistryClient extends EventEmitter {
     } catch (error) {
       this.emit('packageInfoError', { packageName, version, error });
       throw error;
+    }
+  }
+
+  /**
+   * List the staged versions of a package the caller may read.
+   * Throws StagedUnavailableError on 404.
+   */
+  async listStaged(packageName: string): Promise<StagedVersionInfo[]> {
+    const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(packageName)}/staged`, {
+      headers: this.getAuthHeaders()
+    });
+    if (response.status === 404) {
+      throw new StagedUnavailableError();
+    }
+    if (!response.ok) {
+      throw new Error(`Failed to list staged versions: ${response.status} ${refusalText(await response.text()) || response.statusText}`);
+    }
+
+    const data = await response.json() as { versions?: unknown } | null;
+    if (!data || !Array.isArray(data.versions) || !data.versions.every(isStagedVersionInfo)) {
+      throw new Error('Failed to list staged versions: unexpected response from the registry');
+    }
+    return data.versions;
+  }
+
+  /**
+   * Promote a staged version to a live one. The registry refuses when `integrity` does not
+   * match what it holds, so without one the staged list is read first and its value is sent.
+   * Emits `promoteStart` with the integrity that is about to be sent.
+   */
+  async promoteStaged(packageName: string, version: string, integrity?: string): Promise<PromoteOutcome> {
+    let expected = integrity;
+    if (expected === undefined) {
+      const staged = (await this.listStaged(packageName)).find((v) => v.version === version);
+      if (!staged) {
+        throw new StagedVersionNotFoundError(packageName, version);
+      }
+      expected = staged.integrity;
+    }
+    this.emit('promoteStart', { name: packageName, version, integrity: expected });
+
+    const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(packageName)}/staged/${encodeURIComponent(version)}/promote`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ integrity: expected })
+    });
+    if (response.status === 404) {
+      throw new StagedUnavailableError();
+    }
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(`Promote failed: ${response.status} ${refusalText(text) || response.statusText}`);
+    }
+
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = JSON.parse(text) as Record<string, unknown> | null;
+    } catch {
+      // a 2xx with no readable body still counts as success
+    }
+    const field = (key: string): string | undefined => (typeof parsed?.[key] === 'string' ? parsed[key] as string : undefined);
+    return {
+      success: parsed?.success !== false,
+      fullName: field('fullName'),
+      version: field('version'),
+      status: field('status'),
+      integrity: field('integrity')
+    };
+  }
+
+  /**
+   * Discard a staged version. Its version number cannot be staged or published again.
+   * Throws StagedUnavailableError on 404.
+   */
+  async discardStaged(packageName: string, version: string): Promise<void> {
+    const response = await fetch(`${this.registryUrl}/packages/${this.encodePackageName(packageName)}/staged/${encodeURIComponent(version)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    if (response.status === 404) {
+      throw new StagedUnavailableError();
+    }
+    if (!response.ok) {
+      throw new Error(`Discard failed: ${response.status} ${refusalText(await response.text()) || response.statusText}`);
     }
   }
 

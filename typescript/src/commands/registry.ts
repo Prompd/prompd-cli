@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { RegistryClient } from '../lib/registry';
+import * as readline from 'readline';
+import { RegistryClient, parseStagedRef } from '../lib/registry';
 import { ConfigManager } from '../lib/config';
 import { findProjectRoot } from '../lib/compiler/package-resolver';
 import { VALID_PACKAGE_TYPES, TOOL_DEPLOY_DIRS, resolveToolDeployDir } from '../types';
@@ -393,10 +394,32 @@ export function createVersionsCommand(): Command {
   versionsCommand
     .description('List available versions of a package')
     .argument('<package>', 'Package name (@namespace/name)')
+    .option('--staged', 'List staged versions (not yet promoted) instead of published ones')
     .option('-r, --registry <registry>', 'Registry to query')
     .action(async (packageName: string, options) => {
       try {
         const client = new RegistryClient(options.registry);
+
+        if (options.staged) {
+          const staged = await client.listStaged(packageName);
+          if (staged.length === 0) {
+            console.log(chalk.yellow(`No staged versions found for ${packageName}`));
+            return;
+          }
+
+          console.log(chalk.bold(`\nStaged versions for ${packageName}:`));
+          console.log();
+          for (const entry of staged) {
+            console.log(`  ${chalk.cyan(entry.version)}  ${entry.status}  expires ${entry.expiresAt}`);
+            console.log(chalk.gray(`    Integrity: ${entry.integrity}`));
+            if (entry.status === 'promoting') {
+              console.log(chalk.yellow('    promotion incomplete, run promote again'));
+            }
+          }
+          console.log();
+          console.log(chalk.dim(`Total: ${staged.length} staged version(s)`));
+          return;
+        }
 
         // Call registry API to get versions
         const versions = await client.getPackageVersions(packageName);
@@ -430,4 +453,91 @@ export function createVersionsCommand(): Command {
     });
 
   return versionsCommand;
+}
+
+/** Parse the `@scope/name@version` argument of promote and discard; exits 1 with no request when it is malformed. */
+function requireStagedRef(ref: string): { name: string; version: string } {
+  const parsed = parseStagedRef(ref);
+  if (!parsed) {
+    console.error(chalk.red(`Invalid package reference '${ref}'. Expected @scope/name@version, for example @acme/review@1.2.0`));
+    process.exit(1);
+  }
+  return parsed;
+}
+
+function confirm(question: string): Promise<boolean> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(`${question} [y/N]: `, (answer) => {
+      rl.close();
+      const input = answer.toLowerCase().trim();
+      resolve(input === 'y' || input === 'yes');
+    });
+  });
+}
+
+// Promote command - make a staged version live
+export function createPromoteCommand(): Command {
+  const promoteCommand = new Command('promote');
+  promoteCommand
+    .description('Promote a staged version so it is published')
+    .argument('<package>', 'Staged version (@namespace/name@version)')
+    .option('--integrity <hash>', 'Integrity hash to promote (default: read from the staged list)')
+    .option('-r, --registry <registry>', 'Registry to promote on')
+    .action(async (packageRef: string, options) => {
+      const { name, version } = requireStagedRef(packageRef);
+      try {
+        const client = new RegistryClient(options.registry);
+        client.on('promoteStart', ({ integrity }: { integrity: string }) => {
+          console.log(chalk.cyan(`Promoting ${name}@${version}`));
+          console.log(chalk.gray(`   Integrity: ${integrity}`));
+        });
+
+        await client.promoteStaged(name, version, options.integrity);
+
+        console.log(chalk.green(`Promoted ${name}@${version}`));
+        console.log(chalk.gray(`   Install: npx @prompd/cli install ${name}@${version}`));
+      } catch (error) {
+        console.error(chalk.red(`Promote failed: ${error instanceof Error ? error.message : error}`));
+        process.exit(1);
+      }
+    });
+
+  return promoteCommand;
+}
+
+// Discard command - delete a staged version
+export function createDiscardCommand(): Command {
+  const discardCommand = new Command('discard');
+  discardCommand
+    .description('Discard a staged version')
+    .argument('<package>', 'Staged version (@namespace/name@version)')
+    .option('-y, --yes', 'Do not ask for confirmation')
+    .option('-r, --registry <registry>', 'Registry to discard on')
+    .action(async (packageRef: string, options) => {
+      const { name, version } = requireStagedRef(packageRef);
+      const warning = `Discarding ${name}@${version} is permanent and the version number cannot be reused.`;
+      if (!options.yes) {
+        if (!process.stdin.isTTY) {
+          console.error(chalk.red(`${warning} Re-run with --yes to discard without a prompt.`));
+          process.exit(1);
+        }
+        if (!await confirm(`${warning} Discard?`)) {
+          console.log(chalk.yellow('Not discarded.'));
+          return;
+        }
+      }
+      try {
+        const client = new RegistryClient(options.registry);
+        await client.discardStaged(name, version);
+
+        console.log(chalk.green(`Discarded ${name}@${version}`));
+        console.log(chalk.gray('   The version number cannot be reused.'));
+      } catch (error) {
+        console.error(chalk.red(`Discard failed: ${error instanceof Error ? error.message : error}`));
+        process.exit(1);
+      }
+    });
+
+  return discardCommand;
 }

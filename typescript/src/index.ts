@@ -18,7 +18,7 @@ import { createCompileCommand } from './commands/compile';
 import { createVersionCommand } from './commands/version';
 import { createGitCommand } from './commands/git';
 import { createMCPCommand } from './commands/mcp';
-import { createLoginCommand, createLogoutCommand, createSearchCommand, createInstallCommand, createPublishCommand, createVersionsCommand } from './commands/registry';
+import { createLoginCommand, createLogoutCommand, createSearchCommand, createInstallCommand, createPublishCommand, createVersionsCommand, createPromoteCommand, createDiscardCommand } from './commands/registry';
 import { createPackageCommand, createPackCommand } from './commands/package';
 import { createConfigCommand } from './commands/config';
 import { createCacheCommand } from './commands/cache';
@@ -61,6 +61,8 @@ program.addCommand(createInstallCommand());
 program.addCommand(createUninstallCommand());
 program.addCommand(createPublishCommand());
 program.addCommand(createVersionsCommand());
+program.addCommand(createPromoteCommand());
+program.addCommand(createDiscardCommand());
 program.addCommand(createNamespaceCommand());
 program.addCommand(createDepsCommand());
 

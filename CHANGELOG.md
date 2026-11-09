@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`@prompd/cli`**: `prompd publish --stage` uploads a private staged version, `prompd versions
+  <package> --staged` lists staged versions (status, expiry and integrity hash; a `promoting` version
+  is marked "promotion incomplete, run promote again"), `prompd promote @scope/name@version` makes a
+  staged version live (the integrity hash is read from the staged list, or given with `--integrity`,
+  and is printed), and `prompd discard @scope/name@version` removes one after confirmation (`--yes`
+  skips it). A discarded version number cannot be reused.
 - **`@prompd/cli` 0.8.0**: The first published CLI built on `@prompd/core`, and its version now
   matches core. Installs are verified against the package's integrity record before anything is
   written. Depends on the published `@prompd/core` 0.8.0 instead of a local path, and now requires

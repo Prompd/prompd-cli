@@ -256,6 +256,28 @@ prompd publish my-package.pdpkg --dry-run
 prompd publish my-package.pdpkg -n
 ```
 
+Staged versions are private pre-release uploads. They are not installable by the public until you promote them, and they expire if left alone.
+
+```bash
+# Upload as a staged version (cannot be combined with --tag or --force)
+prompd publish --stage
+
+# List staged versions with status, expiry and integrity hash
+prompd versions @namespace/package --staged
+
+# Promote a staged version (reads the integrity hash from the staged list)
+prompd promote @namespace/package@1.0.0
+
+# Promote, naming the integrity hash to be promoted
+prompd promote @namespace/package@1.0.0 --integrity sha256-...
+
+# Discard a staged version; the version number cannot be reused
+prompd discard @namespace/package@1.0.0
+prompd discard @namespace/package@1.0.0 --yes
+```
+
+A version listed as `promoting` has an unfinished promotion: run `prompd promote` again to complete it. `prompd discard` asks for confirmation unless `--yes` is given, and refuses to run without a terminal when `--yes` is missing.
+
 ### `prompd search` - Search registry
 ```bash
 # Search for packages

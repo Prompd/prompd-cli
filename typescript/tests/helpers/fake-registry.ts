@@ -16,6 +16,8 @@ export interface ServeOptions {
   requireToken?: string;
   /** Answer for PUT requests. Default: 201 `{ success: true }`. */
   onPut?: (request: RecordedRequest) => PutReply;
+  /** Answer for any non-PUT request; return undefined to fall through to the package routes. */
+  onRequest?: (request: RecordedRequest) => PutReply | undefined;
 }
 
 export type Registry = {
@@ -45,6 +47,14 @@ export function serve(pkgs: Pkg[], options: ServeOptions = {}): Promise<Registry
         res.statusCode = reply.status;
         res.setHeader('content-type', 'application/json');
         res.end(reply.body === undefined ? '' : JSON.stringify(reply.body));
+        return;
+      }
+
+      const custom = options.onRequest?.(recorded);
+      if (custom) {
+        res.statusCode = custom.status;
+        res.setHeader('content-type', 'application/json');
+        res.end(custom.body === undefined ? '' : JSON.stringify(custom.body));
         return;
       }
 
