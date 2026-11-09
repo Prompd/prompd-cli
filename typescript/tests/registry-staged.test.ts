@@ -16,6 +16,19 @@ jest.mock('readline', () => ({ ...jest.requireActual<typeof import('readline')>(
 const NAME = '@t/p';
 const VERSION = '1.0.0';
 
+// RegistryClient reads ~/.prompd/config.yaml when no config is loaded: pin a fixed one so no test here depends on the developer's own.
+let configBeforeFile: ConfigManager['config'];
+beforeAll(() => {
+  configBeforeFile = ConfigManager.getInstance().config;
+  ConfigManager.getInstance().config = {
+    apiKeys: {}, customProviders: {}, scopes: {}, maxRetries: 3, timeout: 30, verbose: false,
+    registry: { registries: { prompdhub: { url: 'http://127.0.0.1:9' } }, default: 'prompdhub' },
+  };
+});
+afterAll(() => {
+  ConfigManager.getInstance().config = configBeforeFile;
+});
+
 const STAGED_REPLY = { success: true, fullName: NAME, version: VERSION, status: 'staged', integrity: 'sha256-x', expiresAt: '2026-12-08T00:00:00.000Z' };
 
 function publishOptions(extra: Partial<PublishOptions> = {}): PublishOptions {
@@ -230,7 +243,10 @@ describe('parseStagedRef', () => {
     expect(parseStagedRef('@t/p@1.0.0')).toEqual({ name: '@t/p', version: '1.0.0' });
     expect(parseStagedRef('@t/p@1.0.0-beta.1')).toEqual({ name: '@t/p', version: '1.0.0-beta.1' });
   });
-  it.each(['@t/p', '@t/p@', 'p@1.0.0', '@t@1.0.0', '@T/P@1.0.0', '@t/p@1.0', '@t/p@1.0.0+build', '@../p@1.0.0', '@t/p/x@1.0.0'])('rejects %s', (arg) => {
+  it.each(['1.0.0-0', '1.0.0-0a', '1.0.0-x.7.z.92', '1.0.0-alpha-1', '10.20.30'])('accepts %s', (version) => {
+    expect(parseStagedRef(`@t/p@${version}`)).toEqual({ name: '@t/p', version });
+  });
+  it.each(['@t/p', '@t/p@', 'p@1.0.0', '@t@1.0.0', '@T/P@1.0.0', '@t/p@1.0', '@t/p@1.0.0+build', '@t/p@01.0.0', '@t/p@1.00.0', '@t/p@1.0.0-01', '@t/p@1.0.0-beta.01', '@../p@1.0.0', '@t/p/x@1.0.0'])('rejects %s', (arg) => {
     expect(parseStagedRef(arg)).toBeNull();
   });
 });
@@ -373,6 +389,14 @@ describe('promote, discard and versions --staged commands', () => {
     expect(calls()).toHaveLength(1);
   });
 
+  it('promote of a 200 that says success false prints a failure, not Promoted, and exits 1', async () => {
+    await start(() => ({ status: 200, body: { success: false } }));
+    await run(createPromoteCommand(), `${NAME}@1.0.0`, '--integrity', 'sha256-x');
+    expect(err()).toMatch(/promote failed/i);
+    expect(out()).not.toMatch(/Promoted /);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
   it('promote reports a server refusal and exits 1', async () => {
     await start(() => ({ status: 409, body: { error: 'Version 1.0.0 already exists' } }));
     await run(createPromoteCommand(), `${NAME}@1.0.0`, '--integrity', 'sha256-x');
@@ -384,6 +408,7 @@ describe('promote, discard and versions --staged commands', () => {
     ['no version', ['@t/p']],
     ['an invalid name', ['t/p@1.0.0']],
     ['an invalid version', ['@t/p@one']],
+    ['a leading zero in the version', ['@t/p@01.0.0']],
   ])('promote with %s exits 1 and sends no request', async (_label, args) => {
     await start(() => PROMOTED);
     await run(createPromoteCommand(), ...args);
@@ -420,12 +445,28 @@ describe('promote, discard and versions --staged commands', () => {
     const asked: string[] = [];
     jest.mocked(readline.createInterface).mockReturnValueOnce({
       question: (q: string, cb: (a: string) => void) => { asked.push(q); cb(answer); },
+      on: () => undefined,
       close: () => undefined,
     } as unknown as readline.Interface);
     await run(createDiscardCommand(), `${NAME}@1.0.0`);
     expect(asked.join('')).toMatch(/cannot be reused/i);
     expect(calls()).toEqual(sends ? [`DELETE /packages/${NAME}/staged/1.0.0`] : []);
     if (!sends) expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('discard on a terminal that reaches end of input (Ctrl-D) answers no, prints Not discarded and sends nothing', async () => {
+    await start(() => ({ status: 200, body: { success: true } }));
+    setTty(true);
+    const closeHandlers: Array<() => void> = [];
+    jest.mocked(readline.createInterface).mockReturnValueOnce({
+      question: () => { closeHandlers.forEach((h) => h()); },
+      on: (event: string, handler: () => void) => { if (event === 'close') closeHandlers.push(handler); },
+      close: () => undefined,
+    } as unknown as readline.Interface);
+    expect(await run(createDiscardCommand(), `${NAME}@1.0.0`)).toBeNull();
+    expect(out()).toContain('Not discarded.');
+    expect(reg.requests).toHaveLength(0);
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it('discard with a malformed argument exits 1 and sends nothing', async () => {
@@ -468,6 +509,13 @@ describe('promote, discard and versions --staged commands', () => {
     await run(createVersionsCommand(), NAME, '--staged');
     expect(err()).toMatch(/not found.*access.*does not support staged/i);
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('versions --staged prints the error message without the error class name', async () => {
+    await start(() => ({ status: 404 }));
+    await run(createVersionsCommand(), NAME, '--staged');
+    expect(err()).toContain('Failed to fetch versions: ');
+    expect(err()).not.toContain('StagedUnavailableError');
   });
 
   it('versions without --staged never touches /staged', async () => {

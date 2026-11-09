@@ -128,7 +128,11 @@ export class StagedVersionNotFoundError extends Error {
 }
 
 const STAGED_NAME_RE = /^@(?!\.+\/)[a-z0-9._-]+\/(?!\.+$)[a-z0-9._-]+$/;
-const STAGED_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+/** Same rule as the registry: canonical semver without build metadata. */
+function isStagedVersion(version: string): boolean {
+  return semver.valid(version) === version && !version.includes('+');
+}
 
 /** Split `@scope/name@1.0.0`; null when the name or the version is missing or malformed. */
 export function parseStagedRef(ref: string): { name: string; version: string } | null {
@@ -136,7 +140,7 @@ export function parseStagedRef(ref: string): { name: string; version: string } |
   if (at <= 0) return null;
   const name = ref.slice(0, at);
   const version = ref.slice(at + 1);
-  if (!STAGED_NAME_RE.test(name) || !STAGED_VERSION_RE.test(version)) return null;
+  if (!STAGED_NAME_RE.test(name) || !isStagedVersion(version)) return null;
   return { name, version };
 }
 

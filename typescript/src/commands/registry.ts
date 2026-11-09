@@ -447,7 +447,7 @@ export function createVersionsCommand(): Command {
         console.log(chalk.dim(`Total: ${sortedVersions.length} version(s)`));
 
       } catch (error) {
-        console.error(chalk.red(`Failed to fetch versions: ${error}`));
+        console.error(chalk.red(`Failed to fetch versions: ${options.staged && error instanceof Error ? error.message : error}`));
         process.exit(1);
       }
     });
@@ -468,10 +468,12 @@ function requireStagedRef(ref: string): { name: string; version: string } {
 function confirm(question: string): Promise<boolean> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
+    // End of input (Ctrl-D) closes the interface without an answer: that is a no.
+    rl.on('close', () => resolve(false));
     rl.question(`${question} [y/N]: `, (answer) => {
-      rl.close();
       const input = answer.toLowerCase().trim();
       resolve(input === 'y' || input === 'yes');
+      rl.close();
     });
   });
 }
@@ -493,7 +495,10 @@ export function createPromoteCommand(): Command {
           console.log(chalk.gray(`   Integrity: ${integrity}`));
         });
 
-        await client.promoteStaged(name, version, options.integrity);
+        const outcome = await client.promoteStaged(name, version, options.integrity);
+        if (!outcome.success) {
+          throw new Error('the registry did not confirm the promotion');
+        }
 
         console.log(chalk.green(`Promoted ${name}@${version}`));
         console.log(chalk.gray(`   Install: npx @prompd/cli install ${name}@${version}`));
